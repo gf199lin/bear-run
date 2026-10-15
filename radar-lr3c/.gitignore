@@ -6,6 +6,8 @@ __pycache__/
 # ---------- 采集数据与运行日志 ----------
 # 雷达录制为不含图像的人体数据，按课程保密要求不入库
 *.bin
+# 例外：纯合成样本（不含人体数据），供无硬件演示使用
+!radar-pointcloud/sample-synthetic.bin
 *.log
 *.err
 

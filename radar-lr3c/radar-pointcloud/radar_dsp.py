@@ -32,7 +32,7 @@ ANGLE_MAX = 45.0                         # 水平视场 ±45°
 class PointCloudProcessor:
     def __init__(self, cfar_scale=2.6, min_power=0.0, min_snr=7.0,
                  remove_clutter=True, angle_sign=1.0, max_points=64,
-                 angle_max=ANGLE_MAX):
+                 angle_max=ANGLE_MAX, min_range=0.0):
         self.cfar_scale = float(cfar_scale)
         self.min_power = float(min_power)       # 绝对门限（功率，0 = 关闭）
         self.min_snr = float(min_snr)           # 相对本帧噪声底的 SNR 门限 (dB)
@@ -40,6 +40,10 @@ class PointCloudProcessor:
         self.angle_sign = float(angle_sign)
         self.max_points = int(max_points)
         self.angle_max = float(angle_max)
+        # 近距门屏蔽：距离门分辨率仅 0.6813 m，bin0(0.34 m)/bin1(1.02 m) 天然
+        # 被雷达自身、外壳、线缆与桌面等近距强反射占满（实测占 95% 点数、
+        # 90% 功率且逐帧闪烁），把它们过滤掉才能看清 2 m 以外的真实目标。
+        self.min_range = float(min_range)
         self.win = np.hamming(CHIRPS).astype(np.float32)
         self._guard = 1
         self._train = 2
@@ -118,6 +122,8 @@ class PointCloudProcessor:
             p = power[i, j]
             # 距离
             rng = (j + 0.5) * RANGE_RES
+            if rng < self.min_range:
+                continue
             # 多普勒 → 径向速度（i 已 fftshift，中心为 0）
             dop = i - CHIRPS // 2
             vel = dop * V_RES

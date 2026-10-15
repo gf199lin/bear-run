@@ -212,8 +212,10 @@
     rc.fillText('−1.53',3*DPR,h-3*DPR);
   }
 
+  var lastM = null;
   function renderFrame(m){
     lastMsg = performance.now(); msgCount++;
+    lastM = m;
     cfg = m.cfg || cfg;
     hist.push(m.pts || []);
     if(hist.length>12) hist.shift();
@@ -222,7 +224,8 @@
     document.getElementById('k_bad').textContent = (m.bad||0)+' / '+(m.skipped||0);
     document.getElementById('hud').innerHTML =
       `帧 <b>#${m.n}</b> · 点 <b>${m.points}</b> · 源 <b>${m.src}</b><br>`+
-      `噪声底 <b>${m.noise}</b> · 跨度 <b>${span} m</b>`;
+      `噪声底 <b>${m.noise}</b> · 跨度 <b>${span} m</b> · 链路 <b>${m.connected===false?'断开':'正常'}</b>`+
+      ` · 重连 <b>${m.reconnects||0}</b> · 丢弃帧 <b>${m.dropped||0}</b>`;
     const tb = document.getElementById('tb');
     const pts = (m.pts||[]).slice(0,7);
     tb.innerHTML = pts.length ? pts.map(p =>
@@ -252,7 +255,10 @@
       document.getElementById('k_fps').textContent = fpsShown.toFixed(2);
       const on = now - lastMsg < 1600;
       document.getElementById('live').className = 'dot' + (on?'':' off');
-      document.getElementById('srctxt').textContent = on ? '实时数据流' : '无数据（回退演示）';
+      document.getElementById('srctxt').textContent = on
+        ? ('实时数据流' + (lastM && lastM.connected===false ? ' · 链路断开重连中' : '')
+           + (lastM && lastM.reconnects ? ' · 已重连 ' + lastM.reconnects + ' 次' : ''))
+        : '无数据（回退演示）';
       live = on;
       pushCfg();
     }
