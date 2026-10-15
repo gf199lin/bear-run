@@ -171,13 +171,16 @@ def main():
     ap.add_argument('--source', choices=['serial', 'replay', 'loopback'], default='serial')
     ap.add_argument('--port', default='COM3', help='串口号 (默认 COM3)')
     ap.add_argument('--baud', type=int, default=921600)
-    ap.add_argument('--replay', default=os.path.join(HERE, '..', '.deepworks', 'tmp', 'cap.bin'))
+    ap.add_argument('--replay', default=os.path.join(HERE, 'sample-synthetic.bin'),
+                    help='回放/演示用的字节流文件 (默认本目录合成样本，不含人体数据)')
     ap.add_argument('--record', default=None)
     ap.add_argument('--http-port', type=int, default=8099)
     ap.add_argument('--cfar', type=float, default=2.6)
     ap.add_argument('--min-power', type=float, default=0.0, help='绝对功率门限, 0=关闭')
     ap.add_argument('--min-snr', type=float, default=7.0, help='相对噪声底 SNR 门限 (dB)')
     ap.add_argument('--no-clutter', action='store_true', help='不做静态杂波抑制')
+    ap.add_argument('--min-range', type=float, default=0.0,
+                    help='屏蔽小于该距离(米)的点, 建议 1.4 以滤掉 bin0/bin1 近距杂波')
     ap.add_argument('--angle-sign', type=float, default=1.0, choices=[1.0, -1.0])
     ap.add_argument('--angle-max', type=float, default=45.0)
     ap.add_argument('--retry', type=float, default=1.0, help='串口断开后的重连间隔 (秒)')
@@ -187,7 +190,8 @@ def main():
     proc = PointCloudProcessor(cfar_scale=args.cfar, min_power=args.min_power,
                                min_snr=args.min_snr,
                                remove_clutter=not args.no_clutter,
-                               angle_sign=args.angle_sign, angle_max=args.angle_max)
+                               angle_sign=args.angle_sign, angle_max=args.angle_max,
+                               min_range=args.min_range)
     LATEST['cfg'] = {
         'range_res': round(dsp.RANGE_RES, 4),
         'max_range': round(dsp.MAX_RANGE, 3),
@@ -197,6 +201,7 @@ def main():
         'bins': dsp.BINS,
         'angle_max': args.angle_max,
         'clutter': not args.no_clutter,
+        'min_range': args.min_range,
     }
 
     src = make_source(args)

@@ -75,15 +75,61 @@ def parse_radar_frame(frame: bytes, seq: int = 0):
 
 
 class StreamParser:
-    """增量式字节流解析器，可跳过任意脏数据。"""
+    """增量式字节流解析器，可跳过任意脏数据。
+
+    支持两种形态（实测均出现）：
+      * **wrapper 模式** —— 52 字节包：ICLH + len + seq + 40B 雷达帧 + ICLT（常规）；
+      * **裸帧模式** —— 40 字节雷达帧直接上串口，不带 ICLH/ICLT。
+
+    2026-10-15 实机观察：USB 链路发生 `ClearCommError` 抖动后，设备输出从
+    wrapper 模式切换为裸帧模式（速率仍为 ≈991 帧/s、chirp 0..63 完整、
+    RX 均衡、X2 恒 0x09）。因此解析器必须同时认这两种格式，否则一旦
+    wrapper 消失就会永久无法同步（旧版即因此"卡住"）。
+    """
 
     def __init__(self):
         self.buf = bytearray()
         self.bad_packets = 0
         self.skipped_bytes = 0
         self.packets = 0
+        self.bare_frames = 0
         self.total = 0
         self.resync_at = []
+
+    def _skip(self, k):
+        if k <= 0:
+            return
+        self.resync_at.append(self.total - len(self.buf))
+        self.skipped_bytes += k
+        del self.buf[:k]
+
+    def _bare_at(self, i):
+        """buf[i:] 是否为无 wrapper 的裸雷达帧（严格校验，避免误判）。"""
+        if i + RADAR_FRAME_LEN > len(self.buf):
+            return False
+        b = self.buf
+        if b[i] != FRAME_HEAD or b[i + RADAR_FRAME_LEN - 1] != FRAME_TAIL:
+            return False
+        ident = b[i + 1]
+        if (ident & ID_MASK) not in (RX0_ID, RX1_ID):
+            return False
+        if b[i + 3] != 0x09:                       # 实测 X2 恒为 0x09
+            return False
+        if (((ident & 0x0F) << 4) | (b[i + 2] >> 4)) >= CHIRPS_PER_FRAME:
+            return False
+        return True
+
+    def _find_bare(self, limit=512):
+        """在缓冲区中寻找最近的一个裸帧起点，找不到返回 -1。"""
+        start = 0
+        for _ in range(limit):
+            i = self.buf.find(FRAME_HEAD, start)
+            if i < 0:
+                return -1
+            if self._bare_at(i):
+                return i
+            start = i + 1
+        return -1
 
     def feed(self, data: bytes):
         """喂入原始字节，产出 RadarFrame 列表。"""
@@ -92,45 +138,53 @@ class StreamParser:
         out = []
         buf = self.buf
         while True:
-            pos = buf.find(WRAPPER_HEAD)
-            if pos < 0:
-                # 保留末尾 3 字节，防止 "ICL" 被切断
-                if len(buf) > 4:
-                    k = len(buf) - 4
-                    self.resync_at.append(self.total - len(buf))
-                    self.skipped_bytes += k
-                    del buf[:k]
-                break
-            if pos > 0:
-                self.resync_at.append(self.total - len(buf))
-                self.skipped_bytes += pos
-                del buf[:pos]
-            if len(buf) < WRAPPER_HEAD_LEN:
-                break
-            plen = int.from_bytes(buf[4:6], 'little')
-            seq = int.from_bytes(buf[6:8], 'little')
-            if not (FRAME_HLEN + FRAME_TLEN <= plen <= 4096):
-                # 长度非法 → 丢 1 字节重新同步
-                self.bad_packets += 1
-                self.resync_at.append(self.total - len(buf))
-                self.skipped_bytes += 1
-                del buf[:1]
+            # ---- wrapper 模式：缓冲区正好对齐到包头 ----
+            if len(buf) >= 4 and bytes(buf[:4]) == WRAPPER_HEAD:
+                if len(buf) < WRAPPER_HEAD_LEN:
+                    break
+                plen = int.from_bytes(buf[4:6], 'little')
+                if not (FRAME_HLEN + FRAME_TLEN <= plen <= 4096):
+                    self.bad_packets += 1
+                    self._skip(1)
+                    continue
+                total = WRAPPER_HEAD_LEN + plen + WRAPPER_TAIL_LEN
+                if len(buf) < total:
+                    break
+                if bytes(buf[WRAPPER_HEAD_LEN + plen:total]) != WRAPPER_TAIL:
+                    self.bad_packets += 1
+                    self._skip(1)
+                    continue
+                seq = int.from_bytes(buf[6:8], 'little')
+                payload = bytes(buf[WRAPPER_HEAD_LEN:WRAPPER_HEAD_LEN + plen])
+                del buf[:total]
+                self.packets += 1
+                rf = parse_radar_frame(payload, seq)
+                if rf is not None:
+                    out.append(rf)
                 continue
-            total = WRAPPER_HEAD_LEN + plen + WRAPPER_TAIL_LEN
-            if len(buf) < total:
-                break
-            if bytes(buf[WRAPPER_HEAD_LEN + plen:total]) != WRAPPER_TAIL:
-                self.bad_packets += 1
-                self.resync_at.append(self.total - len(buf))
-                self.skipped_bytes += 1
-                del buf[:1]
+
+            # ---- 非对齐：在"下一个包头"和"最近裸帧"中取更近者 ----
+            i_head = buf.find(WRAPPER_HEAD)
+            i_bare = self._find_bare()
+            if i_bare >= 0 and (0 <= i_bare <= (i_head if i_head >= 0 else len(buf))):
+                rf = parse_radar_frame(bytes(buf[i_bare:i_bare + RADAR_FRAME_LEN]),
+                                       seq=self.bare_frames)
+                self._skip(i_bare)
+                del buf[:RADAR_FRAME_LEN]
+                self.bare_frames += 1
+                if rf is not None:
+                    out.append(rf)
                 continue
-            payload = bytes(buf[WRAPPER_HEAD_LEN:WRAPPER_HEAD_LEN + plen])
-            del buf[:total]
-            self.packets += 1
-            rf = parse_radar_frame(payload, seq)
-            if rf is not None:
-                out.append(rf)
+            if i_head > 0:
+                self._skip(i_head)
+                continue
+            if i_head == 0:                    # len(buf) < WRAPPER_HEAD_LEN，等更多数据
+                break
+
+            # ---- 两处都找不到：保留末尾不足 1 帧的数据，其余丢弃 ----
+            if len(buf) > RADAR_FRAME_LEN - 1:
+                self._skip(len(buf) - (RADAR_FRAME_LEN - 1))
+            break
         return out
 
 
