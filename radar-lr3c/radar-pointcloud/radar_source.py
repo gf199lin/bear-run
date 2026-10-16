@@ -135,6 +135,11 @@ class SerialSource(SourceBase):
         """把底层异常翻成可操作的中文原因。"""
         txt = '%s: %s' % (type(e).__name__, e)
         low = txt.lower()
+        if '未检测到任何串口设备' in txt:
+            return txt, ('未检测到任何串口设备 —— 雷达 USB 是否插好？'
+                         '设备管理器里应出现 "Silicon Labs CP210x USB to UART Bridge"')
+        if '认不出雷达' in txt:
+            return txt, None        # 异常文本本身已经写清了怎么办
         if ('拒绝访问' in txt or 'permission' in low or 'access is denied' in low
                 or 'being used' in low):
             return txt, ('%s 被其它程序占用（厂商工具 ICL_mmWaveSensorDevTool 还开着？'
@@ -184,6 +189,7 @@ class SerialSource(SourceBase):
     def _on_fail(self, port, e):
         self.connected = False
         self.errors += 1
+        port = port or self.port or '（自动识别）'
         txt, hint = self._explain(port, e)
         self.last_error = txt
         self.last_error_hint = hint
@@ -194,7 +200,7 @@ class SerialSource(SourceBase):
         try:
             self._try_open()
         except Exception as e:
-            txt, hint = self._on_fail(self.port or '串口', e)
+            txt, hint = self._on_fail(self.port, e)
             self._next_try = time.time() + self.retry_delay
             self._log_once('[serial] 打开失败: %s%s（%.1fs 后重试；当前系统串口: %s）'
                            % (hint or txt, '', self.retry_delay, self._ports_text()))
@@ -218,7 +224,7 @@ class SerialSource(SourceBase):
                 else:
                     self._log('[serial] %s 已重连（第 %d 次）' % (self.port, self.reconnects))
             except Exception as e:
-                txt, hint = self._on_fail(self.port or '串口', e)
+                txt, hint = self._on_fail(self.port, e)
                 self._next_try = now + self.retry_delay
                 self._log_once('[serial] 打开失败: %s（%.1fs 后重试；当前系统串口: %s）'
                                % (hint or txt, self.retry_delay, self._ports_text()))

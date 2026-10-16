@@ -3,13 +3,15 @@
 雷达点云实时显示 —— 本地服务。
 
 用法:
-  python server.py                              # COM3 实时
-  python server.py --port COM5
+  python server.py                              # COM 口自动识别（插上雷达即可）
+  python server.py --port COM5                  # 手动指定串口
   python server.py --source replay --replay cap.bin
-  python server.py --source loopback            # 无硬件自检
+  python server.py --source loopback            # 无硬件自检（不插雷达也能看页面）
   python server.py --record out.bin             # 同时录制原始字节流
+  python server.py --open                       # 启动后自动打开浏览器
 
 然后浏览器打开 http://127.0.0.1:8099
+（双击同目录 start_viewer.cmd 可一键完成：启动服务 + 自动打开浏览器）
 """
 import argparse
 import json
@@ -39,6 +41,25 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CLIENTS = set()
 CLIENTS_LOCK = threading.Lock()
 LATEST = {'cfg': None}
+CTL_REF = {'get': None}     # main() 注入；让 /status、/stream 在任何时刻都能取到控制状态与串口诊断
+
+
+def current_control():
+    """任何时刻都拿得到「控制状态 + 串口诊断」，而不必等第一帧或第一次心跳。
+
+    这样页面刚打开（或服务刚起来）就能显示「有没有认到雷达、为什么没数据」，
+    而不是空白等 1 秒。
+    """
+    st = LATEST.get('control')
+    if st:
+        return st
+    fn = CTL_REF.get('get')
+    if callable(fn):
+        try:
+            return fn()
+        except Exception:
+            return {}
+    return {}
 CONTROL_HANDLER = None          # 由 main() 注入：action 字符串 → 结果 dict
 SHUTDOWN = threading.Event()
 
@@ -80,6 +101,7 @@ def make_frame_payload(pts, r0, stats, proc, noise, control=None, actions=None):
         'read_errors': stats.get('read_errors', 0),
         'dropped': stats.get('dropped', 0),
         'cb_errors': stats.get('cb_errors', 0),
+        'src_diag': stats.get('src_diag'),
         'pts': [[round(p['x'], 3), round(p['y'], 3), round(p['deg'], 1),
                  round(p['v'], 2), round(p['p'], 3)] for p in pts],
         'rd': rd_json(r0),
@@ -141,8 +163,8 @@ class Handler(BaseHTTPRequestHandler):
             st = dict(LATEST.get('status') or {})
             if st.get('cfg') is None:
                 st['cfg'] = LATEST['cfg']
-            if st.get('control') is None and 'control' in LATEST:
-                st['control'] = LATEST['control']
+            if st.get('control') is None:
+                st['control'] = current_control()
             body = json.dumps(st, ensure_ascii=False).encode('utf-8')
             self._send(200, 'application/json; charset=utf-8', body)
             return
@@ -157,7 +179,7 @@ class Handler(BaseHTTPRequestHandler):
                 CLIENTS.add(q)
             try:
                 hello = ('data: ' + json.dumps({'type': 'hello', 'cfg': LATEST['cfg'],
-                                                'control': LATEST.get('control', {})})
+                                                'control': current_control()})
                          + '\n\n')
                 self.wfile.write(hello.encode('utf-8'))
                 self.wfile.flush()
@@ -224,7 +246,7 @@ class Server(ThreadingHTTPServer):
 def main():
     ap = argparse.ArgumentParser(description='ICL1122 雷达点云实时显示')
     ap.add_argument('--source', choices=['serial', 'replay', 'loopback'], default='serial')
-    ap.add_argument('--port', default='COM3', help='串口号 (默认 COM3)')
+    ap.add_argument('--port', default='auto', help='串口号 (默认 auto = 自动识别 CP210x/雷达串口)')
     ap.add_argument('--baud', type=int, default=921600)
     ap.add_argument('--replay', default=os.path.join(HERE, 'sample-synthetic.bin'),
                     help='回放/演示用的字节流文件 (默认本目录合成样本，不含人体数据)')
@@ -257,6 +279,8 @@ def main():
     ap.add_argument('--no-autostart', action='store_true',
                     help='启动后不自动采集，等页面点「开始」（省电/避免长期占串口）')
     ap.add_argument('--no-actions', action='store_true', help='关闭近距动作识别')
+    ap.add_argument('--open', action='store_true', dest='open_browser',
+                    help='启动后自动用默认浏览器打开点云页面')
     ap.add_argument('--max-step', type=float, default=None,
                     help='单帧 px 跳变上限(米)，超过判野值不入窗。内置默认 0=关闭（稀疏点云下固定门会丢帧），建议由 calib.json 给出')
     ap.add_argument('--band', type=float, nargs=2, default=None,
@@ -307,6 +331,9 @@ def main():
         'calib': os.path.basename(args.calib) if args.calib else None,
         'actions': not args.no_actions,
         'autostart': not args.no_autostart,
+        'port': args.port,
+        'port_auto': (args.source == 'serial'
+                      and str(args.port).strip().lower() in ('auto', '')),
         'hw_stop': False,          # 硬件停机（实验·未验证）在 server 里默认不开放
     }
 
@@ -356,6 +383,11 @@ def main():
 
     CONTROL_HANDLER = control_handler
     ctrl.set_on_change(lambda st: push_control())
+    CTL_REF['get'] = ctrl.status
+    try:
+        push_control()          # 立刻推一次：页面/探测端一打开就能看到串口诊断
+    except Exception:
+        pass
 
     def heartbeat():
         while not SHUTDOWN.is_set():
@@ -367,16 +399,38 @@ def main():
 
     threading.Thread(target=heartbeat, daemon=True, name='radar-heartbeat').start()
 
-    srv = Server(('127.0.0.1', args.http_port), Handler)
-    print('数据源: %s' % (('%s@%d' % (args.port, args.baud)) if args.source == 'serial'
-                          else (args.replay if args.source == 'replay' else 'loopback')))
-    print('点云页面: http://127.0.0.1:%d   （页面上有 开始 / 结束 / 重置 三个按钮）'
-          % args.http_port)
+    try:
+        srv = Server(('127.0.0.1', args.http_port), Handler)
+    except OSError as e:
+        print('端口 %d 无法监听（%s）。' % (args.http_port, e))
+        print('通常是因为已经有一个点云服务在跑：先看看 http://127.0.0.1:%d 能不能打开；'
+              '要另起一个就换端口，例如 --http-port %d。'
+              % (args.http_port, args.http_port + 1))
+        return 3
+    if args.source == 'serial':
+        if str(args.port).strip().lower() in ('auto', ''):
+            src_txt = '自动识别串口（CP210x/雷达）, %d baud' % args.baud
+        else:
+            src_txt = '%s@%d' % (args.port, args.baud)
+    elif args.source == 'replay':
+        src_txt = '回放 %s' % args.replay
+    else:
+        src_txt = 'loopback（内置合成数据，不读串口）'
+    url = 'http://127.0.0.1:%d' % args.http_port
+    print('数据源: %s' % src_txt)
+    print('点云页面: %s   （页面上有 开始 / 结束 / 重置 三个按钮）' % url)
     print('控制接口: POST /control  {"action":"start"|"stop"|"reset"}')
     if args.no_autostart:
         print('已禁用自动开始：请点页面「开始」，或 POST /control {"action":"start"}')
     else:
         ctrl.start()
+    if args.open_browser:
+        try:
+            import webbrowser
+            webbrowser.open(url)
+            print('已用默认浏览器打开: %s' % url)
+        except Exception as e:
+            print('未能自动打开浏览器: %s —— 请手动访问 %s' % (e, url))
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
@@ -386,6 +440,7 @@ def main():
         ctrl.shutdown()
         time.sleep(0.3)
         srv.server_close()
+    return 0
 
 
 if __name__ == '__main__':

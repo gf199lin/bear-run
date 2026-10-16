@@ -57,6 +57,18 @@
   .run button:disabled{opacity:.38;cursor:default}
   .hint{margin-top:9px;color:var(--dim);font-size:10.5px;line-height:1.55}
   .hint.warn{color:#ffb45a}
+  .banner{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);
+    max-width:min(840px,88%);display:none;padding:10px 14px;border-radius:9px;
+    font-size:12px;line-height:1.6;text-align:left;
+    background:rgba(28,16,12,.94);border:1px solid #5a3325;color:#ffce9a;
+    box-shadow:0 6px 22px rgba(0,0,0,.45)}
+  .banner.show{display:block}
+  .banner b{color:#fff}
+  .banner code{background:rgba(255,255,255,.08);border-radius:4px;padding:0 4px;
+    font-size:11.5px;color:#fff}
+  .diagline{margin-top:8px;color:var(--dim);font-size:10.5px;line-height:1.55;
+    word-break:break-all}
+  .diagline b{color:var(--fg);font-weight:600}
   .evline{margin-top:2px}
   .evline em{font-style:normal;color:var(--accent)}
 </style>
@@ -71,6 +83,7 @@
       <button id="z2">3 m</button>
       <button id="hold">拖影</button>
     </div>
+    <div class="banner" id="banner"></div>
   </div>
   <aside>
     <div class="hd">
@@ -83,6 +96,7 @@
         <button id="b_reset">重置</button>
       </div>
       <div class="hint" id="heat">—</div>
+      <div class="diagline" id="diag">链路诊断：—</div>
     </div>
     <section>
       <h2>实时指标</h2>
@@ -154,6 +168,9 @@
   let span = 5.5, trail = true, cfg = null, live = false;
   // 采集会话控制
   let ctlState = null;        // 服务端 /control 状态对象
+  let diag = null;            // 串口链路诊断（服务端下发：端口/枚举结果/失败原因）
+  let bnText = null;          // 顶部横幅当前文本（避免每帧重写 DOM）
+  let diagShown = null;       // 链路诊断行当前文本（同上）
   let lastCtl = 0;            // 最近一次控制心跳（performance.now）
   let serverOnline = false;   // 服务端在线（有控制心跳）
   let paused = false;         // 在线但采集已停止
@@ -298,6 +315,7 @@
     lastMsg = performance.now(); msgCount++;
     lastM = m;
     cfg = m.cfg || cfg;
+    if(m.src_diag) diag = m.src_diag;
     if(m.act){ act = m.act; }
     if(m.events && m.events.length){
       evLog = m.events.concat(evLog).slice(0,6);
@@ -335,9 +353,57 @@
   }
 
   // ---------------------------------------------------------------- 采集控制
+  // ---- 链路诊断：把「无数据」翻译成「哪一环断了、怎么修」 ----
+  function diagText(){
+    if(!diag) return '服务未上报串口状态';
+    if(diag.connected === false){
+      if(!diag.port){
+        if(diag.port_reason === 'ambiguous')
+          return '系统有多个串口，认不出雷达 —— 请指定串口后重启服务';
+        return '未检测到雷达串口 —— 请插好 USB，并确认已装 CP210x 驱动';
+      }
+      return '串口 ' + diag.port + ' 打不开：'
+        + (diag.last_error_hint || diag.last_error || '原因未知');
+    }
+    return '串口 ' + (diag.port || '?') + ' 已连接，等待数据…';
+  }
+
+  function diagPorts(){
+    if(!diag || !diag.ports || !diag.ports.length) return '无';
+    return diag.ports.map(p => p.desc ? (p.device + ' [' + p.desc + ']') : p.device).join('、');
+  }
+
+  function setBanner(html){
+    if(html === bnText) return;
+    bnText = html;
+    const el = document.getElementById('banner');
+    if(!html){ el.className = 'banner'; el.innerHTML = ''; }
+    else { el.className = 'banner show'; el.innerHTML = html; }
+  }
+
+  function pushDiag(){
+    const el = document.getElementById('diag');
+    let html;
+    if(!diag){
+      html = '链路诊断：<b>服务未上报</b>（未启动，或当前是回放/演示源）';
+    }else{
+      let s = '链路诊断：';
+      if(diag.connected) s += '<b>已连接 ' + (diag.port || '') + '</b>';
+      else s += '<b>' + (diag.port ? ('串口 ' + diag.port + ' 未打开')
+                                   : '未检测到雷达串口') + '</b>';
+      s += ' · 系统串口: ' + diagPorts();
+      if(diag.last_error) s += ' · ' + (diag.last_error_hint || diag.last_error);
+      html = s;
+    }
+    if(html === diagShown) return;      // 内容没变就不动 DOM
+    diagShown = html;
+    el.innerHTML = html;
+  }
+
   function applyControl(m){
     lastCtl = performance.now();
     serverOnline = true;
+    if(m.src_diag) diag = m.src_diag;
     const was = wasActive;
     ctlState = m;
     wasActive = !!m.active;
@@ -396,14 +462,24 @@
       if(on){
         txt = '实时数据流' + (lastM && lastM.connected===false ? ' · 链路断开重连中' : '')
             + (lastM && lastM.reconnects ? ' · 已重连 ' + lastM.reconnects + ' 次' : '');
+        setBanner('');
       }else if(paused){
         txt = '已停止（点「开始」恢复采集）';
+        setBanner('');
       }else if(serverOnline){
-        txt = '服务在线 · 等待数据…';
+        txt = '服务在线 · ' + diagText();
+        setBanner('<b>服务在运行，但暂时没有数据。</b>'
+          + '（' + diagText() + '）<br>'
+          + '修好后不用重启服务：插上雷达 / 关掉占用串口的程序后，本页会自己接上。');
       }else{
-        txt = '无数据（回退演示）';
+        txt = '未连接点云服务';
+        setBanner('<b>还没有连上本地点云服务。</b><br>'
+          + '请双击 <code>雷达实时点云-一键启动.cmd</code>'
+          + '（或 <code>radar-pointcloud\\start_viewer.cmd</code>）启动服务，再刷新本页。<br>'
+          + '下面的画面是内置演示动画，<b>不是你的雷达数据</b>。');
       }
       document.getElementById('srctxt').textContent = txt;
+      pushDiag();
       live = on;
       if(paused){
         if(hist.length) hist.length = 0;
@@ -431,7 +507,7 @@
     hist.push(pts); if(hist.length>12) hist.shift();
     document.getElementById('k_fps').textContent='—'; document.getElementById('k_pts').textContent=pts.length;
     document.getElementById('k_n').textContent='—'; document.getElementById('k_bad').textContent='— / —';
-    document.getElementById('hud').innerHTML = '演示模式（未连接雷达服务）<br><b>启动 server.py 后刷新即可看到真实点云</b>';
+    document.getElementById('hud').innerHTML = '演示动画（不是雷达数据）<br><b>双击「雷达实时点云-一键启动」连接真实雷达</b>';
     if(!cfg) cfg = {range_res:0.6813,max_range:5.45,v_max:1.535,v_res:0.048,chirps:64,bins:8,clutter:true};
     pushCfg(); draw();
   }, 120);
@@ -457,7 +533,7 @@
   document.getElementById('hold').onclick = function(){ trail=!trail; this.classList.toggle('on',trail); };
   document.getElementById('hold').classList.add('on');
 
-  resize(); loop(); connect();
+  pushDiag(); resize(); loop(); connect();
 })();
 </script>
 </body>
