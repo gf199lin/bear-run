@@ -698,7 +698,7 @@ p95 0.84~1.27 m）大于真实横向位移（中位 0.25~0.41 m）**，信噪比
 **⑦ 本轮明确不主张的事**：
 
 - ❌ 不主张「降噪提高了左/右准确率」——A/B 显示换不动（信噪比 < 1）。
-- ❌ 不主张跳/蹲有进展——1T2R 无俯仰角、2T4R 链路未验证，且仍无真值，属受控能力，事件恒带 `gated=True, verified=False`；
+- ❌ 不主张跳/蹲有进展——1T2R 无俯仰角、2T4R 链路验证进行中（10/16 起，结论未出），且仍无真值，属受控能力，事件恒带 `gated=True, verified=False`；
   P0→T0→T1→T2 验证门未过前不得写入已实现功能或验收结论。
 - ❌ 不主张 `theilsen`/`median` 优于 `lstsq`/`endpoints`——本轮**没有**得到支持该结论的证据；
   保留 `theilsen`+`median` 作默只是因为它们对单点毛刺更保守（可以在文档层面论证，不能用准确率论证）。
@@ -755,12 +755,130 @@ p95 0.84~1.27 m）大于真实横向位移（中位 0.25~0.41 m）**，信噪比
 
 ---
 
+## 7.19 站位自检引导采集程序（`position_capture.py`，2026-10-16）
+
+> 触发：本轮结论指向「信号不存在」→ 必须采新数据；用户要求**做成引导程序**
+> （不要「清单 + 手工照做」），即"昨天那种"提示音驱动、自动分段的采集方式。
+
+**做了什么**：新增 `radar-pointcloud/position_capture.py`。它把 `docs/capture-checklist.md`
+§0.5 的站位自检流程变成程序引导：每站提示走到哪个标记 → 按回车 → 「稳住，3 秒后正式开始记录」
+→ **高音=开始记录** → 保持 25 s（每 5 s 报一次进度）→ **低音=结束可以动** → 自动换下一站；
+采完**当场**出「主回波 vs 站位」判据、逐门明细、各站静息合并的阈值与闭环误报，
+写 `station-report.md` / `station-report.json`。
+
+**复用而非重写**（关键设计）：直接 `import segment_capture as sc`，复用它的
+`beep` / `STATE` / `on_frame` / `wait_frames` / `probe_port` / `make_source`
+与 `radar_source.build_pipeline`——提示音体感、帧统计口径、真值时间轴与昨天**完全一致**。
+分析侧复用 `radar_calibrate` 的 `make_processor` / `frames_from_file` / `mode_band` / `mode_rest`。
+
+与 `segment_capture.py` 的三处差别：
+
+| 项 | `segment_capture.py` | `position_capture.py` |
+|---|---|---|
+| 分段 | 一个文件装多站多动作 | **一站一个独立会话/独立文件** |
+| 真值 | 提示音驱动真人动作，写 `frame_start/frame_end` | **不需要动作标签**：静息段里任何 `LANE_*` 都算误报；`distance_m` 即真值 |
+| 保持段 | `cue()` 只有最后 3 s 倒计时 | 新增 `hold()`：25 s 静息每 5 s 报进度 + **起止双音**（高音开始/低音结束） |
+
+一站一文件是**为了物理隔离**：站位之间走路是真实运动数据，连续录成一个文件会污染静息口径。
+
+**优先级契约保持一致**：`--cfar/--min-snr/--min-range` 的 argparse 默认均为 `None`
+（显式参数 > `calib.json` > 内置默认），与 §7.18 ⑨ 修好的三个入口同一规则。
+
+### 验证证据（都是本轮实跑，不是计划）
+
+| 检查 | 命令 | 结果 |
+|---|---|---|
+| 语法 + 接口 | `ast.parse`；`--help` | 通过 |
+| 判据逻辑（真数据） | `--analyze-only --stations 1.00,1.25,1.50 --files seg_01.00/01.25/01.50.bin --no-rest` | 主回波**全为 j=2 / r_med 1.703 m 不动**，功率占比 90.2% / 98.1% / 90.7%，偏移 +0.70/+0.45/+0.20 m → 命中「不随站位平移」分支；EXIT=0 |
+| 静息分析接线 | 同上但去掉 `--no-rest` | 合并 2754 帧、带内检出 6.6% → 阈值 v_on 0.663 / min_dx 0.442 / max_step 0.800、**闭环静息误报 0 次**、可信度 **low**（检出率过低时自动降级）；EXIT=0 |
+| 采集全流程（无硬件） | `--source loopback --stations 0.70,1.00 --duration 3 --warmup 1` | 两站各写 `.bin` + `.labels.jsonl`；窗口 `34→57` = **恰好 23 帧 = 3 s/0.1295**；实测 7.51 帧/秒；`station-report.md/json` 生成；EXIT=0 |
+
+**③ 的一个附带检查**：loopback 两站的逐门统计**完全相同**（合成源与站位无关），
+说明程序没有把上一段的数据串进下一段。
+
+### 本轮自己写出来又修掉的 3 个 bug（诚实记录）
+
+1. `merged = (t, pts for r in ok ...)` 是 **SyntaxError**（生成器元素不能是裸元组）→ 改 `((t, pts) for ...)`。
+2. 该生成器剥成二元组后喂给 `mode_rest` → `ValueError: not enough values to unpack (expected 3, got 2)`；
+   `mode_rest` 要的是 `(idx, t, pts)` → 改为直接透传三元组。
+3. `hold(kind=None)` 原实现仍会鸣笛（`beep()` 里 `kind != 'start'` 一律走低音）
+   → 加 `if kind:` 门，准备阶段才真正静音。
+
+### 明确不主张
+
+- 上表第 2、3 行的数据来自**旧的动作会话录制**（含左右移动、非静息、非按站位自检采的），
+  所以那两次**只验证「判据逻辑能跑通」**，**不构成** j=2 之谜的任何结论。
+- 程序解决的是**采集与出判据的流程**，不能替代真机；判据是**自动提示**，写进文档前需人工核对。
+- 阈值仍是**提案，待小组确认**；跳/蹲不涉及（受控能力，验证门未过）。
+
+---
+
+### 7.20 「打开即用」：串口自动识别 + 页面链路诊断 + 一键启动器（2026-10-16）
+
+**触发**：用户反馈「点开网页说无数据流」，要求做成「随时都能打开、插上雷达就自动识别」。
+
+**三个真实根因**（都在代码/日志里查得到）：① 直接双击 `viewer.html`（`file://`）或服务没启动；
+② 串口号写死 `COM3`，换 USB 口即失联；③ 串口被厂商工具或另一个 `server.py` 占用
+→ `PermissionError(13, '拒绝访问。')`（§7.12 已记录过同一现象）。
+
+**本轮改动**：
+
+| 文件 | 改动 |
+|---|---|
+| `radar-pointcloud/radar_source.py` | 新增 `RADAR_PORT_HINTS` / `list_serial_ports()` / `find_radar_port()`；`SerialSource` 支持 `port='auto'`（**每次重试重新枚举**，因此支持「先开软件、后插雷达」）；新增 `diag()` 与失败原因中文化 `_explain()`；`build_pipeline` 的 stats 增 `src_diag` |
+| `radar-pointcloud/server.py` | `--port` 默认改 **`auto`**；新增 `--open`；`/status`、`/stream`(hello)、帧 payload、1 Hz 心跳都带 `src_diag`；新增 `current_control()`，让**任何时刻**（还没出帧、还没开始采集）都能取到控制状态与串口诊断；端口被占时给中文提示并返回码 3 |
+| `radar-pointcloud/viewer.html` | 新增底部横幅 `#banner` + 侧栏「链路诊断」行，区分「未连接服务 / 服务在线但未检测到雷达 / 串口被占用 / 已连接等待数据 / 实时数据流」；演示动画明确标注「不是你的雷达数据」；内容不变则不重写 DOM |
+| `radar-pointcloud/start_viewer.py`、`start_viewer.cmd`、`outputs/雷达实时点云-一键启动.cmd` | **一键启动**：环境自检 → 串口体检（只读枚举，不占端口）→ **复用已在跑的服务**（不重复起实例抢串口）→ 选空闲端口 → 起服务 → 自动开浏览器；全中文可操作提示 |
+
+**★ 真机验证证据（2026-10-16，真实 COM3，不是回放）**：
+
+| 项 | 观测 |
+|---|---|
+| 自动识别 | 服务日志：`[serial] 自动识别到雷达串口 COM3（CP210x/Silicon Labs 线索）` |
+| `/status` 诊断 | `src_diag={auto:true, port:"COM3", port_reason:"hint", connected:true, ports:[COM3 "Silicon Labs CP210x USB to UART Bridge"]}` |
+| 数据源 | `source="serial:COM3@921600"`，`frames` 持续增长（1496 → …），`/status` 的 `cfg.port_auto=true` |
+| 帧率 | 服务日志 `fps=7.38~7.60`（与 129.5 ms / ≈7.7 Hz 规格一致），`conn=True` |
+| 无错误 | `read_errors=0 reconnects=0 err=0` |
+| 无雷达时（回退路径） | `--source serial --port auto`：`src_diag` 给出可操作提示「未检测到任何串口设备 —— 雷达 USB 是否插好？设备管理器里应出现 Silicon Labs CP210x USB to UART Bridge」，**服务不崩、每秒重试** |
+
+**无硬件/离线验证**（不据此声称真机结论）：
+- `selftest.py` → **40/40 通过、EXIT=0**（本轮改动未引入回归）。
+- `.deepworks/tmp/check_autodetect.py` / `check_flow2.py`（临时只读脚本，产物 `autodetect-check.json` / `flow2-check.json`）：
+  `/status` 与 hello 都带 `src_diag`；页面含 `#banner` 与诊断节点；
+  `start_viewer.probe_service()` 能识别**已在跑**的服务（复用路径生效、不重复起实例）；
+  `port_free()` 判定正确。
+- **客户端视角的整链路复验**（真机在跑时，`.deepworks/tmp/sse_smoke.py` → `sse-smoke.json`）：
+  以真实 SSE 客户端读 `/stream`，`Content-Type: text/event-stream; charset=utf-8`，
+  依次收到 `hello`（`control.src_diag.port="COM3" / connected=true / port_reason="hint"`）与连续 `frame`
+  （`frame.src_diag.port="COM3"`、`points` 6/10/9、`fps=7.72`、`src="serial:COM3@921600"`、`control.active=true`）；
+  同一次检查中 `GET /` 返回 22547 B，含 `id="banner"`、`id="diag"`、`EventSource`、`/stream`、`pushDiag`、`setBanner`、`diagText`
+  → **「服务端 → 页面客户端」的业务链路（HTML + SSE + 诊断字段）已实测打通**。
+
+**边界（未验的部分，不得当已验）**：
+- 未做「换 USB 口 → 端口号变化」的插拔真机验证；
+- 未验证多串口 `ambiguous` 分支（当前机器只枚举到 COM3 一个串口）；
+- 无 node 环境，页面 JS **未做语法解析器检查**，也**未做浏览器端渲染断言**（当前会话的浏览器工具只暴露 `open_url`，无法 eval 页面）；
+  现有证据是「`GET /` 返回的 HTML 含全部诊断/SSE 代码标记 + 真实 SSE 客户端能跑通同一协议」，属强间接证据，不等于「已看到浏览器实际渲染」。
+- **未创建桌面快捷方式**（属工作区外写入，需用户明确同意）。
+
+**踩坑沿用**：`.cmd` 启动器一律**全 ASCII** —— cmd 按本地 ANSI 代码页读文件，UTF-8 中文会变乱码
+（与 §7.11 `capture-COM3.cmd` 同一结论）。中文提示全部由 Python 侧打印。
+
+---
+
 ## 8. 下一步（按优先级）
 
-> **⚠ 当前最优先**：采集侧验证已收口——用户决定「到此为止，回到根因任务」
-> （见 §7.16）。**新最优先 = 根因任务**：按 §7.17 调整雷达帧配置（首选 `RxGaindB` +4 dB，
-> 最小风险、不改数据格式）→ 重测「带内点数 / 帧」，看能否从 ~0.2 提到 ≥2 点/帧。
+> **⚠ 当前最优先（2026-10-16 更新）**：先做**站位自检采集**——4 站位 × 25 s（0.70/1.00/1.35/1.70 m，
+> 约 5 分钟），工具 `radar-pointcloud/position_capture.py`（见 §7.19），现场流程见
+> `docs/capture-checklist.md` §0.5。它一次同时推进两件事：① **j=2 之谜**（主回波是否随站位平移）
+> → 可当场决定决策点 #14 的距离带；② **静息阈值是否有实测支撑**（`--mode rest` 目前有效窗过少、
+> 只能给出低可信度提案）。
+> **为什么排在根因任务前面**：用户答复「`RxGaindB` 能否修改**不确定**」，而站位自检**不需要改配置、
+> 不改数据格式**、只要 5 分钟；且它决定的是下游一切参数都依赖的「距离带」这一前提。
+> 站位自检有结论后再看是否动 `RxGaindB`（§7.17）。
 > 本节原有 1~7 条保留为后续，**不再是最优先**。
+>
+> **并行战线**：**2T4R 链路验证进行中**（10/16 起，用户口述；结论未出）。该工作不属本节 1T2R 采集侧范围，方案见 `docs/jump-duck-verification-plan.md` §6 P0。
 
 1. ~~T1（安全）~~ → ✅ **2026-10-15 已通过**（见 §7.13）。原命令
    `python radar_hwstop.py --both-directions --send --confirm` 不建议直接用（它每帧只 `read(16)`
