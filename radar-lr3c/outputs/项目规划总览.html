@@ -9,6 +9,7 @@
     --ink:#16202c; --muted:#5b6b7c; --line:#dfe5ec;
     --teal:#0d5c63; --teal-soft:#e8f2f2;
     --amber:#8a5300; --amber-soft:#fdf4e3;
+    --green:#1c6b3c; --green-soft:#eaf5ee;
     --paper:#ffffff; --page:#eef1f5;
   }
   *{box-sizing:border-box}
@@ -24,6 +25,7 @@
   .sub b{color:var(--teal)}
   h2{font-size:16px;margin:30px 0 12px;padding-left:10px;border-left:3px solid var(--teal);line-height:1.4}
   h2 .n{color:var(--teal);font-weight:700;margin-right:6px}
+  h3{font-size:14px;margin:18px 0 8px;color:var(--teal)}
   p{margin:10px 0}
   ul{margin:10px 0;padding-left:20px}
   li{margin:5px 0}
@@ -40,7 +42,8 @@
   .flow span{opacity:.55;font-weight:400}
   .warn{background:var(--amber-soft);border-left:4px solid var(--amber);border-radius:0 6px 6px 0;padding:12px 15px;margin:14px 0;font-size:14px}
   .key{background:var(--teal-soft);border-left:4px solid var(--teal);border-radius:0 6px 6px 0;padding:12px 15px;margin:14px 0;font-size:14px}
-  .gate{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}
+  .done{background:var(--green-soft);border-left:4px solid var(--green);border-radius:0 6px 6px 0;padding:12px 15px;margin:14px 0;font-size:14px}
+  .gate{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:14px 0}
   .gate div{border:1px solid var(--line);border-radius:8px;padding:11px 12px;font-size:13px;background:#fbfcfd}
   .gate b{display:block;color:var(--teal);font-size:14px;margin-bottom:3px}
   .gate .d{color:var(--muted);margin-top:5px;font-size:12px}
@@ -60,11 +63,11 @@
     .tl .date{flex-basis:70px}
   }
   @media print{
-    body{background:#fff;padding:0;font-size:11.5px}
+    body{background:#fff;padding:0;font-size:11px}
     .sheet{max-width:none;border:0;border-radius:0;padding:0}
-    h2{margin:16px 0 8px}
-    table{font-size:10.5px}
-    .gate{grid-template-columns:repeat(3,1fr)}
+    h2{margin:15px 0 8px}
+    table{font-size:10px}
+    .gate{grid-template-columns:repeat(2,1fr)}
     h2{page-break-after:avoid}
     table,.gate,.flow{page-break-inside:avoid}
   }
@@ -75,23 +78,23 @@
 
 <header>
   <h1>毫米波雷达体感跑酷游戏 · 项目规划总览</h1>
-  <div class="sub">一页纸速览版 ｜ 2026-10-15 ｜ 详细文档见项目 <code>docs/</code> 目录</div>
+  <div class="sub">一页纸速览版 ｜ <b>第 2 版</b>（2026-10-16）｜ 详细文档见项目 <code>docs/</code> 目录</div>
 </header>
 
 <h2><span class="n">01</span>我们要做什么</h2>
-<p>用 <b>矽典微 DEV202H 毫米波雷达</b>，无接触操作一个跑酷游戏。</p>
+<p>用 <b>矽典微毫米波雷达</b>，无接触操作一个跑酷游戏。</p>
 <div class="flow">
   雷达采集 <span>→</span> 人体动作识别 <span>→</span> 游戏响应 <span>→</span> 计分结算
 </div>
-<p>玩家站姿，站在雷达前方 <b>0.5–1.5 m</b>，通过左右移动身体切换跑道躲避障碍，撞到扣命，3 条命用完结算。</p>
+<p>玩家站姿，站在雷达前方 <b>0.5–1.5 m</b>，通过左右移动身体切换跑道，跳起或蹲下躲避障碍物，撞到扣命，3 条命用完结算。</p>
 
 <h2><span class="n">02</span>硬件事实：先记住这 4 条，能省下很多返工</h2>
 <table>
   <tr><th class="c">#</th><th>事实</th><th>为什么重要</th></tr>
   <tr>
     <td class="c">1</td>
-    <td>模块是 <b>DEV202H / ICL1122 / 1T2R</b></td>
-    <td>不是 2T4R。另一块 2T4R 板<b>不在我们手上</b></td>
+    <td>我们手上有<b>两块板</b>：<b>1T2R</b>（DEV202H / ICL1122，链路已打通）＋ <b>2T4R</b>（<b>已到手，尚未验证</b>）</td>
+    <td>两块板能力不同，用哪块当主力要先定</td>
   </tr>
   <tr>
     <td class="c">2</td>
@@ -100,23 +103,23 @@
   </tr>
   <tr>
     <td class="c">3</td>
-    <td>帧率 <b>7.7 Hz</b>（129.5 ms/帧）</td>
-    <td>这是<b>全项目体验上限</b>：动作做完约 0.13–0.3 s 后画面才响应</td>
+    <td>帧率 <b>7.7 Hz</b>（129.5 ms/帧，1T2R 实测）</td>
+    <td>这是<b>全项目体验上限</b>：动作做完约 0.13–0.3 s 后画面才响应。<b>2T4R 需重新确认</b></td>
   </tr>
   <tr>
     <td class="c">4</td>
-    <td><b>垂直角不可用</b> → 测不了人体高度</td>
-    <td>直接后果：「跳起 / 蹲下」没法靠测高识别</td>
+    <td>1T2R <b>垂直角不可用</b> → 测不了人体高度；<b>2T4R 有 4 个接收通道，理论上可测俯仰角 → 能直接测高度</b></td>
+    <td>这决定了跳 / 蹲走哪条实现路径（见第 04 节）</td>
   </tr>
 </table>
-<div class="key"><b>授权（Vikey）已确认可用，设备可以连上。</b>工具日志里那些窗口 / 线程记录不是「连接失败」，不用再排查这一项。</div>
+<div class="key"><b>授权（Vikey）已确认可用，1T2R 设备可以连上。</b>工具日志里那些窗口 / 线程记录不是「连接失败」，不用再排查这一项。<b>2T4R 的授权与连接仍需单独验证。</b></div>
 
 <h2><span class="n">03</span>已经定下来的</h2>
 <table>
   <tr><th>项目</th><th>决定</th></tr>
   <tr><td>题材</td><td>跑酷类（地铁跑酷风格）</td></tr>
   <tr><td>交互范式</td><td><b>动作触发</b>：身体移动一次 → 角色切一条道（<b>不是</b>位置映射）</td></tr>
-  <tr><td>识别目标</td><td>左 / 中 / 右（<b>必做</b>）；跳起 / 蹲下（<b>待验证</b>，见第 04 节）</td></tr>
+  <tr><td>识别目标</td><td>左 / 中 / 右 ＋ <b>跳起 / 蹲下</b>（已确认<b>全部纳入 MVP</b>）</td></tr>
   <tr><td>规则</td><td>3 条命 / 不限时 / 按距离计分 / 速度分段递增</td></tr>
   <tr><td>安装</td><td>桌面固定，近距 0.5–1.5 m，站姿</td></tr>
   <tr><td>兜底</td><td>模拟器模式（拔掉雷达也能完整演示）<b>是 P1 需求，不是可选项</b></td></tr>
@@ -124,47 +127,90 @@
 </table>
 <p><b>为什么选「触发式」而不是位置映射：</b>7.7 Hz 下用绝对位置映射，玩家得一直保持站位，手感很差。触发式只需做一次动作就能换道，与低帧率天然兼容。</p>
 
-<h2><span class="n">04</span>最大的不确定性：跳起 / 蹲下</h2>
-<p><b>问题：</b>1T2R 没有俯仰角通道，<b>无法直接测人体高度</b>。</p>
-<p><b>已验证的分析</b>（问题原文：「能不能靠多普勒 + 距离变化间接识别跳起和蹲下？」）：</p>
-<ul>
-  <li><b>多普勒 —— 有希望。</b>垂直运动与雷达视线成夹角时会产生径向投影。雷达在桌面高度看 1 m 外的人，上半身仰角可达 30–45°，跳起约 1 m/s 时径向分量可达 <b>0.5–0.7 m/s</b>，远超速度分辨率 <b>0.05 m/s</b>，必然可见；而且「起跳—腾空—落地」与「下蹲—停留—站起」的<b>时序包络形状不同</b>，这比符号更稳。</li>
-  <li><b>距离 —— 弱。</b>距离分辨率 0.68 m，正对时躯干径向距离几乎不变。只有<b>雷达略高、略微俯视</b>时，蹲下才会让反射点下移、距离明显变远——所以<b>安装高度是可以优化的杠杆</b>。</li>
-  <li><b>已知的坑。</b>最大不模糊速度约 <b>±1.53 m/s</b>，人跳跃垂直速度常达 1–2 m/s，<b>可能速度模糊</b>，必须实测确认。</li>
-</ul>
-<p><b>处理方式：不承诺，先验证。</b></p>
-<div class="gate">
-  <div><b>T0 探路</b>跑 ONELAB 内置手势算法 <code>algorithm_gr</code>（参数 <code>UD_SpeedMin = 0.400</code> 暗示支持上下动作）<div class="d">0.5 天</div></div>
-  <div><b>T1 离线分析</b>导出 2D FFT 数据，做特征可分性分析（留一交叉验证）<div class="d">1–2 天</div></div>
-  <div><b>T2 决策</b>通过 → 实现；不通过 → 跳/蹲不进 MVP，等 2T4R<div class="d"><b>10/18 前</b></div></div>
-</div>
-<div class="warn"><b>底线：</b>即使跳 / 蹲做不了，「左 / 中 / 右 + 完整跑酷闭环」也必须能玩。</div>
+<h2><span class="n">04</span>跳起 / 蹲下：已进 MVP，但要选实现路径</h2>
+<div class="done"><b>决策：跳起 / 蹲下确定纳入 MVP</b>（团队决策）。</div>
+<p><b>问题背景：</b>1T2R 没有俯仰角通道，<b>无法直接测人体高度</b>。<br>
+<b>新条件：</b><b>2T4R 板已到手</b> → 4 个接收通道可做「方位＋俯仰」二维角 → <b>理论上能直接测人体高度</b>，跳 / 蹲可靠性大幅提升。</p>
 
-<h2><span class="n">05</span>需要大家一起拍板的事</h2>
+<h3>两条实现路径（需二选一或并行对照）</h3>
+<table>
+  <tr><th>路径</th><th>原理</th><th>优点</th><th>风险</th></tr>
+  <tr>
+    <td><b>A. 2T4R 俯仰角测高</b></td>
+    <td>二维角 → 直接得到人体高度变化</td>
+    <td>原理直接、最可靠</td>
+    <td>新板需<b>重走一遍链路验证</b>（授权 / 连接 / 参数 / 数据通道）；帧率等参数可能与 1T2R 不同</td>
+  </tr>
+  <tr>
+    <td><b>B. 1T2R 多普勒＋距离间接特征</b></td>
+    <td>垂直运动经视线投影产生径向速度；时序包络区分跳 / 蹲</td>
+    <td>沿用<b>已打通</b>的链路</td>
+    <td>距离分辨率 0.68 m 偏弱；最大不模糊速度 ±1.53 m/s，跳跃<b>可能速度模糊</b>；尚未证实</td>
+  </tr>
+</table>
+
+<div class="warn"><b>关键理解：</b>「纳入 MVP」是<b>范围决策</b>，不等于「已经能实现」。验证的目的因此从「要不要做」变成「<b>用哪条路做</b>」。</div>
+
+<div class="gate">
+  <div><b>P0 新任务</b>验证 2T4R 能否正常连上（授权、串口、参数配置、数据导出）<div class="d"><b>最优先，10/17 前</b></div></div>
+  <div><b>T0 探路</b>跑 ONELAB 内置手势算法 <code>algorithm_gr</code>（<code>UD_SpeedMin = 0.400</code> 暗示支持上下动作）<div class="d">0.5 天</div></div>
+  <div><b>T1 离线分析</b>导出 2D FFT 数据，做特征可分性分析（留一交叉验证）<div class="d">1–2 天</div></div>
+  <div><b>T2 决策</b>定下跳 / 蹲的实现路径（走 2T4R 还是 1T2R，或双路径）<div class="d"><b>10/18 前</b></div></div>
+</div>
+<p><b>底线不变：</b>无论跳 / 蹲走哪条路，「左 / 中 / 右 ＋ 完整跑酷闭环」都必须能玩。</p>
+
+<h2><span class="n">05</span>还需要拍板的事</h2>
+
+<h3>已经拍板的</h3>
+<table>
+  <tr><th>事项</th><th>结论</th></tr>
+  <tr><td>玩法与交互范式</td><td>跑酷（地铁跑酷风格）；动作触发换道；站姿；桌面固定、近距 0.5–1.5 m</td></tr>
+  <tr><td>跳 / 蹲 的范围</td><td><b>纳入 MVP</b>，实现路径待定</td></tr>
+</table>
+
+<h3>仍待确定</h3>
 <table>
   <tr><th class="c">#</th><th>要定的事</th><th>建议</th><th class="c">截止</th></tr>
-  <tr><td class="c">Q1</td><td>跳 / 蹲 是否进 MVP</td><td>看 T0 / T1 结果定</td><td class="c">10/18</td></tr>
-  <tr><td class="c">Q2</td><td>2T4R 板什么时候能到</td><td>需确认</td><td class="c">10/20</td></tr>
+  <tr><td class="c">Q1</td><td><b>跳 / 蹲 走哪条实现路径</b>（2T4R 俯仰角测高 / 1T2R 间接特征）</td><td>先验证再定</td><td class="c">10/18</td></tr>
+  <tr><td class="c">Q2</td><td><b>2T4R 链路能否打通</b>（授权 / 串口 / 参数 / 取数 / 帧周期）</td><td>最优先</td><td class="c"><b>10/17</b></td></tr>
   <tr><td class="c">Q3</td><td>跑道数、障碍类型、跳跃 / 下蹲是否必须</td><td>建议 3 条道</td><td class="c"><b>10/17</b></td></tr>
   <tr><td class="c">Q4</td><td>雷达最终安装高度与俯仰角</td><td>建议先比 2–3 种几何</td><td class="c">10/18</td></tr>
   <tr><td class="c">Q5</td><td>计分公式与难度曲线数值</td><td>由本项目出提案</td><td class="c">10/20</td></tr>
   <tr><td class="c">Q6</td><td>验收阈值是否照提案执行</td><td>见验收测试表</td><td class="c">10/20</td></tr>
+  <tr><td class="c">Q7</td><td><b>哪块板当主力</b>（帧率 / 波束 / 算力取舍）</td><td>待 Q2 结果</td><td class="c"><b>10/18</b></td></tr>
+  <tr><td class="c">Q8</td><td><b>D 角色（集成测试与体验）由谁担任</b></td><td>下表未指定，需明确</td><td class="c">10/17</td></tr>
 </table>
 
 <h2><span class="n">06</span>分工与本周重点（10/15–10/18）</h2>
 <table>
-  <tr><th>角色</th><th>本周重点</th></tr>
-  <tr><td><b>A</b> 硬件与数据采集</td><td>连接与参数确认；<b>跑 T0 探路</b>；采集跳 / 蹲数据（含几何对照）；负责真值标注</td></tr>
-  <tr><td><b>B</b> 数据接口与处理</td><td>解析官方 demo 输出，<b>M0 结束前冻结 <code>RadarFrame</code> 字段</b>；搭数据录制通道</td></tr>
-  <tr><td><b>C</b> 游戏主程</td><td>确定游戏框架；跑通无雷达的跑酷骨架（先吃模拟器数据）</td></tr>
-  <tr><td><b>D</b> 集成测试与体验</td><td>真值标注；准备验收测试表执行；设计模拟器演示脚本</td></tr>
-  <tr><td><b>全员</b></td><td>签字确认验收阈值（Q6）</td></tr>
+  <tr><th>角色</th><th>成员</th><th>本周重点</th></tr>
+  <tr>
+    <td><b>A</b> 硬件与数据采集</td>
+    <td><b>薛雅心</b></td>
+    <td>连接与参数确认；<b>跑 T0 探路</b>；<b>优先验证 2T4R 链路</b>；采集跳 / 蹲数据（含几何对照）；负责真值标注</td>
+  </tr>
+  <tr>
+    <td><b>B</b> 数据接口与处理</td>
+    <td><b>江沁钊</b></td>
+    <td>解析官方 demo 输出，<b>M0 结束前冻结 <code>RadarFrame</code> 字段</b>；搭数据录制通道；<b>确认 2T4R 数据通道是否一致</b></td>
+  </tr>
+  <tr>
+    <td><b>C</b> 游戏主程</td>
+    <td><b>林春烨、黄文轩</b></td>
+    <td>确定游戏框架；跑通无雷达的跑酷骨架（先吃模拟器数据）；预留「垂直动作」接口位</td>
+  </tr>
+  <tr>
+    <td><b>D</b> 集成测试与体验</td>
+    <td><b>待指定</b></td>
+    <td>真值标注；准备验收测试表执行；设计模拟器演示脚本</td>
+  </tr>
+  <tr><td><b>全员</b></td><td><b>全体</b></td><td>签字确认验收阈值（Q6）</td></tr>
 </table>
 <div class="warn"><b>协作铁律：</b>真实雷达与模拟器<b>必须实现同一事件接口</b>，且能用<b>一个热键在 1 秒内切换</b>——现场演示不允许因为设备问题中断。</div>
 
 <h2><span class="n">07</span>里程碑（硬节点）</h2>
 <div class="tl">
-  <div class="row"><div class="date">10/16–17</div><div><b>M0 链路打通</b> —— 实时看到距离 / 方位角数据，<b>冻结数据契约</b></div></div>
+  <div class="row"><div class="date">10/16–17</div><div><b>M0 链路打通</b> —— 实时看到距离 / 方位角数据，<b>冻结数据契约</b>（<b>含 2T4R 链路确认</b>）</div></div>
   <div class="row"><div class="date">10/19</div><div><b>M1 真雷达驱动画面</b> —— 挥手 → 角色换道</div></div>
   <div class="row"><div class="date">10/25</div><div><b>M2 验收冻结</b> —— 验收项逐条通过，MVP v1.0</div></div>
   <div class="row now"><div class="date">10/28</div><div><b>M3 中期演示</b> —— 现场演示（真机 + 模拟器双方案）</div></div>
@@ -186,7 +232,7 @@
 </table>
 
 <footer>
-  <b>两个提醒：</b>① 所有验收阈值目前都是<b>提案值，待小组确认</b>，不是最终标准；② 文档里凡「计划中的检查」都没有写成「已完成的结果」——测试数据要真有<b>真值标注</b>才算测试。
+  <b>两个提醒：</b>① 所有验收阈值目前都是<b>提案值，待小组确认</b>，不是最终标准；② 「跳 / 蹲 纳入 MVP」是<b>范围决定</b>，其<b>实现路径尚未验证</b>——文档里凡「计划中的检查」都没有写成「已完成的结果」。
 </footer>
 
 </div>
