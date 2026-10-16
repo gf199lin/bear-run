@@ -8,7 +8,7 @@
 
 ## 事实基线（不要凭印象改写）
 
-- 模块是 **DEV202H / ICL1122，1T2R**（不是 2T4R；另有一块 2T4R 板当前不在手上）。
+- 手上有**两块板**：**1T2R**（DEV202H / ICL1122，链路已打通、参数已实测）与 **2T4R**（已到手，**链路尚未验证**）。跳/蹲 走哪块板，由 T2 决策。
 - USB-UART 转换芯片是 **CP2102**，装 **CP210x 驱动**。小组原方案写的「FTDI 驱动」是错的，别再照着装。
 - 授权（Vikey）已确认可用，设备**可以连上**。不要把工具日志里的窗口/线程生命周期记录误读为「设备未连接」。
 - 帧周期 **129.5 ms（≈7.7 Hz）**，这是全项目的体验上限来源，任何交互设计都要先过这一关。
@@ -22,7 +22,7 @@
 2. **真实雷达与模拟器必须实现同一事件接口**，且能用一个热键在 1 秒内切换。现场演示不允许因为设备问题中断。
 3. **模拟器兜底是 P1 需求**，不是可选项。
 4. 状态判定**优先规则法**（阈值 + 滞回 + 最小切换间隔），不引入深度学习。
-5. **跳/蹲是受控能力**：验证门（T0 内置算法探路 → T1 离线特征可分性 → T2 决策）未通过前，不得把它写进已实现功能或验收结论。
+5. **跳/蹲已确认纳入 MVP，但实现路径未定**：验证门（P0 验证 2T4R 链路 → T0 内置算法探路 → T1 离线特征可分性 → **T2 决策走哪条路**）完成前，不得把它写进「已实现功能」或验收结论。候选路径：2T4R 俯仰角测高（可靠）或 1T2R 多普勒间接特征（未证实）。
 6. 雷达安装几何（高度/俯仰角）是**实验变量**，不是固定前提。
 
 ## 证据纪律（课程验收直接审查这一点）
@@ -49,7 +49,7 @@ outputs/       # 面向用户的产物（报告、图表、演示材料）
 ```
 
 - 交付文档放 `docs/`；面向展示的成品放 `outputs/`；临时脚本放 `.deepworks/tmp/`。
-- 既有文档：`docs/hardware-baseline.md`、`docs/research-motion-game.md`、`docs/PRD-motion-game-MVP.md`、`docs/TechDesign-motion-game-MVP.md`。
+- 既有文档：`docs/hardware-baseline.md`、`docs/research-motion-game.md`、`docs/PRD-motion-game-MVP.md`、`docs/TechDesign-motion-game-MVP.md`、`docs/jump-duck-verification-plan.md`、`docs/acceptance-test-table.md`、`docs/ai-decision-log.md`，以及雷达链路侧的 `docs/radar-uplink-protocol.md`、`docs/radar-control-and-actions.md`、`docs/capture-checklist.md`、`docs/radar-hardware-stop-plan.md`、`docs/progress-radar-pointcloud.md`。
 
 ## 关键契约
 
