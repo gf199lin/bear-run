@@ -31,15 +31,20 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 import radar_dsp as dsp
 from radar_dsp import PointCloudProcessor
-from radar_source import SerialSource, ReplaySource, LoopbackSource, build_pipeline
+from radar_actions import ActionRecognizer, load_calib
+from radar_control import RadarController
+from radar_source import SerialSource, ReplaySource, LoopbackSource
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CLIENTS = set()
 CLIENTS_LOCK = threading.Lock()
 LATEST = {'cfg': None}
+CONTROL_HANDLER = None          # 由 main() 注入：action 字符串 → 结果 dict
+SHUTDOWN = threading.Event()
 
 
 def make_source(args):
+    """每次「开始」都新建一个数据源，避免上一次会话的残留污染新会话。"""
     def evt(msg):
         print(msg, flush=True)
     if args.source == 'serial':
@@ -60,8 +65,8 @@ def rd_json(r0):
     return q.reshape(-1).tolist()
 
 
-def make_frame_payload(pts, r0, stats, proc, noise):
-    return {
+def make_frame_payload(pts, r0, stats, proc, noise, control=None, actions=None):
+    out = {
         'type': 'frame',
         'n': stats['frames'],
         'fps': round(stats['fps'], 2),
@@ -80,6 +85,17 @@ def make_frame_payload(pts, r0, stats, proc, noise):
         'rd': rd_json(r0),
         'cfg': LATEST['cfg'],
     }
+    if control is not None:
+        out['control'] = control
+    if actions is not None:
+        out['act'] = {
+            'lane': actions['lane'],
+            'target': actions['target'],
+            'features': actions['features'],
+        }
+        if actions['events']:
+            out['events'] = actions['events']
+    return out
 
 
 def broadcast(obj):
@@ -119,7 +135,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, 'text/html; charset=utf-8', f.read())
             return
         if path == '/status':
-            body = json.dumps(LATEST.get('status', {}), ensure_ascii=False).encode('utf-8')
+            # 注意：LATEST['status'] 只在收到第一帧后才存在。用 --no-autostart 启动时
+            # （或刚启动、还没出帧时）要先回退到已知的 cfg / control，
+            # 否则监控端与验收脚本会读到空对象、看不到「开始/结束」状态。
+            st = dict(LATEST.get('status') or {})
+            if st.get('cfg') is None:
+                st['cfg'] = LATEST['cfg']
+            if st.get('control') is None and 'control' in LATEST:
+                st['control'] = LATEST['control']
+            body = json.dumps(st, ensure_ascii=False).encode('utf-8')
             self._send(200, 'application/json; charset=utf-8', body)
             return
         if path == '/stream':
@@ -132,7 +156,9 @@ class Handler(BaseHTTPRequestHandler):
             with CLIENTS_LOCK:
                 CLIENTS.add(q)
             try:
-                hello = ('data: ' + json.dumps({'type': 'hello', 'cfg': LATEST['cfg']}) + '\n\n')
+                hello = ('data: ' + json.dumps({'type': 'hello', 'cfg': LATEST['cfg'],
+                                                'control': LATEST.get('control', {})})
+                         + '\n\n')
                 self.wfile.write(hello.encode('utf-8'))
                 self.wfile.flush()
                 while True:
@@ -151,6 +177,35 @@ class Handler(BaseHTTPRequestHandler):
                     CLIENTS.discard(q)
             return
         self._send(404, 'text/plain; charset=utf-8', b'not found')
+
+    def do_POST(self):
+        """控制接口：开始 / 结束 / 重置。
+
+        请求体 JSON：{"action": "start" | "stop" | "reset"}；也接受 ?action=xxx。
+        """
+        path = self.path.split('?')[0]
+        try:
+            n = int(self.headers.get('Content-Length') or 0)
+        except ValueError:
+            n = 0
+        raw = self.rfile.read(n) if n > 0 else b''
+        if path not in ('/control', '/api/control'):
+            self._send(404, 'text/plain; charset=utf-8', b'not found')
+            return
+        action = None
+        try:
+            if raw:
+                action = (json.loads(raw.decode('utf-8')) or {}).get('action')
+        except Exception:
+            action = None
+        if not action and 'action=' in self.path:
+            action = self.path.split('action=', 1)[1].split('&')[0]
+        if CONTROL_HANDLER is None:
+            res = {'ok': False, 'msg': '控制器未初始化'}
+        else:
+            res = CONTROL_HANDLER(action)
+        body = json.dumps(res, ensure_ascii=False).encode('utf-8')
+        self._send(200, 'application/json; charset=utf-8', body)
 
 
 class Server(ThreadingHTTPServer):
@@ -175,23 +230,64 @@ def main():
                     help='回放/演示用的字节流文件 (默认本目录合成样本，不含人体数据)')
     ap.add_argument('--record', default=None)
     ap.add_argument('--http-port', type=int, default=8099)
-    ap.add_argument('--cfar', type=float, default=2.6)
+    ap.add_argument('--calib', default=None,
+                    help='校准文件 (radar_calibrate.py 产出的 calib.json)。'
+                         '取其中 processor 段的 cfar_scale/min_snr/min_range/'
+                         'angle_sign/angle_max 与识别阈值 band/v_on/v_off/min_dx/'
+                         'max_step。优先级：显式命令行参数 > 校准文件 > 内置默认。'
+                         '不含此参数时行为与本轮之前完全一致。')
+    ap.add_argument('--cfar', type=float, default=None,
+                    help='CFAR 门限倍数 (内置默认 2.6；越小人越容易被检出、杂波也越多)')
     ap.add_argument('--min-power', type=float, default=0.0, help='绝对功率门限, 0=关闭')
-    ap.add_argument('--min-snr', type=float, default=7.0, help='相对噪声底 SNR 门限 (dB)')
+    ap.add_argument('--min-snr', type=float, default=None,
+                    help='相对噪声底 SNR 门限 (dB，内置默认 7.0)')
     ap.add_argument('--no-clutter', action='store_true', help='不做静态杂波抑制')
-    ap.add_argument('--min-range', type=float, default=0.0,
-                    help='屏蔽小于该距离(米)的点, 建议 1.4 以滤掉 bin0/bin1 近距杂波')
-    ap.add_argument('--angle-sign', type=float, default=1.0, choices=[1.0, -1.0])
-    ap.add_argument('--angle-max', type=float, default=45.0)
+    ap.add_argument('--min-range', type=float, default=None,
+                    help='屏蔽小于该距离(米)的点, 建议 1.4 以滤掉 bin0/bin1 近距杂波'
+                         '（内置默认 0.0）')
+    ap.add_argument('--angle-sign', type=float, default=None, choices=[1.0, -1.0],
+                    help='方位角正负约定（内置默认 1.0，可由 calib.json 给出）')
+    ap.add_argument('--angle-max', type=float, default=None,
+                    help='有效方位角上限（内置默认 45.0）')
     ap.add_argument('--retry', type=float, default=1.0, help='串口断开后的重连间隔 (秒)')
+    ap.add_argument('--stall-timeout', type=float, default=8.0,
+                    help='超过该秒数收不到帧就重建采集管道（0=关闭停滞判定）')
+    ap.add_argument('--no-stall-restart', action='store_true',
+                    help='关闭「线程退出/停滞」后的自动重建')
+    ap.add_argument('--no-autostart', action='store_true',
+                    help='启动后不自动采集，等页面点「开始」（省电/避免长期占串口）')
+    ap.add_argument('--no-actions', action='store_true', help='关闭近距动作识别')
+    ap.add_argument('--max-step', type=float, default=None,
+                    help='单帧 px 跳变上限(米)，超过判野值不入窗。内置默认 0=关闭（稀疏点云下固定门会丢帧），建议由 calib.json 给出')
+    ap.add_argument('--band', type=float, nargs=2, default=None,
+                    metavar=('RMIN', 'RMAX'),
+                    help='动作识别距离带（米），内置默认 0.70 1.35'
+                         '（可由 calib.json 的 band 覆盖）')
     ap.add_argument('--quiet', action='store_true')
     args = ap.parse_args()
 
-    proc = PointCloudProcessor(cfar_scale=args.cfar, min_power=args.min_power,
-                               min_snr=args.min_snr,
+    global CONTROL_HANDLER
+
+    # ---- 校准文件解析：优先级 显式命令行 > calib.json > 内置默认 ----
+    cal = load_calib(args.calib) if args.calib else None
+    psec = (cal or {}).get('processor', {}) or {}
+    cfar = args.cfar if args.cfar is not None else psec.get('cfar_scale', 2.6)
+    min_snr = args.min_snr if args.min_snr is not None else psec.get('min_snr', 7.0)
+    min_range = (args.min_range if args.min_range is not None
+                 else psec.get('min_range', 0.0))
+    angle_sign = (args.angle_sign if args.angle_sign is not None
+                  else psec.get('angle_sign', 1.0))
+    angle_max = (args.angle_max if args.angle_max is not None
+                 else psec.get('angle_max', 45.0))
+    band = tuple(args.band) if args.band is not None else         tuple((cal or {}).get('band', [0.70, 1.35]))
+    if not args.quiet:
+        print('校准: %s' % (args.calib if cal else '无（用内置默认/提案值）'))
+
+    proc = PointCloudProcessor(cfar_scale=cfar, min_power=args.min_power,
+                               min_snr=min_snr,
                                remove_clutter=not args.no_clutter,
-                               angle_sign=args.angle_sign, angle_max=args.angle_max,
-                               min_range=args.min_range)
+                               angle_sign=angle_sign, angle_max=angle_max,
+                               min_range=min_range)
     LATEST['cfg'] = {
         'range_res': round(dsp.RANGE_RES, 4),
         'max_range': round(dsp.MAX_RANGE, 3),
@@ -199,21 +295,37 @@ def main():
         'v_res': round(dsp.V_RES, 4),
         'chirps': dsp.CHIRPS,
         'bins': dsp.BINS,
-        'angle_max': args.angle_max,
+        'angle_max': angle_max,
         'clutter': not args.no_clutter,
-        'min_range': args.min_range,
+        'min_range': min_range,
+        # 回显实际生效的 DSP 参数（P2-4：之前只回显 min_range，导致「按 status 复盘
+        # 现场设置」时看不出真实 cfar/min_snr，与校准文件复现性相关）
+        'cfar_scale': getattr(proc, 'cfar_scale', None),
+        'min_snr': getattr(proc, 'min_snr', None),
+        'angle_sign': getattr(proc, 'angle_sign', None),
+        'band': [round(band[0], 2), round(band[1], 2)],
+        'calib': os.path.basename(args.calib) if args.calib else None,
+        'actions': not args.no_actions,
+        'autostart': not args.no_autostart,
+        'hw_stop': False,          # 硬件停机（实验·未验证）在 server 里默认不开放
     }
 
-    src = make_source(args)
-    stop = threading.Event()
-    state = {'last': 0.0, 'frames': 0}
+    state = {'last': 0.0}
+    recognizer = None if args.no_actions else ActionRecognizer(
+        band=band, calib=cal, max_step=args.max_step)
 
     def on_frame(z0, z1, stats):
         pts, noise = proc.process(z0, z1)
         r0, _ = proc.rd_map(z0, z1)
-        payload = make_frame_payload(pts, r0, stats, proc, noise)
+        act = recognizer.push(pts, time.time()) if recognizer is not None else None
+        payload = make_frame_payload(pts, r0, stats, proc, noise,
+                                     control=ctrl.status(), actions=act)
         broadcast(payload)
         LATEST['status'] = {k: v for k, v in payload.items() if k not in ('rd', 'pts')}
+        if act and act['events']:
+            print('[act] ' + ' '.join(
+                '%s%s' % (e['name'], '(候选·未验证)' if e.get('gated') else '')
+                for e in act['events']), flush=True)
         now = time.time()
         if not args.quiet and now - state['last'] > 2.0:
             state['last'] = now
@@ -222,34 +334,56 @@ def main():
                      stats['skipped'], stats['bad'], stats['connected'],
                      stats['reconnects'], stats['read_errors']), flush=True)
 
-    t = threading.Thread(target=build_pipeline,
-                         args=(src, on_frame, stop, args.record),
-                         daemon=True)
-    t.start()
+    # 采集会话控制器：开始 / 结束 / 重置，以及线程退出或停滞后的自愈重建
+    ctrl = RadarController(lambda: make_source(args), on_frame,
+                           record_path=args.record,
+                           log=lambda m: print(m, flush=True),
+                           stall_timeout=args.stall_timeout,
+                           auto_restart=not args.no_stall_restart)
 
-    def watchdog():
-        """采集线程万一退出就自动拉起，保证演示不中断。"""
-        nonlocal t
-        while not stop.is_set():
+    def push_control():
+        st = ctrl.status()
+        LATEST['control'] = st
+        broadcast({'type': 'control', **st})
+
+    def control_handler(action):
+        if not action:
+            return dict(ok=False, msg='缺少 action（start/stop/reset）', **ctrl.status())
+        res = ctrl.control(action)
+        print('[control] %s → %s'
+              % (action, '成功' if res.get('ok') else res.get('msg')), flush=True)
+        return res
+
+    CONTROL_HANDLER = control_handler
+    ctrl.set_on_change(lambda st: push_control())
+
+    def heartbeat():
+        while not SHUTDOWN.is_set():
             time.sleep(1.0)
-            if not t.is_alive():
-                print('[watchdog] 采集线程已退出，正在重启...', flush=True)
-                t = threading.Thread(target=build_pipeline,
-                                     args=(src, on_frame, stop, args.record),
-                                     daemon=True)
-                t.start()
+            try:
+                push_control()
+            except Exception:
+                pass
 
-    threading.Thread(target=watchdog, daemon=True).start()
+    threading.Thread(target=heartbeat, daemon=True, name='radar-heartbeat').start()
 
     srv = Server(('127.0.0.1', args.http_port), Handler)
-    print('数据源: %s' % src.name)
-    print('点云页面: http://127.0.0.1:%d' % args.http_port)
+    print('数据源: %s' % (('%s@%d' % (args.port, args.baud)) if args.source == 'serial'
+                          else (args.replay if args.source == 'replay' else 'loopback')))
+    print('点云页面: http://127.0.0.1:%d   （页面上有 开始 / 结束 / 重置 三个按钮）'
+          % args.http_port)
+    print('控制接口: POST /control  {"action":"start"|"stop"|"reset"}')
+    if args.no_autostart:
+        print('已禁用自动开始：请点页面「开始」，或 POST /control {"action":"start"}')
+    else:
+        ctrl.start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         print('\n停止中...')
     finally:
-        stop.set()
+        SHUTDOWN.set()
+        ctrl.shutdown()
         time.sleep(0.3)
         srv.server_close()
 

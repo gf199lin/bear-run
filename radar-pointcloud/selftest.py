@@ -4,6 +4,9 @@
   1) 解析实机抓包 cap.bin → 帧同步、包数、帧率、坏包位置、真实帧上的点云输出
   2) 编码-解码闭环：合成已知目标 → 编码为真实字节流 → 解析 → 反算目标位置
   3) 方位角符号与线性度
+  4) 采集会话控制：开始 / 结束 / 重置 / 停滞自愈（不碰串口，全用合成源）
+  5) 硬件停机下行帧 与 固件解析规则 的一致性（只构造不发送）
+  6) 近距动作识别（合成点序列）
 输出 UTF-8 文本 (selftest-report.txt)，作为可复查证据。
 """
 import io
@@ -132,16 +135,313 @@ def test_angle():
     return max(errs)
 
 
+class _FastLoopback(LoopbackSource):
+    """把合成数据一次性吐完，之后不再产出 —— 用来人为制造「停滞」。"""
+
+    def read(self, timeout=0.05):
+        if getattr(self, 'pos', 0) >= len(getattr(self, 'data', b'')):
+            time.sleep(0.01)
+            return b''
+        n = min(len(self.data) - self.pos, 400 * 52)
+        chunk = self.data[self.pos:self.pos + n]
+        self.pos += n
+        return chunk
+
+
+def test_control():
+    p('')
+    p('=' * 74)
+    p('测试 4  采集会话控制（开始 / 结束 / 重置 / 停滞自愈）')
+    p('=' * 74)
+    from radar_control import RadarController
+
+    got = {'n': 0}
+    boxes = []
+
+    def on_frame(z0, z1, stats):
+        got['n'] += 1
+
+    def factory():
+        s = _FastLoopback(frames=5)      # 每次会话只吐 5 帧真实字节流，然后沉默
+        boxes.append(s)
+        return s
+
+    ctl = RadarController(factory, on_frame, stall_timeout=1.2, log=p)
+    st = ctl.status()
+    p('  初始              : active=%s sessions=%d' % (st['active'], st['sessions']))
+    a_ok = (not st['active']) and st['sessions'] == 0
+
+    ctl.control('start')
+    time.sleep(1.0)
+    st = ctl.status()
+    p('  开始后            : active=%s sessions=%d frames=%d 源=%s'
+      % (st['active'], st['sessions'], st['frames'], st['source']))
+    b_ok = st['active'] and st['sessions'] == 1 and st['frames'] > 0
+
+    ctl.control('stop')
+    time.sleep(0.4)
+    st = ctl.status()
+    p('  结束后            : active=%s stops=%d elapsed=%.1fs since_frame=%s'
+      % (st['active'], st['stops'], st['elapsed'], st['since_frame']))
+    c_ok = (not st['active']) and st['stops'] == 1 and st['elapsed'] == 0.0
+
+    ctl.control('start')
+    time.sleep(3.2)
+    st = ctl.status()
+    p('  再次开始+停滞自愈 : sessions=%d restarts=%d frames=%d'
+      % (st['sessions'], st['restarts'], st['frames']))
+    d_ok = st['sessions'] == 2 and st['restarts'] >= 1
+
+    n_before = st['frames']
+    st = ctl.control('reset')
+    time.sleep(0.3)
+    p('  重置（采集中）    : frames %d→%d restarts→%d active=%s（清屏/重新计时，采集继续）'
+      % (n_before, st['frames'], st['restarts'], st['active']))
+    e_ok = st['active'] and st['frames'] <= n_before and st['restarts'] == 0
+
+    ctl.stop()
+    time.sleep(0.3)
+    st = ctl.control('reset')
+    time.sleep(0.2)
+    p('  重置（已停止）    : sessions=%d active_seconds=%.1f'
+      % (st['sessions'], st['active_seconds']))
+    f_ok = st['sessions'] == 0 and st['active_seconds'] == 0.0
+    ctl.shutdown()
+
+    ok = all([a_ok, b_ok, c_ok, d_ok, e_ok, f_ok])
+    p('  状态机自检        : %s  (初始=%s 开始=%s 结束=%s 自愈=%s 重置中=%s 重置停=%s)'
+      % ('通过' if ok else '需复核', a_ok, b_ok, c_ok, d_ok, e_ok, f_ok))
+    return ok
+
+
+def test_hwstop():
+    p('')
+    p('=' * 74)
+    p('测试 5  硬件停机下行帧 与 固件解析规则 的一致性（离线，不发送任何数据）')
+    p('=' * 74)
+    from radar_hwstop import (frame, build_plan_frames, FirmwareChecker,
+                              decode_write_reg, parse_ack, START_CFG_CMD,
+                              FINISH_CFG_CMD, WRITE_REG_CMD, MAX_REGS_PER_FRAME)
+    checks = []
+
+    # (a) 进入/退出命令模式帧与固件头文件给出的样例逐字节一致
+    want_start = 'fd fc fb fa 02 00 ff 00 04 03 02 01'
+    got_start = frame(START_CFG_CMD).hex(' ')
+    checks.append(('命令模式帧字节', got_start == want_start, got_start))
+
+    # (b) 写寄存器帧能被固件那条状态机原样解析回来
+    regs = [(0x40, 0x1234), (0x41, 0x0000)]
+    f = frame(WRITE_REG_CMD, b'\x09\x00' + b''.join(
+        int(a).to_bytes(2, 'little') + int(v).to_bytes(2, 'little') for a, v in regs))
+    chk = FirmwareChecker()
+    cmds = chk.feed(f)
+    dev, back = decode_write_reg(cmds[0]) if cmds else (None, [])
+    checks.append(('WRITE_REG 往返', len(cmds) == 1 and cmds[0]['type'] == WRITE_REG_CMD
+                   and chk.errors == 0 and dev == 9 and back == regs,
+                   'dev=0x%02X regs=%s' % (dev or 0, back)))
+    checks.append(('固件左移语义', dev == 9,
+                   'cmdData[0]=0x09 → 固件侧 devAddress=0x%02X' % ((dev or 0) << 1)))
+
+    # (c) 超过单帧寄存器上限必须分帧，且每帧都能解析
+    many = [(0x40 + i, i) for i in range(MAX_REGS_PER_FRAME + 1)]
+    fs = build_plan_frames([{'dev': 9, 'regs': many, 'label': 'x'}])
+    wr = [x for lab, x in fs if FirmwareChecker().feed(x)
+          and FirmwareChecker().feed(x)[0]['type'] == WRITE_REG_CMD]
+    ok_c = len(wr) == 2 and all(len(FirmwareChecker().feed(x)) == 1 for x in wr)
+    checks.append(('分帧 ≤%d 条/帧' % MAX_REGS_PER_FRAME, ok_c, '%d 帧' % len(wr)))
+
+    over = False
+    try:
+        frame(WRITE_REG_CMD, b'\x00' * 60)
+    except ValueError:
+        over = True
+    checks.append(('超长数据域被拒', over, '数据域上限由固件 CMD_LEN_MAX=64 推出'))
+
+    # (d) 应答解析。**注意约定**：固件启动时 masterProtocolVer=0（老约定），
+    #     此时 FillCmdAck 反转状态 → 1=ACK_OK、0=ACK_FAIL；
+    #     2026-10-15 T1 实机实测到的应答就是 status=1（老约定 = OK）。
+    ack_bytes = bytes.fromhex('fdfcfbfa0400ff01010004030201')
+    a = parse_ack(ack_bytes)
+    checks.append(('ACK 解析（老约定 1=OK）', a and a['type'] == 0x00FF and a['status'] == 1
+                   and a['status_text'] == 'ACK_OK' and a['ok'] is True,
+                   'cmdType=0x%04X status=%s convention=%s'
+                   % (a['type'], a['status_text'], a['convention'])))
+    bad = parse_ack(bytes.fromhex('fdfcfbfa0400ff01000004030201'))
+    checks.append(('ACK_FAIL 解析（老约定 0=FAIL）',
+                   bad and bad['status'] == 0 and bad['ok'] is False, bad['status_text']))
+    new = parse_ack(bytes.fromhex('fdfcfbfa0400ff01000004030201'), master_protocol_ver=1)
+    checks.append(('新约定可切换（0=OK）', new and new['status'] == 0 and new['ok'] is True,
+                   '%s convention=%s' % (new['status_text'], new['convention'])))
+
+    # (e) 噪声流不应让校验器崩溃或误判
+    chk = FirmwareChecker()
+    chk.feed(bytes(range(256)) * 4)
+    checks.append(('噪声流稳健', chk.errors > 0, '误字节 %d 个' % chk.errors))
+
+    for name, ok, extra in checks:
+        p('  %-18s: %s   %s' % (name, '通过' if ok else '失败', extra))
+    p('  —— 以上只证明「帧构造与固件解析规则一致」；是否真能停机、能否恢复，')
+    p('     必须等设备空闲后在实机上验证（见 docs/radar-hardware-stop-plan.md）。')
+    return all(ok for _, ok, _ in checks)
+
+
+def test_actions():
+    p('')
+    p('=' * 74)
+    p('测试 6  近距动作识别（合成点序列，规则法，纯离线）')
+    p('=' * 74)
+    from radar_actions import ActionRecognizer
+
+    def mk(px, r=1.2, pa=1.0):
+        """合成一个「目标」：真实雷达一个人通常打出多点，这里用两点簇（带宽 6 cm）。"""
+        out = []
+        for dx, w in ((-0.03, 1.0), (0.03, 0.6)):
+            x = px + dx
+            out.append({'x': x, 'y': r, 'r': r,
+                        'deg': math.degrees(math.atan2(x, r)),
+                        'v': 0.0, 'p': pa, 'pa': pa * w})
+        return out
+
+    def run(rec, seq, dt=0.1295, t0=0.0):
+        t = [t0]
+        evs = []
+        for pts in seq:
+            r = rec.push(pts, t[0])
+            evs += [e for e in r['events']]
+            t[0] += dt
+        return evs, t[0]
+
+    checks = []
+
+    # (a) 向右移动 0.06 m/帧 ≈ 0.46 m/s > 阈值 0.35 → LUANE_RIGHT
+    rec = ActionRecognizer()
+    evs, t_end = run(rec, [mk(-0.36 + 0.06 * i) for i in range(14)])
+    names = [e['name'] for e in evs]
+    checks.append(('右移识别', 'LANE_RIGHT' in names and 'LANE_LEFT' not in names,
+                   '事件=%s' % names))
+
+    # (b) 向左移动 → LANE_LEFT
+    rec = ActionRecognizer()
+    evs, _ = run(rec, [mk(0.36 - 0.06 * i) for i in range(14)])
+    names = [e['name'] for e in evs]
+    checks.append(('左移识别', 'LANE_LEFT' in names and 'LANE_RIGHT' not in names,
+                   '事件=%s' % names))
+
+    # (c) 静止不动 → 不应产生左右事件
+    rec = ActionRecognizer()
+    evs, _ = run(rec, [mk(0.10) for _ in range(16)])
+    names = [e['name'] for e in evs]
+    checks.append(('静止不误报', not any(n in ('LANE_LEFT', 'LANE_RIGHT') for n in names),
+                   '事件=%s' % (names or '无')))
+
+    # (d) 带外目标（2.5 m）应被忽略
+    rec = ActionRecognizer()
+    evs, _ = run(rec, [mk(-0.36 + 0.06 * i, r=2.5) for i in range(14)])
+    checks.append(('带外目标忽略', not evs, '事件=%s' % ([e['name'] for e in evs] or '无')))
+
+    # (e) 目标消失 → TARGET_LOST；回来 → TARGET_BACK
+    rec = ActionRecognizer()
+    _, t1 = run(rec, [mk(0.0) for _ in range(6)])
+    evs, t2 = run(rec, [[] for _ in range(8)], t0=t1)     # 8×0.13s = 1.04s > 0.6s
+    lost = [e['name'] for e in evs]
+    evs2, _ = run(rec, [mk(0.0) for _ in range(3)], t0=t2)
+    back = [e['name'] for e in evs2]
+    checks.append(('丢失/恢复', 'TARGET_LOST' in lost and 'TARGET_BACK' in back,
+                   '丢失=%s 恢复=%s' % (lost, back)))
+
+    # (f) 跳/蹲：必须是「持续的变化过程」才报候选，且候选必须自带未验证标记
+    #     单帧能量毛刺属静态噪声尖峰，不算动作（用户要求判「移动的动态过程」）
+    rec = ActionRecognizer()
+    run(rec, [mk(0.0, pa=1.0) for _ in range(8)])
+    evs, _ = run(rec, [mk(0.0, pa=3.2)])
+    names = [e['name'] for e in evs]
+    checks.append(('单帧毛刺不算跳', not any(n in ('JUMP', 'DUCK') for n in names),
+                   '事件=%s' % (names or '无')))
+
+    rec = ActionRecognizer()
+    run(rec, [mk(0.0, pa=1.0) for _ in range(8)])
+    evs, _ = run(rec, [mk(0.0, pa=3.2) for _ in range(5)])
+    jump = [e for e in evs if e['name'] == 'JUMP']
+    ok_j = bool(jump) and jump[0].get('gated') is True and jump[0].get('verified') is False
+    checks.append(('跳=候选且未验证', ok_j,
+                   '事件=%s' % ([e['name'] for e in evs] or '无')))
+
+    rec = ActionRecognizer()
+    run(rec, [mk(0.0, pa=1.0) for _ in range(8)])
+    evs, _ = run(rec, [mk(0.0, pa=0.25) for _ in range(5)])
+    duck = [e for e in evs if e['name'] == 'DUCK']
+    ok_d = bool(duck) and duck[0].get('gated') is True
+    checks.append(('蹲=候选且未验证', ok_d,
+                   '事件=%s' % ([e['name'] for e in evs] or '无')))
+
+    # (g) 判定必须只看「相对位移方向」，与质心绝对偏移无关
+    #     实测质心可系统性偏 +0.5~+1.0 m（站位/安装几何导致）：
+    #     偏置既不得在静止时误报，也不得让偏置方向的移动判错。
+    rec = ActionRecognizer()
+    evs, _ = run(rec, [mk(-0.80) for _ in range(16)])
+    names = [e['name'] for e in evs]
+    checks.append(('偏置静止不误报',
+                   not any(n in ('LANE_LEFT', 'LANE_RIGHT') for n in names),
+                   'px 恒为 -0.80，事件=%s' % (names or '无')))
+
+    rec = ActionRecognizer()
+    evs, _ = run(rec, [mk(0.80 + 0.06 * i) for i in range(14)])
+    names = [e['name'] for e in evs]
+    checks.append(('偏置下右移仍判对',
+                   'LANE_RIGHT' in names and 'LANE_LEFT' not in names,
+                   'px 由 +0.80 起右移，事件=%s' % names))
+
+    # (h) 单帧野值（杂波/重新捕获）不得污染「相对位移」
+    #     注：max_step 默认 0（关闭）——稀疏点云下固定 0.5 m 门会丢掉大部分帧
+    #     （见 radar_actions.MAX_STEP_DEFAULT 的实测依据）。这里显式打开以验证该能力，
+    #     实际使用时该阈值应由 radar_calibrate.py 实测 p99(|Δpx|) 给出。
+    rec = ActionRecognizer(max_step=0.5)
+    t = [0.0]
+    rej = False
+    names = []
+    for pts in ([mk(0.0) for _ in range(8)] + [mk(1.2)]
+                + [mk(0.0) for _ in range(8)]):
+        r = rec.push(pts, t[0])
+        if r['features'] and r['features'].get('rejected'):
+            rej = True
+        names += [e['name'] for e in r['events']]
+        t[0] += 0.1295
+    checks.append(('野值帧被剔除',
+                   rej and not any(n.startswith('LANE_') for n in names),
+                   'rejected=%s 事件=%s' % (rej, names or '无')))
+
+    # (i) 校准值生效：阈值来自实测（radar_calibrate.py），而非拍脑袋
+    rec = ActionRecognizer(calib={'band': [1.0, 1.6], 'v_on': 0.9, 'v_off': 0.4,
+                                  'min_dx': 0.6, 'max_step': 0.3})
+    evs, _ = run(rec, [mk(-0.36 + 0.06 * i) for i in range(14)])
+    names = [e['name'] for e in evs]
+    checks.append(('校准阈值生效',
+                   rec.band == (1.0, 1.6) and rec.v_on == 0.9 and rec.min_dx == 0.6
+                   and not any(n.startswith('LANE_') for n in names),
+                   'band=%s v_on=%.2f 事件=%s' % (rec.band, rec.v_on, names or '无')))
+
+    for name, ok, extra in checks:
+        p('  %-18s: %s   %s' % (name, '通过' if ok else '失败', extra))
+    return all(ok for _, ok, _ in checks)
+
+
 if __name__ == '__main__':
     cap = sys.argv[1] if len(sys.argv) > 1 else \
         os.path.join(HERE, '..', '.deepworks', 'tmp', 'cap.bin')
     test_capture(cap)
     ok, tested = test_loopback([(1.2, 3.0, -0.5), (0.0, 2.0, 0.4), (-1.6, 4.0, 0.45)])
     e = test_angle()
+    c = test_control()
+    h = test_hwstop()
+    a = test_actions()
     p('')
     p('=' * 74)
-    p('结论: 解析链路 %s；闭环 %d/%d；方位角误差 %.2f°' %
-      ('通过' if tested and ok == tested else '需复核', ok, tested, e))
+    p('结论: 解析链路 %s；闭环 %d/%d；方位角误差 %.2f°；'
+      '会话控制 %s；停机帧一致性 %s；近距动作 %s'
+      % ('通过' if tested and ok == tested else '需复核', ok, tested, e,
+         '通过' if c else '需复核', '通过' if h else '需复核', '通过' if a else '需复核'))
+    p('  注：测试 5 只验证帧构造与固件解析规则一致，不代表实机能停机（未验证）。')
+    p('      测试 6 的跳/蹲仅为规则法候选，未过 P0→T0→T1→T2 验证门，不得当验收结论。')
     p('=' * 74)
     out = os.path.join(HERE, 'selftest-report.txt')
     with open(out, 'w', encoding='utf-8') as f:

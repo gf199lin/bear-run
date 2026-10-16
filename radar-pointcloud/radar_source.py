@@ -9,6 +9,52 @@ from radar_protocol import StreamParser, FrameAssembler
 DEFAULT_PORT = 'COM3'
 DEFAULT_BAUD = 921600
 
+# 自动识别雷达串口时的匹配线索（本项目的 USB-UART 是 CP2102 → 驱动 Silicon Labs）
+RADAR_PORT_HINTS = ('cp210', 'silicon labs', 'silabs', 'silead', 'icl', 'dev202')
+
+
+def list_serial_ports():
+    """枚举当前系统串口 → [(device, description, hwid), ...]。
+
+    只读；枚举失败（缺 pyserial / 平台异常）返回空列表，不抛异常，
+    保证「诊断显示」永远不会把主流程带崩。
+    """
+    try:
+        from serial.tools import list_ports
+    except Exception:
+        return []
+    try:
+        return [(p.device, p.description or '', p.hwid or '')
+                for p in list_ports.comports()]
+    except Exception:
+        return []
+
+
+def find_radar_port(prefer=(DEFAULT_PORT,)):
+    """自动挑选雷达串口。
+
+    返回 (device, reason, ports)：
+      device 为 None 表示当前没有可用目标；
+      reason ∈ 'hint'(按 CP210x 等线索命中) / 'prefer'(命中历史端口名) /
+               'single'(系统只有一个串口) / 'ambiguous'(多个串口但认不出) / 'none'(一个都没有)。
+      ports 为本次枚举结果，供页面/日志显示原始证据。
+    """
+    ports = list_serial_ports()
+    if not ports:
+        return None, 'none', ports
+    for dev, desc, hwid in ports:
+        blob = ('%s %s %s' % (dev, desc, hwid)).lower()
+        for h in RADAR_PORT_HINTS:
+            if h in blob:
+                return dev, 'hint', ports
+    low = [p[0].lower() for p in ports]
+    for want in (prefer or ()):
+        if want and want.lower() in low:
+            return ports[low.index(want.lower())][0], 'prefer', ports
+    if len(ports) == 1:
+        return ports[0][0], 'single', ports
+    return None, 'ambiguous', ports
+
 
 class SourceBase:
     name = 'base'
@@ -23,23 +69,38 @@ class SourceBase:
     def close(self):
         pass
 
+    def diag(self):
+        """链路诊断信息（页面/`/status` 用）；无串口语义的源返回 None。"""
+        return None
+
 
 class SerialSource(SourceBase):
-    """串口源，带自动重连：USB/驱动瞬时失效不会中断整个流水线。"""
+    """串口源，带自动重连：USB/驱动瞬时失效不会中断整个流水线。
+
+    port='auto'（现在的默认值）时**自动识别雷达串口**：每次重试都重新枚举系统串口，
+    优先命中 CP210x/Silicon Labs（本项目 USB-UART 芯片），并在打不开时给出中文原因。
+    因此「先开软件、后插雷达」或「雷达换了 USB 口」都能自动连上，不需要重启软件。
+    """
 
     def __init__(self, port=DEFAULT_PORT, baud=DEFAULT_BAUD, retry_delay=1.0,
-                 on_event=None):
-        self.name = 'serial:%s@%d' % (port, baud)
-        self.port = port
+                 on_event=None, prefer=(DEFAULT_PORT,)):
+        self.auto = (port is None) or (str(port).strip().lower() in ('auto', ''))
+        self.port = None if self.auto else str(port)
         self.baud = baud
+        self.prefer = tuple(p for p in (prefer or ()) if p)
+        self.name = ('serial:auto@%d' % baud) if self.auto else ('serial:%s@%d' % (port, baud))
         self.ser = None
         self.retry_delay = retry_delay
         self.connected = False
         self.reconnects = 0
         self.errors = 0
         self.last_error = None
+        self.last_error_hint = None
+        self.port_reason = None
+        self.ports_seen = []
         self.on_event = on_event
         self._next_try = 0.0
+        self._last_log = None
 
     def _log(self, msg):
         if self.on_event is not None:
@@ -50,6 +111,44 @@ class SerialSource(SourceBase):
                 pass
         print(msg, flush=True)
 
+    def _log_once(self, msg):
+        """同一原因只打一次，避免「没插雷达」时每秒刷屏。"""
+        if msg == self._last_log:
+            return
+        self._last_log = msg
+        self._log(msg)
+
+    def diag(self):
+        return {
+            'auto': bool(self.auto),
+            'port': self.port,
+            'baud': self.baud,
+            'port_reason': self.port_reason,
+            'ports': [{'device': d, 'desc': desc} for d, desc, _ in (self.ports_seen or [])],
+            'connected': bool(self.connected),
+            'last_error': self.last_error,
+            'last_error_hint': self.last_error_hint,
+        }
+
+    @staticmethod
+    def _explain(port, e):
+        """把底层异常翻成可操作的中文原因。"""
+        txt = '%s: %s' % (type(e).__name__, e)
+        low = txt.lower()
+        if ('拒绝访问' in txt or 'permission' in low or 'access is denied' in low
+                or 'being used' in low):
+            return txt, ('%s 被其它程序占用（厂商工具 ICL_mmWaveSensorDevTool 还开着？'
+                         '或另一个 server 实例在跑）' % port)
+        if 'could not open port' in low or 'filenotfound' in low or 'cannot find' in low:
+            return txt, ('%s 不存在（雷达是否已插好 USB？换了接口的话端口号会变）' % port)
+        return txt, None
+
+    def _resolve_target(self):
+        """返回 (port, reason, ports)；固定端口模式下也带回枚举结果，便于诊断。"""
+        if not self.auto:
+            return self.port, 'fixed', list_serial_ports()
+        return find_radar_port(self.prefer)
+
     def _try_open(self):
         import serial
         if self.ser is not None:
@@ -58,24 +157,52 @@ class SerialSource(SourceBase):
             except Exception:
                 pass
             self.ser = None
-        self.ser = serial.Serial(self.port, self.baud, timeout=0.02,
+        port, reason, ports = self._resolve_target()
+        self.port_reason = reason
+        self.ports_seen = ports
+        if port is None:
+            if reason == 'ambiguous':
+                raise RuntimeError('检测到多个串口但认不出雷达（%s），'
+                                   '请用 --port 明确指定'
+                                   % ', '.join(p[0] for p in ports))
+            raise RuntimeError('未检测到任何串口设备')
+        self.ser = serial.Serial(port, self.baud, timeout=0.02,
                                  bytesize=8, parity='N', stopbits=1)
         self.ser.reset_input_buffer()
+        self.port = port
         self.connected = True
         self.last_error = None
+        self.last_error_hint = None
+        self._last_log = None
+        self.name = 'serial:%s@%d' % (port, self.baud)
+        if reason == 'hint':
+            self._log('[serial] 自动识别到雷达串口 %s（CP210x/Silicon Labs 线索）' % port)
+        elif reason in ('prefer', 'single'):
+            self._log('[serial] 使用串口 %s（自动选择规则: %s）' % (port, reason))
         return True
+
+    def _on_fail(self, port, e):
+        self.connected = False
+        self.errors += 1
+        txt, hint = self._explain(port, e)
+        self.last_error = txt
+        self.last_error_hint = hint
+        return txt, hint
 
     def open(self):
         """尽力打开；失败不抛异常，由 read() 持续重试（便于演示时不中断）。"""
         try:
             self._try_open()
         except Exception as e:
-            self.connected = False
-            self.errors += 1
-            self.last_error = '%s: %s' % (type(e).__name__, e)
+            txt, hint = self._on_fail(self.port or '串口', e)
             self._next_try = time.time() + self.retry_delay
-            self._log('[serial] 打开 %s 失败: %s（%.1fs 后重试）'
-                      % (self.port, self.last_error, self.retry_delay))
+            self._log_once('[serial] 打开失败: %s%s（%.1fs 后重试；当前系统串口: %s）'
+                           % (hint or txt, '', self.retry_delay, self._ports_text()))
+
+    def _ports_text(self):
+        if not self.ports_seen:
+            return '无'
+        return ', '.join('%s(%s)' % (d, desc) if desc else d for d, desc, _ in self.ports_seen)
 
     def read(self, timeout=0.05):
         if self.ser is None:
@@ -86,12 +213,15 @@ class SerialSource(SourceBase):
             try:
                 self._try_open()
                 self.reconnects += 1
-                self._log('[serial] %s 已重连（第 %d 次）' % (self.port, self.reconnects))
+                if self.auto and self.port_reason == 'hint':
+                    pass          # _try_open 内已打过「自动识别」日志
+                else:
+                    self._log('[serial] %s 已重连（第 %d 次）' % (self.port, self.reconnects))
             except Exception as e:
-                self.connected = False
-                self.errors += 1
-                self.last_error = '%s: %s' % (type(e).__name__, e)
+                txt, hint = self._on_fail(self.port or '串口', e)
                 self._next_try = now + self.retry_delay
+                self._log_once('[serial] 打开失败: %s（%.1fs 后重试；当前系统串口: %s）'
+                               % (hint or txt, self.retry_delay, self._ports_text()))
                 time.sleep(0.02)
                 return b''
         t0 = time.time()
@@ -101,10 +231,9 @@ class SerialSource(SourceBase):
                 if n:
                     return self.ser.read(n)
             except Exception as e:
-                self.connected = False
-                self.errors += 1
-                self.last_error = '%s: %s' % (type(e).__name__, e)
-                self._log('[serial] %s 读取出错: %s（尝试重连）' % (self.port, self.last_error))
+                port = self.port
+                txt, hint = self._on_fail(port, e)
+                self._log('[serial] 读取出错: %s（尝试重连）' % (hint or txt))
                 self.close()
                 self._next_try = time.time() + self.retry_delay
                 return b''
@@ -228,15 +357,18 @@ class LoopbackSource(SourceBase):
         pass
 
 
-def build_pipeline(source, on_frame, stop, record_path=None, verbose=False):
+def build_pipeline(source, on_frame, stop, record_path=None, verbose=False,
+                   record_append=False):
     """读数据源 → 解析 → 拼帧 → 回调 on_frame(z0, z1, stats)。
 
     数据源与回调的单次异常都不会终止主循环：读错误交给数据源自愈，
     回调错误计数后继续，保证长时间演示不中断。
+
+    record_append: 会话重启时用 'ab' 追加，避免把上一次会话的录制清掉。
     """
     parser = StreamParser()
     asm = FrameAssembler()
-    rec = open(record_path, 'wb') if record_path else None
+    rec = open(record_path, 'ab' if record_append else 'wb') if record_path else None
     t0 = time.time()
     frames = 0
     cb_errors = 0
@@ -274,6 +406,7 @@ def build_pipeline(source, on_frame, stop, record_path=None, verbose=False):
                         'reconnects': getattr(source, 'reconnects', 0),
                         'read_errors': getattr(source, 'errors', 0),
                         'last_error': getattr(source, 'last_error', None),
+                        'src_diag': source.diag() if hasattr(source, 'diag') else None,
                         'cb_errors': cb_errors,
                     }
                     try:
