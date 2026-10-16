@@ -106,6 +106,21 @@ chirpIndex = ((ID & 0x0F) << 4) | ((X1 & 0xF0) >> 4)      // 实测取值 0..63
 
 本项目软件**当前未使用**该协议。厂商文档属保密材料，不入库（`.gitignore` 已排除 `uploads/`、`*.zip`）。
 
+> **2026-10-15 更正（依据固件源码，非厂商文档）**：本节原先只有厂商手册层面的描述，
+> 现经实读固件补齐，并以固件为准：
+>
+> - 帧格式：帧头 **`FD FC FB FA`** + `LEN(u16LE)` + `[cmdType(u16LE) + cmdData]` + 帧尾 **`04 03 02 01`**
+>   （与上文 §5 旧述的 "0xFAFBFCFD / 0x01020304" 是同一串字节的**字节序**写法差异，以固件解析顺序为准）。
+> - 常量：`CMD_BUF_LEN=54`、`CMD_TYPE_LEN=2`、`CMD_LEN_MAX=64`、`CMD_REG_MAX=25`。
+> - `WRITE_REG_CMD=0x0001`、`READ_REG_CMD=0x0002`；`DoWriteReg` **要求先进入命令模式**，
+>   `cmdData[0]` 为 **7 位设备地址**（固件内部左移 1 位后再比较）；单帧最多
+>   `(54-2-2)/4 = 12` 条寄存器。
+> - ACK：`cmdType = 原命令 | 0x0100`，随后 `status(u16LE)`（`0=ACK_OK`）。
+> - 来源：`.deepworks/tmp/dev202h/DEV202H/App/common/src/cmdprocess.c`（`DoWriteReg`、解析状态机）、
+>   `inc/cmdprocess.h`（常量与 ACK 帧示例）。
+> - 注意：**上电即出流**（§1）仍然成立，即"出点云"不依赖下行命令；但"改配置 / 停机"必须走下行命令，
+>   二者不矛盾。详见 `radar-hardware-stop-plan.md`、`radar-control-and-actions.md`。
+
 ---
 
 ## 6. 证据清单
