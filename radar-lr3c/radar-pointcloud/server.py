@@ -33,7 +33,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 import radar_dsp as dsp
 from radar_dsp import PointCloudProcessor
-from radar_actions import ActionRecognizer, load_calib
+from radar_actions import ActionRecognizer, load_calib, AUTO_BAND
 from radar_control import RadarController
 from radar_source import SerialSource, ReplaySource, LoopbackSource
 
@@ -265,8 +265,10 @@ def main():
                     help='相对噪声底 SNR 门限 (dB，内置默认 7.0)')
     ap.add_argument('--no-clutter', action='store_true', help='不做静态杂波抑制')
     ap.add_argument('--min-range', type=float, default=None,
-                    help='屏蔽小于该距离(米)的点, 建议 1.4 以滤掉 bin0/bin1 近距杂波'
-                         '（内置默认 0.0）')
+                    help='屏蔽小于该距离(米)的点。内置默认 0.681 = 整门排除泄漏门 '
+                         'bin0(r≈0.34 m)：实测该门占 ~73%% 点数但仅 ~0.1%% 功率，'
+                         '滤掉不损失真实回波（人站 1.0 m 时 bin1/bin2 一个点都不掉）；'
+                         '人站得远(≥2 m)时才用 1.4 连 bin1 一起滤')
     ap.add_argument('--angle-sign', type=float, default=None, choices=[1.0, -1.0],
                     help='方位角正负约定（内置默认 1.0，可由 calib.json 给出）')
     ap.add_argument('--angle-max', type=float, default=None,
@@ -287,6 +289,23 @@ def main():
                     metavar=('RMIN', 'RMAX'),
                     help='动作识别距离带（米），内置默认 0.70 1.35'
                          '（可由 calib.json 的 band 覆盖）')
+    ap.add_argument('--auto-band', action='store_true',
+                    help='自动选带：开机预热若干帧，按「检出最多的距离门」自行定带'
+                         '（站位换了不用重新改参数）。与 --band 互斥，本开关优先')
+    ap.add_argument('--auto-band-min-frames', type=int, default=None,
+                    help='自动选带最早锁定帧数，默认 30（约 3.9 s）')
+    ap.add_argument('--auto-band-max-frames', type=int, default=None,
+                    help='自动选带兜底锁定帧数，默认 120（约 15.5 s）')
+    ap.add_argument('--crit', default=None, choices=['delta', 'drift'],
+                    help='动作判据。delta=与带内静息基线比绝对位移（出厂默认）；'
+                         'drift=只看相对量「当前 px - 静息基线」。'
+                         '★ 离线实测：出厂默认 delta 会在 1.25 m 站位主动误报 5 次，'
+                         'drift 配 top-k 1 + min-pts 1 才是真值窗命中 8/10 的组合（提案，待小组确认）')
+    ap.add_argument('--top-k', type=int, default=None,
+                    help='每帧只取带内最强 K 点（0=全取）。★ 必须与 --min-pts 1 同用')
+    ap.add_argument('--min-pts', type=int, default=None,
+                    help='带内点数低于此值即视为目标丢失，默认 2。'
+                         '★ top-k=1 时必须给 1，否则每帧都被判成丢失')
     ap.add_argument('--quiet', action='store_true')
     args = ap.parse_args()
 
@@ -297,13 +316,24 @@ def main():
     psec = (cal or {}).get('processor', {}) or {}
     cfar = args.cfar if args.cfar is not None else psec.get('cfar_scale', 2.6)
     min_snr = args.min_snr if args.min_snr is not None else psec.get('min_snr', 7.0)
+    # 内置默认 dsp.RANGE_RES（0.6813）= 「整门排除 bin0」的边界：bin0 中心
+    # 0.34 m < 0.6813，bin1 中心 1.02 m > 0.6813，正好只切掉泄漏门。
+    # 优先级不变（显式命令行 > calib.json > 内置默认）；只是把内置默认从 0.0
+    # 改为「排除泄漏门」，避免不传参数时 0.34 m 的泄漏云铺满画面。
     min_range = (args.min_range if args.min_range is not None
-                 else psec.get('min_range', 0.0))
+                 else psec.get('min_range', dsp.RANGE_RES))
     angle_sign = (args.angle_sign if args.angle_sign is not None
                   else psec.get('angle_sign', 1.0))
     angle_max = (args.angle_max if args.angle_max is not None
                  else psec.get('angle_max', 45.0))
-    band = tuple(args.band) if args.band is not None else         tuple((cal or {}).get('band', [0.70, 1.35]))
+    if args.auto_band and args.band is not None:
+        print('注意: --auto-band 优先，--band 本次被忽略')
+    if args.auto_band:
+        band = AUTO_BAND              # 预热期由识别器自行锁定，band 仍是 None
+    elif args.band is not None:
+        band = tuple(args.band)
+    else:
+        band = tuple((cal or {}).get('band', [0.70, 1.35]))
     if not args.quiet:
         print('校准: %s' % (args.calib if cal else '无（用内置默认/提案值）'))
 
@@ -327,7 +357,11 @@ def main():
         'cfar_scale': getattr(proc, 'cfar_scale', None),
         'min_snr': getattr(proc, 'min_snr', None),
         'angle_sign': getattr(proc, 'angle_sign', None),
-        'band': [round(band[0], 2), round(band[1], 2)],
+        # band 可能是 'auto'（预热期尚未锁定）→ 先用空列表占位，锁定后由
+        # on_frame 写回真实带；viewer 侧 `cfg.band[1] > 0` 天然跳过空列表。
+        'band': ([] if band == AUTO_BAND
+                 else [round(band[0], 2), round(band[1], 2)]),
+        'band_mode': ('auto' if band == AUTO_BAND else 'fixed'),
         'calib': os.path.basename(args.calib) if args.calib else None,
         'actions': not args.no_actions,
         'autostart': not args.no_autostart,
@@ -338,13 +372,41 @@ def main():
     }
 
     state = {'last': 0.0}
+    a_kw = {}
+    for key, val in (('crit', args.crit), ('top_k', args.top_k),
+                     ('min_pts', args.min_pts),
+                     ('auto_band_min_frames', args.auto_band_min_frames),
+                     ('auto_band_max_frames', args.auto_band_max_frames)):
+        if val is not None:
+            a_kw[key] = val
+    if args.top_k == 1 and args.min_pts is None:
+        print('提示: --top-k 1 通常需配 --min-pts 1，否则每帧都会被判成目标丢失')
     recognizer = None if args.no_actions else ActionRecognizer(
-        band=band, calib=cal, max_step=args.max_step)
+        band=band, calib=cal, max_step=args.max_step, **a_kw)
+    if recognizer is not None and not args.quiet:
+        print('动作识别: band=%s crit=%s top_k=%d min_pts=%d'
+              % ('自动选带（预热 %d~%d 帧）' % (recognizer.auto_band_min_frames,
+                                              recognizer.auto_band_max_frames)
+                 if band == AUTO_BAND else recognizer.band,
+                 recognizer.crit, recognizer.top_k, recognizer.min_pts))
 
     def on_frame(z0, z1, stats):
         pts, noise = proc.process(z0, z1)
         r0, _ = proc.rd_map(z0, z1)
         act = recognizer.push(pts, time.time()) if recognizer is not None else None
+        # 自动选带：锁定后把真实带写回 cfg，viewer 就能画出正确的带、
+        # 「按 status 复盘现场设置」也看得到到底选中了哪个门。
+        if recognizer is not None and band == AUTO_BAND:
+            rb = recognizer.band
+            if rb is not None:
+                cb = LATEST['cfg'].get('band') or []
+                if (len(cb) != 2 or abs(cb[0] - rb[0]) > 1e-9
+                        or abs(cb[1] - rb[1]) > 1e-9):
+                    LATEST['cfg']['band'] = [round(rb[0], 2), round(rb[1], 2)]
+                    LATEST['cfg']['band_gate'] = recognizer.band_gate
+                    LATEST['cfg']['band_locked_frame'] = \
+                        recognizer.band_locked_frame
+                    LATEST['cfg']['band_source'] = recognizer.band_source
         payload = make_frame_payload(pts, r0, stats, proc, noise,
                                      control=ctrl.status(), actions=act)
         broadcast(payload)

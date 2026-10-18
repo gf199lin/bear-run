@@ -135,13 +135,24 @@ def make_processor(cal, args):
     """
     from radar_dsp import PointCloudProcessor
     p = (cal or {}).get('processor', {}) or {}
+    # [!] min_range 在本工具里**固定为 0**（不随命令行/calib.json 走）。理由：
+    #     band 模式的核心产出是「哪个距离门有泄漏/有人」（leak_bins / occ /
+    #     pa_share），它必须统计**未被截断**的原始点云。否则一旦把实测到的泄漏门
+    #     写进 processor.min_range，下一次校准就再也看不到那个门（leak_bins 变空、
+    #     推荐带下界被顶到下一个门）—— 屏蔽项会把自己从证据里删掉，形成自我掩盖。
+    #     「屏蔽」是应用层的事（server.py / radar_actions.py 读 calib.json 生效），
+    #     不属于校准统计口径。
+    want_range = getattr(args, 'min_range', None)
+    if want_range not in (None, 0.0):
+        print('[calib] 注意：--min-range=%s 在校准统计中不生效（固定用 0，'
+              '以保证距离门占用率是「未截断」口径）；近距屏蔽请交给 '
+              'server.py / radar_actions.py 执行。' % want_range)
     return PointCloudProcessor(
         cfar_scale=(args.cfar if args.cfar is not None
                     else p.get('cfar_scale', 2.6)),
         min_snr=(getattr(args, 'min_snr', None) if getattr(args, 'min_snr', None)
                  is not None else p.get('min_snr', 7.0)),
-        min_range=(getattr(args, 'min_range', None) if getattr(args, 'min_range', None)
-                   is not None else p.get('min_range', 0.0)),
+        min_range=0.0,
         angle_sign=p.get('angle_sign', 1.0),
         angle_max=p.get('angle_max', 45.0),
     )
@@ -570,9 +581,20 @@ def main(argv=None):
     p_used.update(cfar_scale=float(getattr(
                       proc, 'cfar_scale', None) or args.cfar or 2.6),
                   min_snr=float(getattr(proc, 'min_snr', 7.0)),
-                  min_range=float(getattr(proc, 'min_range', 0.0)),
                   angle_max=float(getattr(proc, 'angle_max', 45.0)))
     p_used.setdefault('angle_sign', float(getattr(proc, 'angle_sign', 1.0)))
+    # min_range **不取 proc 的值**（校准恒用 0，见 make_processor 的说明），而是由
+    # 本次实测的泄漏门推算：(最远的泄漏门 + 1) × 距离门宽 = 「整门排除泄漏」的边界。
+    # 这样「识别到泄漏门」自动变成「应用层会执行的屏蔽值」，闭环不再依赖人工转录；
+    # 而统计用的是未截断口径，所以下一次仍能看见同一个门（不会自我掩盖）。
+    # rest / sign 模式没有 leak_bins，沿用文件里已有的值，不擅自改写。
+    leak_bins = res.get('leak_bins') if isinstance(res, dict) else None
+    if leak_bins:
+        p_used['min_range'] = round((max(leak_bins) + 1) * BIN_PITCH, 3)
+        print('[calib] 实测泄漏门 %s → processor.min_range = %s'
+              '（应用层将据此屏蔽近场泄漏云）' % (leak_bins, p_used['min_range']))
+    elif 'min_range' not in p_used:
+        p_used['min_range'] = 0.0
     out['processor'] = p_used
     out.setdefault('source', args.file or ('serial:%s' % args.port))
     notes = list(out.get('notes') or [])

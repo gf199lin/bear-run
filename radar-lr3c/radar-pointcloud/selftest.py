@@ -419,6 +419,130 @@ def test_actions():
                    rec.band == (1.0, 1.6) and rec.v_on == 0.9 and rec.min_dx == 0.6
                    and not any(n.startswith('LANE_') for n in names),
                    'band=%s v_on=%.2f 事件=%s' % (rec.band, rec.v_on, names or '无')))
+    # (j) crit='drift'（静息水平偏移）= 2026-10-18 新增判据，参考系由「窗内起点」
+    #     换成「时间基线 base（近 rest_win 秒 px 中位数）」。它**仍是相对量**
+    #     （只用 px − base，不比较 px 绝对值），所以「人停在一侧不动」不得误报，
+    #     包括停在大负偏移一侧。背景与真值数据实测见
+    #     docs/progress-radar-pointcloud.md §7.26~§7.28。
+    checks.append(('crit 默认未变', ActionRecognizer().crit == 'delta',
+                   '默认 crit=%s（不得静默改判据）' % ActionRecognizer().crit))
+
+    rec = ActionRecognizer(crit='drift')
+    evs, _ = run(rec, [mk(1.10) for _ in range(40)] + [mk(-1.20) for _ in range(8)])
+    names = [e['name'] for e in evs]
+    checks.append(('drift 左移识别',
+                   names.count('LANE_LEFT') == 1 and 'LANE_RIGHT' not in names,
+                   '事件=%s' % names))
+
+    rec = ActionRecognizer(crit='drift')
+    evs, _ = run(rec, [mk(1.10) for _ in range(40)] + [mk(0.60) for _ in range(8)])
+    names = [e['name'] for e in evs]
+    checks.append(('drift 右移识别',
+                   names.count('LANE_RIGHT') == 1 and 'LANE_LEFT' not in names,
+                   '事件=%s' % names))
+
+    # 停在一侧不动（绝对偏置很大、甚至为负）→ 不得误报：base 会把它吸收为参考系。
+    # 这条正是「drift 仍是相对量」的锚点，与 (g) 对应。
+    rec = ActionRecognizer(crit='drift')
+    evs, _ = run(rec, [mk(-2.00) for _ in range(40)])
+    names = [e['name'] for e in evs]
+    checks.append(('drift 偏置静止不误报',
+                   not any(n in ('LANE_LEFT', 'LANE_RIGHT') for n in names),
+                   'px 恒为 -2.00，事件=%s' % (names or '无')))
+
+    # 基线样本不足（< 8 帧）→ 不产生方向证据（宁可不报也不猜）
+    rec = ActionRecognizer(crit='drift')
+    evs, _ = run(rec, [mk(-1.50) for _ in range(6)])
+    names = [e['name'] for e in evs]
+    checks.append(('drift 无基线不猜',
+                   not any(n in ('LANE_LEFT', 'LANE_RIGHT') for n in names),
+                   '仅 6 帧，事件=%s' % (names or '无')))
+
+    # 非法参数必须被拒（防止 typo 静默退化成旧判据）
+    try:
+        ActionRecognizer(crit='drfit')
+        bad = False
+    except ValueError:
+        bad = True
+    try:
+        ActionRecognizer(crit='drift', drift_left=0.2, drift_right=0.3)
+        bad2 = False
+    except ValueError:
+        bad2 = True
+    checks.append(('drift 参数校验', bad and bad2,
+                   '未知 crit 与 right>=left 均被拒'))
+
+
+    # (k) 距离带自动选择（band='auto'）= 2026-10-19 新增能力
+    #     动机：出厂默认带 (0.70,1.35) 圈在 j=1 这个**空门**，真实站位落在 j=2
+    #     ⇒ 用默认带 0/10 命中且**主动误报 3 次**（§7.28.3）。
+    #     做法：预热期只按距离门数点数，锁定后照常判动作；
+    #     预热期**不得**发任何动作事件（没有带就没有 px，宁可不判也不猜）。
+    from radar_actions import BAND_DEFAULT
+
+    rec = ActionRecognizer()
+    checks.append(('自动带 默认关闭',
+                   rec.band_mode == 'fixed' and rec.band == BAND_DEFAULT
+                   and rec.band_source == 'fixed',
+                   '默认 band_mode=%s band=%s' % (rec.band_mode, rec.band)))
+
+    # 目标落在 j=2（r=1.70 m → 门 1.36~2.04 m）：预热 10 帧后必须锁定该门
+    rec = ActionRecognizer(band='auto', auto_band_min_frames=10,
+                           auto_band_max_frames=20, auto_band_min_points=4)
+    evs, _ = run(rec, [mk(0.0, r=1.70) for _ in range(10)])
+    names = [e['name'] for e in evs]
+    lo, hi = 2 * dsp.RANGE_RES, 3 * dsp.RANGE_RES
+    ok_k = (rec.band_gate == 2 and rec.band_source == 'auto'
+            and abs(rec.band[0] - lo) < 1e-6 and abs(rec.band[1] - hi) < 1e-6
+            and rec.band_locked_frame == 10
+            and any(e['name'] == 'BAND_READY' and e.get('info') for e in evs))
+    checks.append(('自动带 选中最强门', ok_k,
+                   '门 j=%s band=(%.2f, %.2f) 第 %s 帧锁定 事件=%s'
+                   % (rec.band_gate, rec.band[0], rec.band[1],
+                      rec.band_locked_frame, names)))
+
+    # 预热期内不得发动作事件（未达 min_frames：11 < 12）
+    rec = ActionRecognizer(band='auto', auto_band_min_frames=12,
+                           auto_band_max_frames=20)
+    evs, _ = run(rec, [mk(-0.36 + 0.06 * i, r=1.70) for i in range(11)])
+    names = [e['name'] for e in evs]
+    checks.append(('自动带 预热不发动作', not names,
+                   '预热 11 帧（未达 12）事件=%s' % (names or '无')))
+
+    # 只有近场泄漏门（j=0）有点 → 不许假装选对了，必须退回默认带并如实标注
+    rec = ActionRecognizer(band='auto', auto_band_min_frames=4,
+                           auto_band_max_frames=6, auto_band_min_points=2)
+    run(rec, [mk(0.0, r=0.30) for _ in range(6)])
+    ok_fb = (rec.band_locked_frame == 6 and rec.band_source == 'auto-fallback'
+             and rec.band == BAND_DEFAULT and rec.band_gate is None)
+    checks.append(('自动带 泄漏门不冒充', ok_fb,
+                   'source=%s band=%s' % (rec.band_source, rec.band)))
+
+    # 锁定之后必须照常工作：同一序列在自动选出的带上应能判出右移
+    rec = ActionRecognizer(band='auto', auto_band_min_frames=6,
+                           auto_band_max_frames=12, auto_band_min_points=4)
+    run(rec, [mk(0.0, r=1.70) for _ in range(6)])
+    evs, _ = run(rec, [mk(-0.36 + 0.06 * i, r=1.70) for i in range(14)],
+                 t0=6 * 0.1295)
+    names = [e['name'] for e in evs]
+    checks.append(('自动带 锁定后可判',
+                   'LANE_RIGHT' in names and 'LANE_LEFT' not in names,
+                   'band=%s 事件=%s' % (rec.band, names)))
+
+    # 参数校验：手误必须当场报错，不能被「没启用自动选带」吞掉
+    bad_k = []
+    for kw in ({'auto_band_min_frames': 0},
+               {'auto_band_min_frames': 10, 'auto_band_max_frames': 5},
+               {'auto_band_min_points': 0},
+               {'auto_band_dominance': 0.5}):
+        try:
+            ActionRecognizer(**kw)
+            bad_k.append(False)
+        except ValueError:
+            bad_k.append(True)
+    checks.append(('自动带 参数校验', all(bad_k),
+                   '4 个非法取值均被拒: %s' % bad_k))
+
 
     for name, ok, extra in checks:
         p('  %-18s: %s   %s' % (name, '通过' if ok else '失败', extra))

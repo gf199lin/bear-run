@@ -411,8 +411,28 @@ def main(argv=None):
             print('[!] --files 个数(%d) 与 --stations 个数(%d) 不一致，'
                   '按较短的对齐' % (len(files), len(stations)))
         for dist, fp_ in zip(stations, files):
+            # 只分析已有文件时，窗口信息要从同目录的标签文件 _meta.window 里取回来；
+            # 否则 window_frames() 会退化成「整段统计」，把稳定期/倒计时的走动算进去。
+            f0 = f1 = None
+            lab = os.path.splitext(fp_)[0] + '.labels.jsonl'
+            if args.use_window and os.path.exists(lab):
+                try:
+                    with open(lab, 'r', encoding='utf-8') as f:
+                        head = json.loads(f.readline())
+                    w = (head.get('_meta') or {}).get('window') or {}
+                    if w.get('frame_start') is not None and w.get('frame_end') is not None:
+                        f0, f1 = int(w['frame_start']), int(w['frame_end'])
+                        print('[win] %s 用标签窗口 [%d, %d]（%d 帧）'
+                              % (os.path.basename(fp_), f0, f1, f1 - f0))
+                except Exception as e:
+                    print('[!] %s 窗口读取失败，将按整段统计: %s' % (lab, e))
+            if f0 is None:
+                print('[win] %s 无可用窗口 -> 按整段统计'
+                      '（可能混入稳定期走动，数字不可与在线报告直接比较）'
+                      % os.path.basename(fp_))
             recs.append({'dist': float(dist), 'bin': fp_, 'valid': True,
-                         'frames_window': 0, 'labels': None})
+                         'frames_window': (f1 - f0) if f0 is not None else 0,
+                         'labels': lab, 'f0': f0, 'f1': f1})
     else:
         print('=' * 76)
         print('站位自检引导采集')
