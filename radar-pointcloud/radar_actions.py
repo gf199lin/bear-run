@@ -151,6 +151,72 @@ REQUIRE_SIGN_AGREE_DEFAULT = True   # v_lat 与 dx 必须同号才动作（D6 �
 # 跳/蹲候选：要求能量变化**连续保持** N 帧（判「过程」而不是判单帧毛刺）
 JUMP_DUCK_CONFIRM_DEFAULT = 3
 
+# ---------------- 「静息水平偏移」判据（2026-10-18 新增；提案，待小组确认） ----------------
+# 背景与实测依据：docs/progress-radar-pointcloud.md §7.26 ~ §7.28。
+#   原判据（crit='delta'，默认）量的是**窗内**相对位移 v_lat/dx，已在真值数据上实测
+#   无法区分左右（`seg_01.25`/`seg_01.50` 召回 0/10，§7.15）。根因：真值 t_start 是
+#   **提示音时刻**，而人起步到位需要 0.4~1.9 s（§7.26.3）——窗内口径把「人还没动」
+#   当成了位移起点，系统性压缩真实位移。
+#   新判据（crit='drift'）改用**时间基线**作参考系：在线跟踪静息水平 base
+#   （近 rest_win 秒内检出帧 px 的中位数），再判「当前 px 相对 base 的偏移 d」。
+#   ★ 它依然是**相对量**（判定只用到 `px - base`），不比较 px 的绝对数值 ——
+#     与原判据「绝对 px 不参与判定」的原则一致，区别只是参考系由「窗内起点」
+#     换成「时间基线」。实测（同一真值集）：1.25 m 命中 9/10、误报 1 次(0.5/min)，
+#     优于绝对阈值变体；置换检验 p≤0.0033（详 §7.27/§7.28）。
+#   ⚠ 边界：base 需要一段静息预热（约 10~20 s）才收敛；阈值属**样本内**选定；
+#     LEFT 在 1.50 m 站位上仍检不到（根因是回波弱，不是方向判错）。
+CRIT_DEFAULT = 'delta'         # 'delta'（原判据：窗内位移）| 'drift'（静息水平偏移）
+REST_WIN_DEFAULT = 60.0        # 静息水平基线的滑动窗口 s（提案值；越大越稳、预热越久）
+DRIFT_LEFT_DEFAULT = 1.30      # d <= -DRIFT_LEFT → LEFT（大负偏移）
+DRIFT_RIGHT_DEFAULT = 0.25     # -DRIFT_LEFT < d <= -DRIFT_RIGHT → RIGHT（小负偏移）
+DRIFT_RELEASE_DEFAULT = 0.10   # 释放门：d 回到 -该值以内即释放回 CENTER（滞回）
+                               # ★ 必须满足 0 <= DRIFT_RELEASE < DRIFT_RIGHT。
+                               #   2026-10-19 修（devlog §7.33）：此前释放条件直接
+                               #   复用了 DRIFT_RIGHT，且释放语句只写在 not moved
+                               #   分支 ⇒ hold 恒为假、lane 永不回 CENTER，同方向
+                               #   连续动作在没有 TARGET_LOST 间隔时被静默吞掉
+                               #   （外样本 3/10；修后 6/10，误报 0）。
+                               #   取值 0.10 是在 3 个文件上扫出的**样本内**最佳值。
+
+# ---------------- 距离带自动选择（2026-10-19 新增；提案，待小组确认） --------
+# 为什么需要它：出厂默认带 `BAND_DEFAULT = (0.70, 1.35)` 圈在 j=1（门中心
+#   1.02 m），而实测真实站位**根本不落在该门**：1.25 m 站位 48% 的检出在 j=2、
+#   1.50 m 站位 65% 在 j=2。用默认带 ⇒ 0/10 命中且**主动误报 3 次**；
+#   换成 j=2 的带（1.36~2.04 m）⇒ 命中 8/10、误报 0。详 §7.28.3。
+# 做法：开机后先只做「数点数」——按距离门统计检出点数，把 j>=1 中点数最多的
+#   那一门当作距离带；预热期**不发任何车道事件、也不算 px**（没有带就没有
+#   横向坐标，宁可不判也不猜）。
+# 离线实测（`.deepworks/tmp/probe_autoband.py`，两个真值文件）：
+#   两站位都从第 20 帧起 j=2 即居首；按下面的规则锁定在第 40 / 30 帧
+#   （5.2 s / 3.9 s），**早于**首条真值窗（第 53 帧 = 6.86 s），因此不吞动作。
+AUTO_BAND = 'auto'                    # 传给 band= 的字符串，启用自动选带
+AUTO_BAND_MIN_FRAMES_DEFAULT = 30     # 最早允许锁定的帧数（≈3.9 s）
+AUTO_BAND_MAX_FRAMES_DEFAULT = 120    # 兜底：到这一帧必须锁定（≈15.5 s）
+AUTO_BAND_MIN_POINTS_DEFAULT = 20     # 允许锁定所需的最少累计检出点数
+AUTO_BAND_DOMINANCE_DEFAULT = 1.5     # 首选门须 >= 该倍数 × 次选门才提前锁定
+AUTO_BAND_MIN_GATE = 1                # 排除 j=0 近场泄漏门（同 min_range=0.681）
+RANGE_RES_MIRROR = 0.6813             # 镜像 radar_dsp.RANGE_RES（import 失败时用）
+RANGE_BINS_MIRROR = 8                 # 镜像 radar_dsp.BINS
+BAND_READY = 'BAND_READY'             # 信息事件：距离带已选定（**不是游戏动作**）
+
+
+def _is_auto_band(band):
+    """band 是否为「自动选带」标记（字符串 'auto'，大小写与空白不敏感）。"""
+    return isinstance(band, str) and band.strip().lower() == AUTO_BAND
+
+
+def _range_grid():
+    """距离门的几何 (门宽 m, 门数)。
+
+    优先取 `radar_dsp` 的真实常量，保证与 DSP 层永远一致；只有在
+    import 不可用时才退到镜像值（这样本模块仍可被单独 import 做自检）。
+    """
+    try:
+        from radar_dsp import BINS, RANGE_RES
+        return float(RANGE_RES), int(BINS)
+    except Exception:
+        return RANGE_RES_MIRROR, RANGE_BINS_MIRROR
+
 
 def load_calib(src):
     """载入校准结果：接受 dict、JSON 路径、或 None。
@@ -184,10 +250,20 @@ class ActionRecognizer:
                  max_step=None, res_pa_frac=RES_PA_FRAC_DEFAULT,
                  top_k=TOP_K_DEFAULT, slope=SLOPE_DEFAULT, dx_mode=DX_MODE_DEFAULT,
                  require_sign_agree=REQUIRE_SIGN_AGREE_DEFAULT,
-                 jump_duck_confirm=JUMP_DUCK_CONFIRM_DEFAULT):
+                 jump_duck_confirm=JUMP_DUCK_CONFIRM_DEFAULT,
+                 crit=CRIT_DEFAULT, rest_win=REST_WIN_DEFAULT,
+                 drift_left=DRIFT_LEFT_DEFAULT, drift_right=DRIFT_RIGHT_DEFAULT,
+                 drift_release=DRIFT_RELEASE_DEFAULT,
+                 auto_band_min_frames=AUTO_BAND_MIN_FRAMES_DEFAULT,
+                 auto_band_max_frames=AUTO_BAND_MAX_FRAMES_DEFAULT,
+                 auto_band_min_points=AUTO_BAND_MIN_POINTS_DEFAULT,
+                 auto_band_dominance=AUTO_BAND_DOMINANCE_DEFAULT):
         # ---- 先取校准值，再用显式参数覆盖（显式参数优先级最高） ----
         cal = load_calib(calib) or {}
-        if band is None:
+        # band='auto' 既可以显式传，也可以写在 calib.json 的 band 字段里
+        # （写成字符串 "auto"）。两者都表示「预热期自己数点数选带」。
+        auto = _is_auto_band(band) or _is_auto_band(cal.get('band'))
+        if not auto and band is None:
             band = cal.get('band', BAND_DEFAULT)
         if v_on is None:
             v_on = cal.get('v_on', V_ON_DEFAULT)
@@ -199,13 +275,43 @@ class ActionRecognizer:
             max_step = cal.get('max_step', MAX_STEP_DEFAULT)
         self.calib = cal or None
 
-        if not (0 < band[0] < band[1]):
+        if not auto and not (0 < band[0] < band[1]):
             raise ValueError('距离带非法: %r' % (band,))
         if slope not in ('theilsen', 'lstsq'):
             raise ValueError("slope 只能是 'theilsen' 或 'lstsq': %r" % (slope,))
         if dx_mode not in ('median', 'endpoints'):
             raise ValueError("dx_mode 只能是 'median' 或 'endpoints': %r" % (dx_mode,))
-        self.band = (float(band[0]), float(band[1]))
+        if crit not in ('delta', 'drift'):
+            raise ValueError("crit 只能是 'delta' 或 'drift': %r" % (crit,))
+        if not rest_win > 0:
+            raise ValueError('rest_win 必须 > 0: %r' % (rest_win,))
+        if not drift_right < drift_left:
+            raise ValueError('须满足 drift_right < drift_left: %r, %r'
+                             % (drift_right, drift_left))
+        # 释放门必须严格小于触发门才构成滞回（>= 触发门就退化成「无滞回」，
+        # 动作前后 d 穿越阈值会额外打出重复事件，devlog §7.33.5）。
+        if not 0.0 <= drift_release < drift_right:
+            raise ValueError('须满足 0 <= drift_release < drift_right: %r, %r'
+                             % (drift_release, drift_right))
+        # 这四个参数**无条件校验**（不管是否启用自动选带）：这样
+        # `auto_band_min_frames=0` 这类手误会当场报错，而不是被
+        # 「反正没启用」静默吞掉。
+        if int(auto_band_min_frames) < 1:
+            raise ValueError('auto_band_min_frames 必须 >= 1: %r'
+                             % (auto_band_min_frames,))
+        if int(auto_band_max_frames) < int(auto_band_min_frames):
+            raise ValueError('须满足 auto_band_max_frames >= '
+                             'auto_band_min_frames: %r, %r'
+                             % (auto_band_max_frames, auto_band_min_frames))
+        if int(auto_band_min_points) < 1:
+            raise ValueError('auto_band_min_points 必须 >= 1: %r'
+                             % (auto_band_min_points,))
+        if not float(auto_band_dominance) >= 1.0:
+            raise ValueError('auto_band_dominance 必须 >= 1.0: %r'
+                             % (auto_band_dominance,))
+        # ★ band='auto' 时 self.band 在锁定前是 None：此刻还没有「带」这个
+        #   概念，任何用到 self.band 的代码都必须先看 self._band_locked。
+        self.band = None if auto else (float(band[0]), float(band[1]))
         self.window = int(window)
         self.min_pts = int(min_pts)
         self.confirm = int(confirm)
@@ -224,7 +330,35 @@ class ActionRecognizer:
         self.require_sign_agree = bool(require_sign_agree)
         self.jump_duck_confirm = int(jump_duck_confirm)
 
+        # ---- crit='drift' 用：静息水平基线（时间参考系）与阈值 ----
+        # ⚠ `_rest` 刻意**不随 _reset_track()/TARGET_LOST 清空**：静息水平描述的是
+        #    「站位 + 安装几何」这一场景常量，不是「目标轨迹」。清掉会让每次重新
+        #    捕获后都要重新预热，反而制造假位移。
+        self.crit = crit
+        self.rest_win = float(rest_win)
+        self.drift_left = float(drift_left)
+        self.drift_right = float(drift_right)
+        self.drift_release = float(drift_release)
+
+        # ---- band='auto' 用：按门累计检出，预热期结束后锁定距离带 ----
+        self.band_mode = AUTO_BAND if auto else 'fixed'
+        self.auto_band_min_frames = int(auto_band_min_frames)
+        self.auto_band_max_frames = int(auto_band_max_frames)
+        self.auto_band_min_points = int(auto_band_min_points)
+        self.auto_band_dominance = float(auto_band_dominance)
+        self._range_res, self._range_bins = _range_grid()
+        self._band_counts = {}          # 门号 -> 累计检出点数
+        self._band_frames = 0           # 预热期已过的帧数
+        self._band_locked = not auto    # 固定带从一开始就是「已锁定」
+        self.band_gate = None           # 选中的门号（j=0..7）
+        self.band_count = 0             # 选中门累计检出点数
+        self.band_total = 0             # 全部门的累计检出点数
+        self.band_locked_frame = None   # 在第几帧锁定
+        self.band_source = 'fixed' if not auto else None
+        self.band_counts_final = None   # 锁定时的逐门计数快照（诊断用）
+
         self.hist = deque(maxlen=self.window)     # (t, px|None, n, energy, rejected)
+        self._rest = deque()                      # (t, px)：近 rest_win 秒的检出帧
         self.lane = 'CENTER'
         self.events = 0
         self._dir_frames = 0
@@ -253,6 +387,9 @@ class ActionRecognizer:
         now = time.time() if t is None else float(t)
         if self._t_first is None:
             self._t_first = now
+        # band='auto'：带还没选定 → 本帧只用于数点数，不判动作、不算 px。
+        if not self._band_locked:
+            return self._auto_band_step(pts, now)
         sel = [p for p in pts if self.band[0] <= p['r'] <= self.band[1]]
         sel = self._gate_points(sel)                 # D1 点位级门控
         out = []
@@ -311,6 +448,13 @@ class ActionRecognizer:
             'rejected': rejected,
         }
         self.hist.append((now, px, len(sel), e_sum, rejected))
+        # 静息水平基线：只在「帧级门控通过」的帧上喂数据（与判据本身同源）。
+        # 只保留近 rest_win 秒，内存 O(rest_win × 帧率)。
+        if self.crit == 'drift':
+            self._rest.append((now, px))
+            cut = now - self.rest_win
+            while self._rest and self._rest[0][0] < cut:
+                self._rest.popleft()
 
         # ---------------- 相对位移估计（稳健） ----------------
         ts = [h[0] for h in self.hist if h[1] is not None]
@@ -327,19 +471,46 @@ class ActionRecognizer:
             feat['px_mad'] = round(self._mad_step(np.asarray(xs)), 3)
 
         # ---------------- 左/右判定（相对位移方向 + 阈值 + 滞回 + 确认） ----
-        # ★ 只用 v_lat / dx 的**符号与幅度**；从不比较 px 的绝对数值。
-        moved = (v_lat is not None and abs(v_lat) >= self.v_on
-                 and dx is not None and abs(dx) >= self.min_dx)
+        # 两种判据共用下面的「滞回 + 确认 + 最短间隔」状态机，只有「本帧证据」不同：
+        #   crit='delta'（默认）：证据 = 窗内相对位移 v_lat/dx —— 原行为，逐位不变
+        #   crit='drift'        ：证据 = 当前 px 相对静息水平 base 的偏移 d（时间基线）
+        # ★ 两者都只用**相对量**：delta 用「窗内首尾之差」，drift 用「px − base」；
+        #   没有任何一处比较 px 的绝对数值。
         drift = None
-        if moved:
-            s_v = 1 if v_lat > 0 else -1
-            s_d = 1 if dx > 0 else -1
-            if (not self.require_sign_agree) or (s_v == s_d):
-                drift = s_v           # +1 = 向右漂移，-1 = 向左漂移（相对！）
+        ev_kw = {}
+        hold = False                     # 是否释放已有方向（回到 CENTER）
+        if self.crit == 'drift':
+            base = self._rest_level(now)
+            d = None if base is None else float(px - base)
+            feat['base'] = None if base is None else round(base, 3)
+            feat['d_rest'] = None if d is None else round(d, 3)
+            feat['n_rest'] = len(self._rest)
+            moved = d is not None and d <= -self.drift_right
+            if moved:
+                # 大负偏移 = 人已左移到位；小负偏移 = 人已右移到位
+                drift = -1.0 if d <= -self.drift_left else 1.0
                 feat['drift'] = 'RIGHT' if drift > 0 else 'LEFT'
-            else:
-                # 两个独立估计互相矛盾 → 本帧不作为方向证据（降噪 D6）
-                feat['drift'] = 'REJECT_CONFLICT'
+                ev_kw = {'d_rest': d, 'base': base, 'n_rest': len(self._rest)}
+            # ★ 释放条件必须与触发条件**不同**（滞回）：d 回到静息附近即释放。
+            #   2026-10-19 修：原实现与 moved 同式且只在 not moved 分支执行，
+            #   hold 恒假 ⇒ lane 永不回 CENTER（devlog §7.33）。
+            hold = (self.lane != 'CENTER'
+                    and (d is None or d > -self.drift_release))
+        else:
+            moved = (v_lat is not None and abs(v_lat) >= self.v_on
+                     and dx is not None and abs(dx) >= self.min_dx)
+            if moved:
+                s_v = 1 if v_lat > 0 else -1
+                s_d = 1 if dx > 0 else -1
+                if (not self.require_sign_agree) or (s_v == s_d):
+                    drift = s_v       # +1 = 向右漂移，-1 = 向左漂移（相对！）
+                    feat['drift'] = 'RIGHT' if drift > 0 else 'LEFT'
+                else:
+                    # 两个独立估计互相矛盾 → 本帧不作为方向证据（降噪 D6）
+                    feat['drift'] = 'REJECT_CONFLICT'
+            ev_kw = {'v_lat': v_lat, 'dx': dx}
+            hold = (self.lane != 'CENTER'
+                    and (v_lat is None or abs(v_lat) <= self.v_off))
         if moved and drift is not None:
             want = 'RIGHT' if drift > 0 else 'LEFT'
             if self.lane != want:
@@ -350,12 +521,12 @@ class ActionRecognizer:
                     self._last_flip = now
                     self._dir_frames = 0
                     out.append(self._evt(LANE_LEFT if want == 'LEFT' else LANE_RIGHT,
-                                         now, v_lat=v_lat, dx=dx))
+                                         now, **ev_kw))
             else:
                 self._dir_frames = 0
         else:
             self._dir_frames = 0
-            if self.lane != 'CENTER' and (v_lat is None or abs(v_lat) <= self.v_off):
+            if hold:
                 self.lane = 'CENTER'
 
         # ---------------- 跳/蹲：仅候选（受控能力，见文件头） ----------------
@@ -392,6 +563,84 @@ class ActionRecognizer:
         return self._result(now, feat, out)
 
     # ------------------------------------------------------------------ 内部
+    def _gate_of(self, r):
+        """距离门号：与 `radar_dsp.synth_frame` 的 `int(r / RANGE_RES)` 同规则。"""
+        j = int(float(r) // self._range_res)
+        return min(max(j, 0), self._range_bins - 1)
+
+    def _auto_band_step(self, pts, now):
+        """预热期的一帧：累计各门检出点数，够条件就锁定距离带。
+
+        锁定规则（两道门，取先到者）：
+          A. 提前锁定：`frames >= auto_band_min_frames`
+             且 首选门 >= auto_band_dominance × 次选门
+             且 累计检出 >= auto_band_min_points
+          B. 到点锁定：`frames >= auto_band_max_frames`（无论分布如何）
+        只有在 A/B 之后才可能出现「无候选门」→ 此时退回 `BAND_DEFAULT`
+        并把 `band_source` 标成 'auto-fallback'（不装作选对了）。
+        j=0（近场泄漏门）不参与候选：它已被 DSP 的 min_range 排除，此处是护栏。
+        """
+        self._band_frames += 1
+        for p in pts:
+            r = p.get('r')
+            if r is None:
+                continue
+            j = self._gate_of(r)
+            self._band_counts[j] = self._band_counts.get(j, 0) + 1
+
+        total = sum(self._band_counts.values())
+        cand = sorted(((c, j) for j, c in self._band_counts.items()
+                       if j >= AUTO_BAND_MIN_GATE), reverse=True)
+        top = cand[0] if cand else (0, None)
+        second = cand[1][0] if len(cand) > 1 else 0
+        early = (self._band_frames >= self.auto_band_min_frames
+                 and total >= self.auto_band_min_points
+                 and top[1] is not None
+                 and top[0] >= self.auto_band_dominance * max(second, 1))
+        if early or self._band_frames >= self.auto_band_max_frames:
+            self._lock_band(top, total, now)
+
+        feat = {'band_mode': AUTO_BAND, 'band_frames': self._band_frames,
+                'band_locked': self._band_locked, 'band_progress':
+                round(self._band_frames / float(self.auto_band_max_frames), 3)}
+        out = []
+        if self._band_locked:
+            feat['band_gate'] = self.band_gate
+            feat['band_lo'] = None if self.band is None else round(self.band[0], 3)
+            feat['band_hi'] = None if self.band is None else round(self.band[1], 3)
+            feat['band_source'] = self.band_source
+            feat['band_count'] = self.band_count
+            out.append(self._evt(
+                BAND_READY, now, info=True,
+                band_gate=self.band_gate,
+                band_lo=None if self.band is None else self.band[0],
+                band_hi=None if self.band is None else self.band[1],
+                band_count=self.band_count, band_total=self.band_total,
+                band_frames=self._band_frames, band_source=self.band_source))
+        # 预热期一帧都不进 hist：没有带就没有 px，不能拿半成品当轨迹。
+        return self._result(now, feat, out)
+
+    def _lock_band(self, top, total, now):
+        """锁定距离带（含「无候选门 → 退回 BAND_DEFAULT」的诚实分支）。"""
+        if top[1] is None:
+            self.band = (float(BAND_DEFAULT[0]), float(BAND_DEFAULT[1]))
+            self.band_gate = None
+            self.band_count = 0
+            self.band_source = 'auto-fallback'
+        else:
+            j = top[1]
+            self.band = (j * self._range_res, (j + 1) * self._range_res)
+            self.band_gate = j
+            self.band_count = top[0]
+            self.band_source = 'auto'
+        self.band_total = int(total)
+        self.band_locked_frame = self._band_frames
+        self.band_counts_final = dict(self._band_counts)
+        self._band_locked = True
+        # base 是「某个带内的 px 中位数」——换带即换参考系，必须清空重算，
+        # 否则会拿旧带的水平去判新带的偏移（假位移）。
+        self._rest.clear()
+
     def _gate_points(self, sel):
         """D1 点位级门控：相对功率门控 + 只取最强 K 点（默认都关闭）。"""
         if not sel:
@@ -430,6 +679,22 @@ class ActionRecognizer:
         tail = float(np.median(xs[-k:]))
         return tail - head
 
+    def _rest_level(self, now):
+        """静息水平基线 base（m）：近 rest_win 秒内检出帧 px 的中位数。
+
+        这是 crit='drift' 的**时间参考系**。用中位数而非均值：动作帧是少数、
+        静息帧是多数，中位数天然落在静息水平上，不会因为人短暂停在某一侧被拖走。
+        样本 < 8 帧（刚开机 / 刚捕获）时返回 None —— 此时**不产生任何方向证据**，
+        宁可不出事件也不猜。（离线实测：真值窗最早在 6.9 s，届时样本已远超 8 帧。）
+        """
+        cut = now - self.rest_win
+        xs = [p for (t, p) in self._rest if t >= cut]
+        if len(xs) < 8:
+            xs = [p for (_, p) in self._rest]
+        if len(xs) < 8:
+            return None
+        return float(np.median(xs))
+
     @staticmethod
     def _mad_step(xs):
         """窗内逐帧 |Δpx| 的中位数（m）：噪声尺度的稳健度量，供校准/诊断用。"""
@@ -446,7 +711,7 @@ class ActionRecognizer:
         self._gated_fired = 0
         self.lane = 'CENTER'
 
-    def _evt(self, name, t, gated=False, **kw):
+    def _evt(self, name, t, gated=False, info=False, **kw):
         self.events += 1
         d = {'name': name, 't': round(float(t), 3), 'seq': self.events}
         if gated:
@@ -454,6 +719,9 @@ class ActionRecognizer:
             d['verified'] = False
             d['gate_note'] = ('跳/蹲未过 P0→T0→T1→T2 验证门（1T2R 无俯仰角、2T4R 链路未验证），'
                               '此处只是候选项，不得当验收结论')
+        if info:
+            # 信息事件（如 BAND_READY）：**不是游戏动作**，不计入动作统计。
+            d['info'] = True
         for k, val in kw.items():
             d[k] = round(float(val), 3) if isinstance(val, float) else val
         return d
@@ -510,22 +778,26 @@ def analyze_file(path, processor=None, recognizer=None, band=BAND_DEFAULT,
 def summarize(records):
     counts = {}
     gated_counts = {}
+    info_counts = {}
     for r in records:
         for e in r['events']:
             key = e['name']
             if e.get('gated'):
                 gated_counts[key] = gated_counts.get(key, 0) + 1
+            elif e.get('info'):
+                info_counts[key] = info_counts.get(key, 0) + 1
             else:
                 counts[key] = counts.get(key, 0) + 1
     return {'events': counts, 'gated_candidates': gated_counts,
-            'frames': len(records)}
+            'info_events': info_counts, 'frames': len(records)}
 
 
 # CSV 列定义：前 4 列固定，其余取自 features；新增列一律**追加在末尾**，
 # 以便既有产物（outputs/wave1-actions.csv，16959 行）仍可按列名复算。
 CSV_COLS = ['n', 'px', 'py', 'r_mean', 'v_rad', 'deg_span', 'energy',
             'v_lat', 'dx', 'noise', 'events',
-            'rejected', 'n_win', 'px_mad', 'drift']
+            'rejected', 'n_win', 'px_mad', 'drift',
+            'base', 'd_rest']      # 末两列仅 crit='drift' 有值（delta 下为空）
 
 
 def write_csv(records, path):
@@ -561,7 +833,9 @@ def main(argv=None):
                          '其中的 band/v_on/v_off/min_dx/max_step 会被采用，'
                          '显式命令行参数优先')
     ap.add_argument('--min-range', type=float, default=None,
-                    help='点云级近距屏蔽（米），0=关闭（内置默认 0.0）')
+                    help='点云级近距屏蔽（米）。内置默认 0.681 = 整门排除泄漏门 '
+                         'bin0(r≈0.34 m，实测占 ~73%% 点数但仅 ~0.1%% 功率)；'
+                         '0 = 关闭（原样输出近场泄漏云）')
     ap.add_argument('--min-snr', type=float, default=None,
                     help='相对噪声底 SNR 门限 dB（内置默认 7.0）')
     ap.add_argument('--cfar', type=float, default=None,
@@ -571,13 +845,37 @@ def main(argv=None):
                          '建议由 radar_calibrate.py 实测 p99(|Δpx|) 给出）')
     ap.add_argument('--res-pa-frac', type=float, default=None,
                     help='点位相对功率门控（0~1），0=关闭')
-    ap.add_argument('--top-k', type=int, default=None, help='每帧只取带内最强 K 点，0=全取')
+    ap.add_argument('--top-k', type=int, default=None,
+                    help='每帧只取带内最强 K 点，0=全取')
+    ap.add_argument('--min-pts', type=int, default=None,
+                    help='目标存在性门限：带内点数 < 该值即视为丢失，默认 2。'
+                         '★ top_k=1 时必须同时给 --min-pts 1，否则每帧都被判成丢失')
     ap.add_argument('--slope', choices=['theilsen', 'lstsq'], default=None,
                     help='横向速度估计器，默认 theilsen（稳健）')
     ap.add_argument('--dx-mode', choices=['median', 'endpoints'], default=None,
                     help='位移锚点，默认 median（稳健）')
     ap.add_argument('--no-sign-agree', action='store_true',
                     help='关闭「v_lat 与 dx 必须同号」的一致性门（不建议）')
+    ap.add_argument('--crit', choices=['delta', 'drift'], default=None,
+                    help="左右判据：delta=窗内相对位移（默认，原行为）；"
+                         "drift=静息水平偏移（时间基线，见 radar_actions 常量注释）")
+    ap.add_argument('--rest-win', type=float, default=None,
+                    help='crit=drift 的静息水平基线窗口（秒），默认 60')
+    ap.add_argument('--drift-left', type=float, default=None,
+                    help='crit=drift：d <= -该值 → LEFT，默认 1.30')
+    ap.add_argument('--drift-right', type=float, default=None,
+                    help='crit=drift：-drift-left < d <= -该值 → RIGHT，默认 0.25')
+    ap.add_argument('--drift-release', type=float, default=None,
+                    help='crit=drift 的滞回释放门：d 回到 -该值以内 → CENTER，'
+                         '默认 0.10（必须 < --drift-right）')
+    ap.add_argument('--auto-band', action='store_true',
+                    help='自动选带：预热期按距离门统计检出，取 j>=1 中最多的一门当带'
+                         '（预热期不发任何事件）。与 --band 互斥，本开关优先；'
+                         '详 radar_actions.AUTO_BAND 注释与 §7.28.3')
+    ap.add_argument('--auto-band-min-frames', type=int, default=None,
+                    help='自动选带：最早允许锁定的帧数，默认 30（约 3.9 s）')
+    ap.add_argument('--auto-band-max-frames', type=int, default=None,
+                    help='自动选带：兜底锁定帧数，默认 120（约 15.5 s）')
     ap.add_argument('--limit', type=int, default=None, help='只分析前 N 帧（调试用）')
     ap.add_argument('--csv', default=None, help='逐帧特征写出到 CSV')
     ap.add_argument('--json', default=None, help='事件与摘要写出到 JSON')
@@ -596,8 +894,11 @@ def main(argv=None):
                     else psec.get('cfar_scale', 2.6)),
         min_snr=(args.min_snr if args.min_snr is not None
                  else psec.get('min_snr', 7.0)),
+        # 内置默认 0.681 = 整门排除泄漏门 bin0（依据见 radar_dsp.PointCloudProcessor
+        # 的 min_range 注释与 calib.json 的 leak_bins）。优先级仍是
+        # 显式 --min-range > calib.json 的 processor.min_range > 本内置默认。
         min_range=(args.min_range if args.min_range is not None
-                   else psec.get('min_range', 0.0)),
+                   else psec.get('min_range', 0.681)),
         # 注意：本 CLI 没有 --angle-sign/--angle-max 参数（符号归 radar_calibrate.py 的
         # sign 模式管），所以这里必须用 getattr 取默认 None，不能写 args.angle_sign，
         # 否则会 AttributeError。
@@ -613,24 +914,56 @@ def main(argv=None):
         over['res_pa_frac'] = args.res_pa_frac
     if args.top_k is not None:
         over['top_k'] = args.top_k
+    if args.min_pts is not None:
+        over['min_pts'] = args.min_pts
     if args.slope is not None:
         over['slope'] = args.slope
     if args.dx_mode is not None:
         over['dx_mode'] = args.dx_mode
     if args.no_sign_agree:
         over['require_sign_agree'] = False
-    band = tuple(args.band) if args.band else None
+    if args.crit is not None:
+        over['crit'] = args.crit
+    if args.rest_win is not None:
+        over['rest_win'] = args.rest_win
+    if args.drift_left is not None:
+        over['drift_left'] = args.drift_left
+    if args.drift_right is not None:
+        over['drift_right'] = args.drift_right
+    if args.drift_release is not None:
+        over['drift_release'] = args.drift_release
+    if args.auto_band_min_frames is not None:
+        over['auto_band_min_frames'] = args.auto_band_min_frames
+    if args.auto_band_max_frames is not None:
+        over['auto_band_max_frames'] = args.auto_band_max_frames
+    if args.auto_band and args.band:
+        print('[actions] 注意：--auto-band 优先，--band 本次被忽略')
+    band = AUTO_BAND if args.auto_band else (
+        tuple(args.band) if args.band else None)
     rec = ActionRecognizer(band=band, calib=cal or None, **over)
+    print('[actions] 判据: crit=%s%s'
+          % (rec.crit,
+             '  base=近 %.0f s 内 px 中位数  drift_left=%.2f drift_right=%.2f '
+             'drift_release=%.2f'
+             % (rec.rest_win, rec.drift_left, rec.drift_right, rec.drift_release)
+             if rec.crit == 'drift' else ''))
     print('[actions] 估计器: slope=%s dx_mode=%s max_step=%.2f sign_agree=%s '
-          'res_pa_frac=%.2f top_k=%d'
+          'res_pa_frac=%.2f top_k=%d min_pts=%d'
           % (rec.slope, rec.dx_mode, rec.max_step, rec.require_sign_agree,
-             rec.res_pa_frac, rec.top_k))
+             rec.res_pa_frac, rec.top_k, rec.min_pts))
+    band_txt = ('自动（预热 %d~%d 帧后锁定，期间不发事件）'
+                % (rec.auto_band_min_frames, rec.auto_band_max_frames)
+                if rec.band is None else str(rec.band))
     print('[actions] 距离带 %s  阈值 v_on=%.2f v_off=%.2f min_dx=%.2f%s'
-          % (rec.band, rec.v_on, rec.v_off, rec.min_dx,
+          % (band_txt, rec.v_on, rec.v_off, rec.min_dx,
              '  （来自 %s）' % args.calib if args.calib else '  （内置提案值）'))
 
     records, info = analyze_file(args.file, processor=proc, recognizer=rec,
                                  limit=args.limit, log=lambda m: print(m))
+    if rec.band_mode == AUTO_BAND:
+        print('[actions] 自动选带结果: %s  门 j=%s  检出 %d/%d  第 %s 帧锁定'
+              % (rec.band, rec.band_gate, rec.band_count, rec.band_total,
+                 rec.band_locked_frame))
 
     if not args.events_only:
         print('文件: %s  帧数: %d  坏包: %d  丢弃帧: %d  跳过字节: %d'
@@ -638,10 +971,22 @@ def main(argv=None):
                  info['skipped']))
     for r in records:
         for e in r['events']:
-            tag = '  [候选·未验证]' if e.get('gated') else ''
+            if e.get('gated'):
+                tag = '  [候选·未验证]'
+            elif e.get('info'):
+                tag = '  [信息]'
+            else:
+                tag = ''
             extra = ''
             if 'v_lat' in e:
                 extra = '  v_lat=%.2f m/s  dx=%.2f m' % (e['v_lat'], e['dx'])
+            elif 'd_rest' in e:
+                extra = '  d_rest=%.2f m  base=%.2f m' % (e['d_rest'], e.get('base', 0.0))
+            elif 'band_gate' in e:
+                extra = '  带=%.2f~%.2f 门j=%s 检出=%d/%d' % (
+                    e.get('band_lo') or 0.0, e.get('band_hi') or 0.0,
+                    e.get('band_gate'), e.get('band_count', 0),
+                    e.get('band_total', 0))
             elif 'ratio' in e:
                 extra = '  能量比=%.2f' % e['ratio']
             print('帧 %5d  t=%7.2fs  %-12s%s%s' % (r.get('frame', 0), e['t'],

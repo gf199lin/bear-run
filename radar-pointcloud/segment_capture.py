@@ -20,10 +20,23 @@
 用法：
   python segment_capture.py --port COM3                     # 真机（人要在设备旁）
   python segment_capture.py --source loopback --reps 1      # 无硬件冒烟测试
+
+无人值守（--auto，人站在雷达前：看不到屏幕、也够不到键盘）：
+  默认协议要求按回车开始、段间还要按回车换站位 —— 人一旦站到雷达前就做不到。
+  --auto 把这两处交互换成纯声音引导：
+    · 开场         : 中文语音播报 + 最后 3 秒数拍「嗒嗒嗒」→「嘟」开始
+    · 每次动作前   : 3 声短拍（该回中间了）……「嘟」(1200 Hz 长) = 开始做动作
+                     → 动作结束「嘟」(700 Hz 长) = 停、回中间完全静止
+    · 换动作类别时 : 先连响 3 声高音(1500 Hz)，再语音播报「做 N 次…」
+    · 换站位时     : 语音提示 + 倒计时数拍（--walk-time 秒），不用碰键盘
+  语音走 Windows 自带 SAPI（Microsoft Huihui 中文），在后台子进程异步播报，
+  不占用采集节奏；机器上没有中文语音包时自动降级为纯提示音。--no-speak 可关。
 """
 import argparse
+import base64
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -43,10 +56,17 @@ FP = ra.FRAME_PERIOD                  # 0.1295 s/帧，与离线分析同一时�
 #   r=1.25 m → j=1（同一门！所以 1.0 与 1.25 在「距离带」这一维上是不可分的，
 #              分段的意义在于分别看：人站近了会不会更容易被近场泄漏门干扰）
 #   r=1.50 m → j=2（门中心 1.70 m）→ 必须换成 (1.35, 2.05)，否则目标落在带外
+# 站位 → 该站位人体回波所在的距离门（position_capture.py 实测，devlog §7.25 / §7.26）。
+# ⚠ 旧表把 1.0 / 1.25 m 写成 (0.70, 1.35) = **j=1 空门**，那正是「默认带对真实站位
+#   完全无效」的根源（1.25 m 上 0/10 命中且主动误报 5 次）。
+#   实测：0.70 m → j=1；1.00 / 1.25 / 1.35 m → j=2；1.70 m → j=3。
+#   偏移 ≈ 恒定 +0.5 m（来源未定，见 devlog §7.26）⇒ 站得越远，门号越靠后。
+#   只保留原有三个键（值按实测更正）；其它距离退回 ra.BAND_DEFAULT 并打印提示。
+#   ⚠ 本表只影响本工具的对照步骤与真值 `_meta`；识别本身请用 band='auto'（自动选带）。
 DIST_BAND = {
-    1.0: (0.70, 1.35),
-    1.25: (0.70, 1.35),
-    1.5: (1.35, 2.05),
+    1.0: (1.36, 2.04),
+    1.25: (1.36, 2.04),
+    1.5: (1.36, 2.04),
 }
 ACTION_TEXT = {'LEFT': '向左移动', 'RIGHT': '向右移动', 'DUCK': '下蹲', 'JUMP': '起跳'}
 ACTION_KEY = {'left': 'LEFT', 'right': 'RIGHT', 'duck': 'DUCK', 'jump': 'JUMP'}
@@ -63,9 +83,18 @@ def _stdout_utf8():
 
 
 NO_BEEP = False          # --no-beep 时置 True
+NO_SPEAK = False         # --no-speak 时置 True
+
+# 提示音词典：人站在雷达前只靠耳朵，四种音必须一耳朵能分清
+BEEP = {
+    'start':  (1200, 250),   # 「现在开始做动作」
+    'stop':   (700, 300),    # 「停，回中间」
+    'tick':   (900, 90),     # 准备期数拍（还有几秒开始）
+    'switch': (1500, 150),   # 换动作类别
+}
 
 
-def beep(freq=1200, dur=250, kind='start'):
+def beep(freq=None, dur=None, kind='start'):
     """一次蜂鸣。
 
     用 winsound.Beep（Windows 原生）而不是终端 `\\a`：Windows Terminal 默认把
@@ -73,7 +102,9 @@ def beep(freq=1200, dur=250, kind='start'):
     """
     if NO_BEEP:
         return
-    freq = 1200 if kind == 'start' else 700     # 「停」用低音，更好区分
+    f0, d0 = BEEP.get(kind, BEEP['start'])
+    freq = f0 if freq is None else freq
+    dur = d0 if dur is None else dur
     try:
         import winsound
         winsound.Beep(int(freq), int(dur))
@@ -87,12 +118,54 @@ def beep(freq=1200, dur=250, kind='start'):
         pass
 
 
-def cue(secs, text, do_beep=False, debug=False, countdown=False, kind='start'):
+def _ps_literal(s):
+    """把文本变成**纯 ASCII** 的 PowerShell 字符串表达式（按码点 join）。
+
+    为什么不用中文字面量：本机实测（`.deepworks/tmp/diag_speak.py`）PowerShell 5.1
+    经 `-EncodedCommand` 收到含中文字面量的脚本时会解析失败（rc=1，脚本里的中文被
+    破坏成缺引号的语法错误）；而 `(-join @([char]19979,[char]36466))` 这种纯 ASCII
+    表达式 rc=0 且正确播出「下蹲」。按码点构造后，脚本无论经过哪一层代码页都不会坏。
+    """
+    return '(-join @(' + ','.join('[char]%d' % ord(c) for c in s) + '))'
+
+
+def speak(text):
+    """中文语音播报（后台异步，不占用采集节奏）。
+
+    本机没装 pywin32，所以起一个后台 PowerShell 子进程调 Windows 自带
+    `System.Speech.Synthesis`（本机语音包：Microsoft Huihui - Chinese (Simplified)）。
+    文本一律经 `_ps_literal()` 转成纯 ASCII 的码点表达式，再 base64(UTF-16LE) 走
+    `-EncodedCommand` —— 避开中文在任何一层的编码损坏。
+    任何一步失败都静默降级为纯提示音 —— 采集节奏不能因为播报失败而中断。
+    返回 True 表示已投递（不代表播完）。
+    """
+    if NO_SPEAK or not text:
+        return False
+    try:
+        script = ("Add-Type -AssemblyName System.Speech;"
+                  "$v=New-Object System.Speech.Synthesis.SpeechSynthesizer;"
+                  "$v.Rate=1;"
+                  "$v.Speak(%s)" % _ps_literal(text))
+        enc = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
+        kw = {'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL}
+        if hasattr(subprocess, 'CREATE_NO_WINDOW'):
+            kw['creationflags'] = subprocess.CREATE_NO_WINDOW
+        subprocess.Popen(['powershell', '-NoProfile', '-NonInteractive',
+                          '-EncodedCommand', enc], **kw)
+        return True
+    except Exception:
+        return False
+
+
+def cue(secs, text, do_beep=False, debug=False, countdown=False, kind='start',
+        tick=False):
     """给出提示并等待 secs 秒，返回 (窗口开始帧号, 窗口结束帧号)。
 
     动作的起点在**提示音响起的那一刻**，也就是本窗口的**开头**；
     所以调用方要拿返回值里的第一个数（不是第二个）当动作起点。
-    countdown=True 时在最后 3 秒显示 3-2-1，让人知道「嘟」还有多久。
+    countdown=True 时在最后 3 秒显示 3-2-1，让人知道「嘟」还有多久；
+    tick=True（--auto 用）时这 3 秒**同时**各响一声短拍 —— 人站在雷达前看不到
+    屏幕，只有听到「嗒 嗒 嗒 —— 嘟」才知道动作还有多久开始。
     """
     if do_beep:
         beep(kind=kind)
@@ -109,6 +182,8 @@ def cue(secs, text, do_beep=False, debug=False, countdown=False, kind='start'):
             if n != shown and n >= 1:
                 shown = n
                 print('        %d …' % n, flush=True)
+                if tick:
+                    beep(kind='tick')
         time.sleep(0.02)
     f_after = STATE['frames']
     if debug:
@@ -187,18 +262,36 @@ def capture_segment(args, dist, band, bin_path, labels_path, index, total):
     print('  协议：准备 %.1f s →（嘟）做动作 %.1f s →（停）静息 %.1f s；'
           '动作前 %.1f s 算人的反应时间，不计入真值。'
           % (args.prep, args.move, args.settle, args.trim))
-    cue(args.prep, '【准备】站到 %.2f m，正对雷达，站回中间、完全静止' % dist)
+    if args.lead > 0:
+        # 开场先录一段纯站定：既给「自动选带」攒够检出帧，也给 rest 基线一个干净窗口。
+        # 默认 0 = 不插这段，旧协议逐帧不变。
+        cue(args.lead,
+            '开场：请站定保持不动 %.0f 秒（用于自动选带与静息基线）' % args.lead,
+            countdown=True, tick=args.auto)
+    cue(args.prep, '【准备】站到 %.2f m，正对雷达，站回中间、完全静止' % dist,
+        countdown=True, tick=args.auto)
 
     trim_f = int(round(args.trim / FP))
 
+    last_act = None
     for act in args.action_codes:
+        if args.auto and act != last_act:
+            # 人也看不到屏幕：换动作类别时先连响 3 声高音，再用语音说明本轮做什么，
+            # 否则他无法知道这一次该蹲还是该跳（这是旧协议在雷达前失效的直接原因）。
+            for _ in range(3):
+                beep(kind='switch')
+                time.sleep(0.18)
+            speak('现在做 %d 次%s。听到长音就开始，保持住。'
+                  % (args.reps, ACTION_TEXT[act]))
+        last_act = act
         for k in range(1, args.reps + 1):
             print('  -- %s 第 %d/%d 次 --' % (ACTION_TEXT[act], k, args.reps))
             if act in ('LEFT', 'RIGHT') and args.stride > 0:
                 cue(args.prep, '准备：站回中间（左右两侧各留 ≥%.1f m 空间）、完全静止'
-                    % args.stride, countdown=True)
+                    % args.stride, countdown=True, tick=args.auto)
             else:
-                cue(args.prep, '准备：站回中间、完全静止', countdown=True)
+                cue(args.prep, '准备：站回中间、完全静止', countdown=True,
+                    tick=args.auto)
             print('    ' + '>' * 24)
             if act in ('LEFT', 'RIGHT') and args.stride > 0:
                 act_txt = ('大跨步向【%s】横移，至少 %.1f 米，走到后停住别动'
@@ -229,12 +322,15 @@ def capture_segment(args, dist, band, bin_path, labels_path, index, total):
             })
 
     print('  -- 静息基线段（无真值：任何预测都计为误报） --')
+    if args.auto:
+        speak('最后一段，请完全静止 %d 秒，保持不动。' % int(round(args.rest)))
     cue(args.rest, '最后：完全静止 %.0f 秒（不要动）' % args.rest)
     t_seg_end = STATE['frames']
 
     meta = {'file': os.path.basename(bin_path), 'distance_m': dist,
             'band': list(band), 'frame_period': FP,
             'frames': t_seg_end, 'source': args.source,
+            'lead': args.lead,
             'note': '时间轴 = 帧号 × 0.1295 s（radar_actions.FRAME_PERIOD）；'
                     '真值由 segment_capture.py 按提示音时刻的真实帧号生成'}
     lt.save_labels(labels_path, labels, meta)
@@ -290,6 +386,9 @@ def main(argv=None):
                          '跳/蹲当前只能给候选项，默认不含')
     ap.add_argument('--reps', type=int, default=5, help='每个动作重复次数')
     ap.add_argument('--prep', type=float, default=3.0, help='每次动作前的准备秒数')
+    ap.add_argument('--lead', type=float, default=0.0,
+                    help='开场先录一段纯站定秒数（>0 时给自动选带攒帧 + 让静息基线'
+                         '干净；默认 0 = 与旧协议逐帧一致）')
     ap.add_argument('--move', type=float, default=2.5, help='动作保持秒数')
     ap.add_argument('--stride', type=float, default=0.0,
                     help='左/右移要求的最小横移距离(米)。>0 时提示语与真值备注改为'
@@ -299,6 +398,13 @@ def main(argv=None):
     ap.add_argument('--trim', type=float, default=0.3, help='真值区间起点留出的反应时间')
     ap.add_argument('--tol', type=float, default=0.45, help='对照时真值区间放宽秒数')
     ap.add_argument('--start-delay', type=float, default=10.0, help='开场阅读说明的秒数')
+    ap.add_argument('--auto', action='store_true',
+                    help='无人值守：不要求按回车（人站在雷达前看不到屏幕、够不到键盘）；'
+                         '准备期最后 3 秒数拍，换动作/换站位改用语音+提示音说明')
+    ap.add_argument('--walk-time', type=float, default=20.0,
+                    help='--auto 时两段之间留给你走到下一站位的秒数（默认 20）')
+    ap.add_argument('--no-speak', action='store_true',
+                    help='关掉中文语音播报（默认用 Windows SAPI / Microsoft Huihui）')
     ap.add_argument('--no-compare', action='store_true', help='采完不做对照')
     ap.add_argument('--no-beep', action='store_true',
                     help='关掉蜂鸣（默认用 winsound.Beep，Windows 原生可靠）')
@@ -306,8 +412,9 @@ def main(argv=None):
                     help='打印每个动作窗口内实际收到的帧数（排查节奏问题）')
     args = ap.parse_args(argv)
     _stdout_utf8()
-    global NO_BEEP
+    global NO_BEEP, NO_SPEAK
     NO_BEEP = bool(args.no_beep)
+    NO_SPEAK = bool(args.no_speak)
 
     args.action_codes = [ACTION_KEY[a.strip().lower()]
                          for a in args.actions.split(',') if a.strip()]
@@ -317,7 +424,7 @@ def main(argv=None):
     per_action = args.reps * args.move
     est = len(distances) * (len(args.action_codes) * args.reps
                             * (args.prep + args.move + args.settle)
-                            + args.rest + 10) / 60.0
+                            + args.rest + args.lead + 10) / 60.0
     print('=' * 76)
     print('分段定距采集（提示音驱动，自动打真值）')
     print('=' * 76)
@@ -342,11 +449,21 @@ def main(argv=None):
             print('   先确认 server.py 已停（串口独占），再重试。')
             return 2
 
-    print('按回车开始（%s）…' % ACTION_TEXT.get(args.action_codes[0], ''))
-    try:
-        input()
-    except EOFError:
-        print('（无交互输入，直接开始）')
+    if args.auto:
+        # 人站在雷达前，键盘是够不到的：用语音 + 数拍倒计时替掉「按回车」。
+        # 8 s 是「从电脑走到 1 m 站位」的下限；--start-delay 更大时用更大的。
+        lead = max(args.start_delay, 8.0)
+        speak('采集即将开始。请站到雷达正前方 %.2f 米处，面向雷达，站好不要动。'
+              % distances[0])
+        cue(lead, '【无人值守】请站到 %.2f m 处、正对雷达、完全静止'
+            '（约 %.0f 秒后自动开始）' % (distances[0], lead),
+            countdown=True, tick=True)
+    else:
+        print('按回车开始（%s）…' % ACTION_TEXT.get(args.action_codes[0], ''))
+        try:
+            input()
+        except EOFError:
+            print('（无交互输入，直接开始）')
 
     results = []
     for i, dist in enumerate(distances, 1):
@@ -356,7 +473,13 @@ def main(argv=None):
             print('  (%.2f m 没有预设距离带，用默认 %s)' % (dist, band))
 
         if i > 1:
-            pause('请走到 %.2f m 处，正对雷达站好（下一段马上开始）' % dist)
+            if args.auto:
+                speak('请走到雷达正前方 %.2f 米处，站好不要动，下一段马上开始。' % dist)
+                cue(args.walk_time,
+                    '请走到 %.2f m 处，正对雷达站好（约 %.0f 秒后自动继续）'
+                    % (dist, args.walk_time), countdown=True, tick=True)
+            else:
+                pause('请走到 %.2f m 处，正对雷达站好（下一段马上开始）' % dist)
 
         stop = threading.Event()
         STATE.update({'frames': 0, 'fps': 0.0, 'packets': 0, 'bad': 0,
@@ -445,6 +568,8 @@ def main(argv=None):
     for r in results:
         print('  python label_tool.py --file "%s" --band %s --compare'
               % (r['bin'], ' '.join('%.2f' % b for b in r['band'])))
+    if args.auto:
+        speak('采集完成，请回到电脑前查看结果。')
     return 0
 
 

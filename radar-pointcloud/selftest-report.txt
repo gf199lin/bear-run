@@ -89,6 +89,18 @@
   偏置下右移仍判对          : 通过   px 由 +0.80 起右移，事件=['TARGET_BACK', 'LANE_RIGHT']
   野值帧被剔除            : 通过   rejected=True 事件=['TARGET_BACK']
   校准阈值生效            : 通过   band=(1.0, 1.6) v_on=0.90 事件=['TARGET_BACK']
+  crit 默认未变         : 通过   默认 crit=delta（不得静默改判据）
+  drift 左移识别        : 通过   事件=['TARGET_BACK', 'LANE_LEFT']
+  drift 右移识别        : 通过   事件=['TARGET_BACK', 'LANE_RIGHT']
+  drift 偏置静止不误报     : 通过   px 恒为 -2.00，事件=['TARGET_BACK']
+  drift 无基线不猜       : 通过   仅 6 帧，事件=['TARGET_BACK']
+  drift 参数校验        : 通过   未知 crit 与 right>=left 均被拒
+  自动带 默认关闭          : 通过   默认 band_mode=fixed band=(0.7, 1.35)
+  自动带 选中最强门         : 通过   门 j=2 band=(1.36, 2.04) 第 10 帧锁定 事件=['BAND_READY']
+  自动带 预热不发动作        : 通过   预热 11 帧（未达 12）事件=无
+  自动带 泄漏门不冒充        : 通过   source=auto-fallback band=(0.7, 1.35)
+  自动带 锁定后可判         : 通过   band=(1.362692990909091, 2.0440394863636366) 事件=['TARGET_BACK', 'LANE_RIGHT']
+  自动带 参数校验          : 通过   4 个非法取值均被拒: [True, True, True, True]
 
 ==========================================================================
 结论: 解析链路 通过；闭环 40/40；方位角误差 0.29°；会话控制 通过；停机帧一致性 通过；近距动作 通过

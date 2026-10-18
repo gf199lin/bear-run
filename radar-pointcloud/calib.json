@@ -96,7 +96,7 @@
   "processor": {
     "angle_sign": 1.0,
     "min_snr": 7.0,
-    "min_range": 0.0,
+    "min_range": 0.681,
     "angle_max": 45.0,
     "cfar_scale": 2.6
   },
