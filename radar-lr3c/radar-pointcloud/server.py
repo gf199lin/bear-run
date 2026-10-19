@@ -37,7 +37,8 @@ import radar_dsp as dsp
 from radar_dsp import PointCloudProcessor
 from radar_actions import ActionRecognizer, load_calib, AUTO_BAND
 from radar_control import RadarController
-from radar_source import SerialSource, ReplaySource, LoopbackSource
+from radar_source import (SerialSource, ReplaySource, LoopbackSource,
+                          BOARD_PROFILES, DEFAULT_BOARD, probe_board)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CLIENTS = set()
@@ -66,10 +67,12 @@ CONTROL_HANDLER = None          # 由 main() 注入：action 字符串 → 结�
 SHUTDOWN = threading.Event()
 
 
-def make_source(args, mode=None):
+def make_source(args, mode=None, board=None):
     """每次「开始」都新建一个数据源，避免上一次会话的残留污染新会话。
 
     mode 显式给出时按它建源（热切换用）；不给则沿用 --source，默认路径逐字不变。
+    board 决定回放节奏与协议解析器；serial 模式下 SerialSource 会按硬件
+    指纹自行复核板型，这里的值只是入口默认。
     """
     def evt(msg):
         print(msg, flush=True)
@@ -79,7 +82,9 @@ def make_source(args, mode=None):
     if mode == 'replay':
         if not args.replay:
             raise SystemExit('--source replay 需要 --replay <文件>')
-        return ReplaySource(args.replay, loop=True)
+        return ReplaySource(args.replay, loop=True, board=board)
+    if board and board != DEFAULT_BOARD:
+        print('[source] loopback 使用内置 1T2R 合成帧，忽略 --board %s' % board, flush=True)
     return LoopbackSource()
 
 
@@ -280,7 +285,13 @@ def main():
     ap = argparse.ArgumentParser(description='ICL1122 雷达点云实时显示')
     ap.add_argument('--source', choices=['serial', 'replay', 'loopback'], default='serial')
     ap.add_argument('--port', default='auto', help='串口号 (默认 auto = 自动识别 CP210x/雷达串口)')
-    ap.add_argument('--baud', type=int, default=921600)
+    ap.add_argument('--board', default='auto', choices=['auto', '1t2r', '2t4r'],
+                    help='雷达板型 (默认 auto = 按 USB VID:PID 自动识别)。'
+                         '板型同时决定串口波特率、上行协议与距离单元数：'
+                         '1t2r=DEV202H/ICL1122 (921600, 8 bin)；'
+                         '2t4r=DEV113P (1500000, 32 bin)')
+    ap.add_argument('--baud', type=int, default=None,
+                    help='串口波特率；不给则按板型自动 (1T2R 921600 / 2T4R 1500000)')
     ap.add_argument('--replay', default=os.path.join(HERE, 'sample-synthetic.bin'),
                     help='回放/演示用的字节流文件 (默认本目录合成样本，不含人体数据)')
     ap.add_argument('--record', default=None)
@@ -374,10 +385,12 @@ def main():
     psec = (cal or {}).get('processor', {}) or {}
     cfar = args.cfar if args.cfar is not None else psec.get('cfar_scale', 2.6)
     min_snr = args.min_snr if args.min_snr is not None else psec.get('min_snr', 7.0)
-    # 内置默认 dsp.RANGE_RES（0.6813）= 「整门排除 bin0」的边界：bin0 中心
-    # 0.34 m < 0.6813，bin1 中心 1.02 m > 0.6813，正好只切掉泄漏门。
+    # 内置默认 = 本板型的「整门排除 bin0」边界（1T2R = dsp.RANGE_RES = 0.6813）：
+    # bin0 中心 0.34 m < 0.6813，bin1 中心 1.02 m > 0.6813，正好只切掉泄漏门。
     # 优先级不变（显式命令行 > calib.json > 内置默认）；只是把内置默认从 0.0
     # 改为「排除泄漏门」，避免不传参数时 0.34 m 的泄漏云铺满画面。
+    # 注: 2T4R 的 bin 更细（≈0.150 m），其内置默认在下方板型分支里按本板型
+    #     range_res 覆盖，否则会误屏蔽 bin0..bin3。
     min_range = (args.min_range if args.min_range is not None
                  else psec.get('min_range', dsp.RANGE_RES))
     angle_sign = (args.angle_sign if args.angle_sign is not None
@@ -395,18 +408,71 @@ def main():
     if not args.quiet:
         print('校准: %s' % (args.calib if cal else '无（用内置默认/提案值）'))
 
+    # ---- 板型 → DSP 参数 --------------------------------------------------
+    # auto 时按串口枚举的 USB VID:PID 猜（只读枚举，不打开端口）；认不出就
+    # 回退 DEFAULT_BOARD，与本次改动之前的默认行为完全一致。
+    # 注: 实际板型在 SerialSource.open() 时按硬件指纹复核，build_pipeline
+    #     会据此切换协议解析器 —— 这里只定 DSP 侧的距离单元数/速度刻度。
+    board = None if args.board == 'auto' else args.board
+    if board is None:
+        board = probe_board(None if args.source != 'serial' else args.port)
+    board_auto = (args.board == 'auto')
+    if board is None:
+        board = DEFAULT_BOARD
+    if args.source == 'loopback' and board != DEFAULT_BOARD:
+        print('[board] loopback 源恒为 1T2R 合成帧，忽略 --board %s' % board, flush=True)
+        board = DEFAULT_BOARD
+    prof = BOARD_PROFILES[board]
+    dsp_kw = {}
+    # 实际生效的刻度（默认 = 1T2R 模块常量，逐字不变）
+    v_max_eff = dsp.V_MAX
+    v_res_eff = dsp.V_RES
+    range_res_eff = dsp.RANGE_RES
+    range_verified = True
+    if board == '2t4r':
+        # DEV113P: 32 距离单元、4 RX、实测 482 帧/s（每 chirp 连续 4 帧 = 4 RX）。
+        # 物理换算来源 ONELAB 上位机 Radar_Config.ini [WAVE_INFO_0] / [MULTI_WAVE_INFO]：
+        #   IdleFreq 24.001 GHz → TopFreq 25.000 GHz  ⇒ B = 999 MHz
+        #     ⇒ range_res = c/(2B) ≈ 0.150 m（此前误借 1T2R 的 0.6813 m）
+        #   fc = 24.5005 GHz，Tc = FrameTimeUS/ChirpsPerFrame = 8.138 ms
+        #     ⇒ v_max = λ/(4·Tc) ≈ 0.376 m/s、v_res = λ/(2·N·Tc) ≈ 0.0117 m/s
+        #   HorzAngleInfo 水平阵元间距 = 5.900 mm（1T2R 是 6.250 mm）
+        # 交叉验证: 同一组公式代回 1T2R 得 0.6813 m / 1.535 / 0.0480 / 6.250 mm，
+        #   与 radar_dsp 既有模块常量逐字吻合（5 项全中）⇒ 换算模型可信。
+        # 证据等级: 厂商配置推导，非卷尺实测；真值点检方案见 docs/hardware-baseline.md。
+        v_max_eff = prof['v_max']
+        v_res_eff = prof['v_res']
+        range_res_eff = prof['range_res']
+        dsp_kw = dict(bins=prof['bins'], chirps=prof['chirps'],
+                      range_res=range_res_eff, v_res=v_res_eff,
+                      ant_spacing=prof['ant_spacing'],
+                      lam=dsp.C / prof['f0'])
+        # 近距门默认随板型：bin0 整门边界 = 本板型 1 个距离单元（1T2R = 0.6813）。
+        # 原内置默认 hardcode dsp.RANGE_RES，对 2T4R 会误屏蔽 bin0..bin3
+        #（0.075/0.225/0.375/0.525 m 全 < 0.6813）。优先级不变。
+        if args.min_range is None and 'min_range' not in psec:
+            min_range = range_res_eff
+    if not args.quiet:
+        print('板型: %s (%s)%s'
+              % (board, prof['label'], '  [按 USB VID:PID 自动识别]' if board_auto else ''))
+
     proc = PointCloudProcessor(cfar_scale=cfar, min_power=args.min_power,
                                min_snr=min_snr,
                                remove_clutter=not args.no_clutter,
                                angle_sign=angle_sign, angle_max=angle_max,
-                               min_range=min_range)
+                               min_range=min_range, **dsp_kw)
     LATEST['cfg'] = {
-        'range_res': round(dsp.RANGE_RES, 4),
-        'max_range': round(dsp.MAX_RANGE, 3),
-        'v_max': round(dsp.V_MAX, 3),
-        'v_res': round(dsp.V_RES, 4),
-        'chirps': dsp.CHIRPS,
-        'bins': dsp.BINS,
+        'range_res': round(range_res_eff, 4),
+        'max_range': round(range_res_eff * prof['bins'], 3),
+        # 距离轴标定状态。为 False 时 viewer 会把距离轴标为「未标定」。
+        # 2T4R 现为 True：依据厂商配置 [WAVE_INFO_0] 带宽推导（经 1T2R 交叉验证）。
+        'range_res_verified': range_verified,
+        'v_max': round(v_max_eff, 3),
+        'v_res': round(v_res_eff, 4),
+        'chirps': getattr(proc, 'chirps', dsp.CHIRPS),
+        'bins': getattr(proc, 'bins', dsp.BINS),
+        'board': board,
+        'board_label': prof['label'],
         'angle_max': angle_max,
         'clutter': not args.no_clutter,
         'min_range': min_range,
@@ -482,7 +548,7 @@ def main():
                      stats['reconnects'], stats['read_errors']), flush=True)
 
     # 采集会话控制器：开始 / 结束 / 重置，以及线程退出或停滞后的自愈重建
-    ctrl = RadarController(lambda: make_source(args, SRC['mode']), on_frame,
+    ctrl = RadarController(lambda: make_source(args, SRC['mode'], board), on_frame,
                            record_path=args.record,
                            log=lambda m: print(m, flush=True),
                            stall_timeout=args.stall_timeout,
@@ -623,9 +689,10 @@ def main():
         return 3
     if args.source == 'serial':
         if str(args.port).strip().lower() in ('auto', ''):
-            src_txt = '自动识别串口（CP210x/雷达）, %d baud' % args.baud
+            src_txt = ('自动识别串口（%s）, 波特率 %s'
+                       % (prof['label'], args.baud or '按板型自动'))
         else:
-            src_txt = '%s@%d' % (args.port, args.baud)
+            src_txt = '%s@%s' % (args.port, args.baud or '按板型自动')
     elif args.source == 'replay':
         src_txt = '回放 %s' % args.replay
     else:

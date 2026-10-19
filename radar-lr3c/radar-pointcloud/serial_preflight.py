@@ -8,12 +8,17 @@ r"""
     换一块板若 RX 数或帧长不同，那条链**一个包都认不出**，而且不会告诉你为什么。
   * 本工具**不假设任何协议**：只统计字节流的客观特征（魔数出现次数、包长字段、
     RX/ID 取值集合、包速率），并把「认不出的部分」如实标成未知。
+  * 已冻结的 2T4R（DEV113P）136 B 帧格式与厂商命令模式已内置（`KNOWN_2T4R` /
+    `DOC_FRAMES`）：`analyze` **优先**用三重判据（`55 AA` + `off4 == 0x1F` + 帧尾
+    校验和）核对，命中就逐条比对实测事实；不命中才退回零假设探索。命中只证明
+    「字节流符合已冻结契约」，**不等于**链路可用于游戏（那是 M0/M1 的事）。
     ⇒ 拿到 2T4R 后，先跑它，再用**实测出来的参数**去改协议层。
 
 子命令：
   scan                     枚举串口 + 硬件指纹 + 与项目已知端口对照（**不打开端口**，零风险）
   sniff  --port COM4       打开端口读 N 秒，落盘原始字节，并当场做同样的统计
   analyze <file.bin>       离线分析已有抓包（零风险，可反复跑）
+  probe --port COM4        命令模式板型指纹（默认干跑；--send 才真发，会停波形流）
   selftest                 用合成流验证统计器本身正确（1T2R 形态 vs 伪造 4RX 形态）
 
 示例（2T4R 到手后）：
@@ -52,6 +57,144 @@ KNOWN_1T2R = {
     'frame_ms': 129.5,
     'pkts_per_s': 991.0,
 }
+
+# ---- 2T4R 已确认的事实（来源: docs/radar-uplink-dev113p-2t4r.md §2/§7.6，真机实测）----
+# 用途：换板时**不再靠猜**——直接按已冻结的事实做契约自检（见 analyze_dev113p）。
+KNOWN_2T4R = {
+    'port': 'COM4',
+    'vid_pid': 'VID_0403 PID_6001',
+    'chip': 'FTDI FT232',
+    'baud': 1500000,
+    'wrapper': None,
+    'frame_len': 136,
+    'sync': (0x55, 0xAA),
+    'bins': 32,
+    'points_minus_one': 0x1F,
+    'rx_per_chirp': 4,
+    'chirps_per_frame': 64,
+    'packets_per_frame': 256,
+    'checksum_off': 133,
+    'tag_off': 135,
+    'rx_tag_shift': 2,
+    'frame_tag_shift': 4,
+    'pkts_per_s': 482.0,          # 真机实测（3908 帧 / 8.105 s）
+    'radar_fps': 1.88,            # = 482 / 256（配置推导的帧周期 520.8 ms 对应 1.92）
+    'frame_ms': 531.0,            # = 1000 / 1.88（实测口径；配置口径 520.8 ms）
+}
+
+# ---- 串口命令模式（来源: 厂商协议文档 V0.17 中文版，字节串取自文档"示例"节）----
+# 帧格式 / 命令码 / 结果码已由厂商上位机日志的真机字节证实（10/19）；唯一与文档不一致处是
+#   「打开命令模式」的 payload：文档示例 `01 00`，真机实测 `02 00`（=> MEASURED_OPEN_VER）。
+#   用途：不依赖 USB-UART 芯片就能问出板型 —— 若厂商换 UART 芯片，指纹表会失效，命令模式不会。
+CMD_HEAD = b'\xfd\xfc\xfb\xfa'
+CMD_FOOT = b'\x04\x03\x02\x01'
+CMD_READ_VERSION = 0x0000      # → 0x0100：结果 + (u16 长度 + ASCII 版本串)
+CMD_READ_MODULE = 0x0005       # → 0x0105：结果 + 模组名字符串
+CMD_FACTORY_CFG = 0x0024       # → 0x0124：结果 + 子板型号/级联芯片数/通道数/数据类型/1DFFT/chirp/降采样
+CMD_OPEN_CMD_MODE = 0x00FF     # payload = u16 预期协议版本号；→ 0x01FF：结果 + 协议版本号 + 收发缓冲区大小
+CMD_CLOSE_CMD_MODE = 0x00FE    # → 0x01FE：结果
+DOC_OPEN_VER = 0x0001          # 文档示例里「打开命令模式」带的预期版本号
+
+MEASURED_OPEN_VER = 0x0002     # ★ 真机实测值（10/19）：1T2R 与 2T4R 的厂商上位机
+                               #   都发 payload `02 00`；文档示例写的是 `01 00`。
+                               #   证据 = ONELAB 日志 Log\LogFile_*.txt 里
+                               #   `OpenCmdMode_Send` 的原始 hex（见
+                               #   docs/radar-uplink-dev113p-2t4r.md §7.7）。
+                               #   `probe` 默认用它；复现文档口径传 --open-payload 1。
+# 文档示例字节串（用于离线单测 codec，不碰串口）
+DOC_FRAMES = {
+    '读取版本 req': 'fd fc fb fa 02 00 00 00 04 03 02 01',
+    '读取版本 resp': 'FD FC FB FA 0D 00 00 01 00 00 07 00 76 31 2E 34 2E 31 34 04 03 02 01',
+    '打开命令模式 req': 'fd fc fb fa 04 00 ff 00 01 00 04 03 02 01',
+    '打开命令模式 resp': 'fd fc fb fa 08 00 ff 01 00 00 02 00 00 04 04 03 02 01',
+    '关闭命令模式 req': 'fd fc fb fa 02 00 fe 00 04 03 02 01',
+    '关闭命令模式 resp': 'fd fc fb fa 04 00 fe 01 00 00 04 03 02 01',
+    '进入厂测模式 req': 'fd fc fb fa 02 00 24 00 04 03 02 01',
+    '进入厂测模式 resp': ('fd fc fb fa 12 00 24 01 00 00 00 00 02 00 04 00 00 00 '
+                          '40 00 20 00 02 00 04 03 02 01'),
+}
+
+
+def build_cmd(cmd, payload=b''):
+    r"""构造一个命令帧：`FD FC FB FA` + u16LE(数据长) + u16LE(命令) + payload + `04 03 02 01`。
+
+    帧头在文档里写作 0xFAFBFCFD，但**线上顺序**是 `fd fc fb fa`（小端 u32）——
+    这一点由文档示例逐字节核对确认（见 DOC_FRAMES / selftest）。
+    """
+    data = int(cmd).to_bytes(2, 'little') + bytes(payload)
+    return CMD_HEAD + len(data).to_bytes(2, 'little') + data + CMD_FOOT
+
+
+def parse_cmds(buf, with_offset=False):
+    """从字节流里扫出所有**结构自洽**的命令响应帧（容错扫描，不假设对齐）。
+
+    判据：`fd fc fb fa` + u16LE(L) + 恰好 L 字节 + `04 03 02 01`。
+    返回 [{'cmd','payload','raw'}]；with_offset 时额外给 'off'。
+    """
+    b = bytes(buf)
+    out = []
+    i = b.find(CMD_HEAD)
+    while i >= 0:
+        if i + 6 + 4 <= len(b):
+            ln = int.from_bytes(b[i + 4:i + 6], 'little')
+            end = i + 6 + ln + 4
+            if end <= len(b) and b[end - 4:end] == CMD_FOOT and ln >= 2:
+                data = b[i + 6:end - 4]
+                d = {'cmd': int.from_bytes(data[:2], 'little'),
+                     'payload': data[2:],
+                     'raw': b[i:end]}
+                if with_offset:
+                    d['off'] = i
+                out.append(d)
+                i = b.find(CMD_HEAD, end)
+                continue
+        i = b.find(CMD_HEAD, i + 1)
+    return out
+
+
+# 结果码（来源 = ONELAB 日志里的真机响应字节，10/19 两板实测）
+RESULT_CODES = {
+    0x0000: '成功',
+    0x0001: '失败/不支持',
+    0x0FA7: '不支持该命令',
+    0x0FA8: '参数不支持/失败',
+    0xA001: '打开命令模式失败',
+}
+
+
+def describe_result(code):
+    """把 u16 结果码渲染成可读文本；未知码不吞掉，仍带原始十六进制。"""
+    c = int(code) & 0xFFFF
+    if c == 0:
+        return '成功'
+    return '失败 0x%04X(%d) %s' % (c, c, RESULT_CODES.get(c, '未知'))
+
+
+def decode_cmd_reply(cmd, payload):
+    """把命令响应的 payload 解成人类可读字段。字段顺序取自文档表；结果码取自真机实测。"""
+    if len(payload) < 2:
+        return {'结果': '**响应过短**'}
+    code = int.from_bytes(payload[:2], 'little')
+    r = {'结果': describe_result(code), '结果码': '0x%04X' % code}
+    p = payload[2:]
+    if cmd == 0x0100 and len(p) >= 2:                 # 读取版本
+        n = int.from_bytes(p[:2], 'little')
+        r['版本'] = p[2:2 + n].decode('ascii', 'replace')
+        r['帧内数据长'] = n
+    elif cmd == 0x01FF and len(p) >= 4:               # 打开命令模式
+        r['协议版本号'] = int.from_bytes(p[:2], 'little')
+        r['收发缓冲区大小'] = int.from_bytes(p[2:4], 'little')
+    elif cmd == 0x0124 and len(p) >= 14:              # 厂测配置 / 板型指纹
+        keys = ['子板型号', '级联芯片数', '接收通道数', '数据类型',
+                '1DFFT大小', '每帧chirp数', '降采样间隔']
+        dtypes = {0: '1DFFT', 1: '2DFFT', 2: '2DFFT PEAK', 3: 'DSRAW', 4: 'IORAW'}
+        for k, i in zip(keys, range(0, 14, 2)):
+            v = int.from_bytes(p[i:i + 2], 'little')
+            r[k] = dtypes.get(v, v) if k == '数据类型' else v
+    elif cmd in (0x0105, 0x0111, 0x0113) and p:
+        r['字符串/原始'] = p.decode('ascii', 'replace').strip('\x00') or p.hex(' ')
+    return r
+
 
 # ============================ 统计器（纯函数，离线可测） ============================
 
@@ -156,8 +299,118 @@ def _bare_analysis(b, dt=None):
     return out
 
 
+def analyze_dev113p(data, dt=None):
+    """按**已冻结的 2T4R 事实**做契约自检（不是零假设探索，而是逐条核对）。
+
+    判据（全部来自真机实测，见 docs/radar-uplink-dev113p-2t4r.md §7.6）：
+      * 帧起 `55 AA`、`off4 == 0x1F`、总长 136、相邻命中间距恒 136；
+      * 校验和 `BE16[133:135] == sum(64 个 BE int16) mod 65536`；
+      * 帧尾 `off135`：bits[3:2] = RX 序号（应为 0..3）、bits[7:4] = 雷达帧序号 mod 16；
+      * 组装完整性：按 frame_seq 结算，统计整帧丢失 / 丢 chirp 组。
+
+    这个函数让「换板预检」在 2T4R 之后仍然可用：故意把同一个固件的板子插到
+    **另一个 UART 芯片**上时，指纹表可能失效，但仍能靠本函数确认「这确实是 DEV113P 流」。
+    """
+    b = bytes(data)
+    fl = KNOWN_2T4R['frame_len']
+    out = {'frame_len': fl, 'sync_candidates': b.count(b'\x55\xAA')}
+
+    def cks(payload):
+        v = 0
+        for i in range(0, len(payload), 2):
+            v += (payload[i] << 8) | payload[i + 1]
+        return v & 0xFFFF
+
+    # 三重判据（同步字 + off4 + 校验和）后仍命中的才认定为帧
+    frames, rejected = [], 0
+    for p in _find_all(b, b'\x55\xAA'):
+        if p + fl > len(b):
+            continue
+        if b[p + 4] != KNOWN_2T4R['points_minus_one']:
+            rejected += 1
+            continue
+        if cks(b[p + 5:p + 133]) != ((b[p + 133] << 8) | b[p + 134]):
+            rejected += 1
+            continue
+        frames.append(p)
+    out['frames'] = len(frames)
+    out['rejected_after_sync'] = rejected
+    out['looks_like_dev113p'] = False
+    if not frames:
+        out['note'] = ('没有一帧同时满足「55 AA + off4=0x1F + 校验和」⇒ 不是 DEV113P 136B 流'
+                       '（或帧被截断/波特率不对）')
+        return out
+
+    out['looks_like_dev113p'] = True
+    out['first_frame_off'] = frames[0]
+    out['tail_bytes'] = len(b) - frames[-1] - fl
+    gaps = Counter(frames[i + 1] - frames[i] for i in range(len(frames) - 1))
+    out['frame_gap_hist'] = _hist(gaps, 6)
+    out['gap_eq_136'] = sum(v for k, v in gaps.items() if k == fl)
+    out['gap_eq_136_ratio'] = round((sum(v for k, v in gaps.items() if k == fl)
+                                     / max(1, len(frames) - 1)), 4)
+
+    rx = Counter((b[p + KNOWN_2T4R['tag_off']] >> KNOWN_2T4R['rx_tag_shift']) & 0x03
+                 for p in frames)
+    fseq = Counter((b[p + KNOWN_2T4R['tag_off']] >> KNOWN_2T4R['frame_tag_shift']) & 0x0F
+                   for p in frames)
+    out['rx_tag_hist'] = _hist(rx, 8)
+    out['rx_tag_set'] = sorted(k for k, _ in rx.items())
+    out['frame_seq_distinct'] = len(fseq)
+
+    # 按 chirp 分组（同 counter 的 4 帧），核对「每组恰 4 帧 且 RX 依次 0,1,2,3」
+    groups, runs = [], []
+    for p in frames:
+        key = b[p + 2:p + 4]
+        if groups and groups[-1][0] == key:
+            groups[-1][1].append(p)
+        else:
+            groups.append((key, [p]))
+    for key, ps in groups:
+        runs.append({'n': len(ps),
+                     'rx': [(b[p + KNOWN_2T4R['tag_off']] >> KNOWN_2T4R['rx_tag_shift']) & 0x03
+                            for p in ps]})
+    out['chirp_groups'] = len(groups)
+    out['groups_of_4'] = sum(1 for g in runs if g['n'] == 4)
+    out['groups_rx_ordered'] = sum(1 for g in runs if g['rx'] == [0, 1, 2, 3])
+    out['groups_other'] = [(g['n'], g['rx']) for g in runs if g['n'] != 4 or g['rx'] != [0, 1, 2, 3]][:4]
+
+    # 组装完整性（按 frame_seq 结算；逻辑与 radar_protocol_dev113p 同源，此处独立实现）
+    settled = complete = incomplete = lost = 0
+    cur, seen = None, set()
+    for p in frames:
+        fs = (b[p + KNOWN_2T4R['tag_off']] >> KNOWN_2T4R['frame_tag_shift']) & 0x0F
+        if cur is None:
+            cur = fs          # 首包只用来初始化 frame_seq；**不能 continue**
+        elif fs != cur:       # 否则首包不进 seen，首帧永远被判「不完整」
+            settled += 1
+            if len(seen) == KNOWN_2T4R['chirps_per_frame'] * KNOWN_2T4R['rx_per_chirp']:
+                complete += 1
+            else:
+                incomplete += 1
+            if ((fs - cur) & 0x0F) != 1:
+                lost += 1
+            cur, seen = fs, set()
+        seen.add((b[p + 2:p + 4],
+                  (b[p + KNOWN_2T4R['tag_off']] >> KNOWN_2T4R['rx_tag_shift']) & 0x03))
+    out['assembled_complete'] = complete
+    out['assembled_incomplete'] = incomplete
+    out['settled_frames'] = settled
+    out['frames_lost_whole'] = lost
+    if dt and dt > 0:
+        out['packet_rate_pps'] = round(len(frames) / dt, 1)
+        out['radar_fps'] = round(len(frames) / dt / KNOWN_2T4R['packets_per_frame'], 3)
+        out['ref_2t4r_pps'] = KNOWN_2T4R['pkts_per_s']
+    return out
+
+
 def analyze_stream(data, dt=None, label='stream'):
-    """零协议假设地统计一段原始字节流。返回 dict（可直接打印或存 JSON）。"""
+    """零协议假设地统计一段原始字节流；若命中已知格式，再附上该格式的契约自检。
+
+    两段式的原因：**换板**时要的是「零假设探索」（下面这部分），
+    **已破解的板**再插回来时要的是「逐条对照冻结事实」（analyze_dev113p）。
+    只做前者会让人重新推一遍协议，只做后者会在换板时彻底无用。
+    """
     res = {'label': label, 'bytes': len(data)}
     if not data:
         res['note'] = '空数据'
@@ -176,7 +429,12 @@ def analyze_stream(data, dt=None, label='stream'):
     }
 
     head_pos = _find_all(b, b'ICLH')
-    if head_pos:
+    # 已知格式优先：DEV113P 无 wrapper，若字节流里碰巧出现 'ICLH'（载荷巧合）
+    # 会走错分支，所以先用「同步字 + off4 + 校验和」三重判据确认一次。
+    dv = analyze_dev113p(b, dt)
+    if dv.get('looks_like_dev113p'):
+        res['dev113p'] = dv
+    elif head_pos:
         # —— wrapper 形态：按「魔数 + 长度字段」逐包跳转，不信任任何固定长度 ——
         lens = Counter()
         gaps = Counter()
@@ -234,8 +492,11 @@ def analyze_stream(data, dt=None, label='stream'):
             res['watch'] = ('若 implied_frame_ms_if_1T2R 明显偏离 129.5 ms，说明包/帧不等于 128 '
                             '（RX 数或 chirp 数不同）——不要沿用 1T2R 的组帧参数')
     else:
-        # —— 无 wrapper：自适应定位裸帧 ——
+        # —— 无 wrapper 且不是已知格式：退回零假设探索 ——
         res['bare'] = _bare_analysis(b, dt)
+        res['dev113p_probe'] = {k: dv[k] for k in
+                               ('sync_candidates', 'frames', 'rejected_after_sync', 'note')
+                               if k in dv}
 
     # —— 与 1T2R 事实的对照（只对照，不做判定）——
     cmp_ = {}
@@ -294,6 +555,38 @@ def print_report(res):
             line('  若按 1T2R 128 包/帧: %.1f ms/帧（1T2R 实测 129.5 ms）'
                  % res['implied_frame_ms_if_1T2R'])
             line('  ⚠ %s' % res['watch'])
+    dv = res.get('dev113p')
+    if dv:
+        line('')
+        line('[已知格式命中：DEV113P / 2T4R 136 B 帧 —— 逐条核对冻结事实]')
+        line('  帧数(三重判据)    : %d（同步字候选 %d，判据不全被否 %d）'
+             % (dv['frames'], dv['sync_candidates'], dv['rejected_after_sync']))
+        line('  首帧偏移 / 尾部残 : %d B / %d B' % (dv['first_frame_off'], dv['tail_bytes']))
+        line('  相邻帧间距 136 占比: %.1f%%（%d/%d）'
+             % (dv['gap_eq_136_ratio'] * 100, dv['gap_eq_136'], max(1, dv['frames'] - 1)))
+        line('  ★ 校验和           : 全部通过（三重判据含校验和，未通过者已被否）')
+        line('  ★ RX 标签取值集     : %s（期望 [0, 1, 2, 3]）'
+             % ', '.join('%d×%d' % (k, n) for k, n in dv['rx_tag_hist']))
+        line('  chirp 组数/恰 4 帧  : %d / %d；RX 依次 0,1,2,3 的组 %d'
+             % (dv['chirp_groups'], dv['groups_of_4'], dv['groups_rx_ordered']))
+        if dv['groups_other']:
+            line('  例外的组           : %s（若集中在抓包首尾 ⇒ 只是截断，不是丢帧）'
+                 % (dv['groups_other'],))
+        line('  雷达帧序号 distinct : %d（期望 16）' % dv['frame_seq_distinct'])
+        line('  组装              : 完整 %d / 不完整 %d / 整帧丢失 %d（结算 %d 次）'
+             % (dv['assembled_complete'], dv['assembled_incomplete'],
+                dv['frames_lost_whole'], dv['settled_frames']))
+        if 'packet_rate_pps' in dv:
+            line('  包速率 / 雷达帧率   : %.1f 包/s → %.2f 雷达帧/s（2T4R 实测参考 %.0f 包/s）'
+                 % (dv['packet_rate_pps'], dv['radar_fps'], dv['ref_2t4r_pps']))
+    dp = res.get('dev113p_probe')
+    if dp:
+        line('')
+        line('[DEV113P 格式核对：未命中] 同步字候选 %d，三重判据命中 %d，判据不全 %d'
+             % (dp.get('sync_candidates', 0), dp.get('frames', 0),
+                dp.get('rejected_after_sync', 0)))
+        if dp.get('note'):
+            line('  注: %s' % dp['note'])
     bare = res.get('bare')
     if bare:
         line('')
@@ -646,6 +939,138 @@ def _synth_bare(frames=6, chirps=64, extra_bins=0, noise=False):
     return bytes(out)
 
 
+def _synth_dev113p(frames=3, chirps=64, rx=4, drop_at=None, shift_seq=0):
+    """按**实测冻结格式**合成 DEV113P 流（独立实现，不复用 radar_protocol_dev113p，
+    这样 selftest 验证的是「预检工具自己认识这个格式」，而不是「模块自洽」）。
+
+    off2 = 0x80|(chirp>>4)、off3 = (chirp&0xF)<<4、off4 = 0x1F、
+    payload = 32 bin × (I,Q) 大端 int16、off133:135 = 大端校验和、
+    off135 = (帧序号 mod 16)<<4 | (RX<<2)。
+    drop_at = (帧序, chirp, rx) 时故意漏发那一包，用来验证「丢帧能被检出」。
+    """
+    out = bytearray()
+    for f in range(frames):
+        fs = (f + shift_seq) & 0x0F
+        for c in range(chirps):
+            for r in range(rx):
+                if drop_at and (f, c, r) == drop_at:
+                    continue
+                iq = bytearray()
+                for b in range(32):
+                    v = (r + 1) * 100 + b          # 任意确定性载荷
+                    iq += (v & 0xFFFF).to_bytes(2, 'big') + b'\x00\x00'
+                ck = 0
+                for i in range(0, 128, 2):
+                    ck += (iq[i] << 8) | iq[i + 1]
+                out += bytes([0x55, 0xAA, 0x80 | (c >> 4), (c & 0x0F) << 4, 0x1F])
+                out += bytes(iq)
+                out += (ck & 0xFFFF).to_bytes(2, 'big')
+                out += bytes([(fs << 4) | (r << 2)])
+    return bytes(out)
+
+
+def _read_until_frames(ser, want=1, timeout=0.8):
+    """读到凑够 want 个自洽命令帧或超时，返回原始字节。"""
+    rec = bytearray()
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        n = ser.in_waiting
+        if n:
+            rec += ser.read(n)
+            if len(parse_cmds(rec)) >= want:
+                break
+        else:
+            time.sleep(0.01)
+    return bytes(rec)
+
+
+def cmd_probe(args):
+    """板型指纹（命令模式）——**默认干跑**，加 --send 才真正发字节。
+
+    为什么需要它：现有两条识别路径（USB VID:PID 指纹、裸流形态）都依赖
+    「厂商用哪一种 UART 芯片 / 是否自动出流」。若现场换了线或换了 UART 芯片，
+    两条都会失效；命令模式是直接问设备本身，最稳。
+    ⚠ 代价：命令模式会**停掉波形数据流**。命令码与响应字段已由厂商上位机日志的
+    真机字节证实（10/19），但**本工具自身尚未在真机上跑过**（只在干跑/合成流上验证），
+    所以默认干跑，并把「预期响应」按文档列出。
+    """
+    # 真机实测 `02 00` 为默认；--open-payload 可回到文档示例或试别的版本号
+    open_pl = int(MEASURED_OPEN_VER if args.open_payload is None
+                  else args.open_payload).to_bytes(2, 'little')
+
+    seq = [('打开命令模式', CMD_OPEN_CMD_MODE, open_pl),
+           ('读取版本', CMD_READ_VERSION, b''),
+           ('读取模组名', CMD_READ_MODULE, b''),
+           ('获取厂测配置(板型指纹)', CMD_FACTORY_CFG, b''),
+           ('关闭命令模式', CMD_CLOSE_CMD_MODE, b'')]
+
+    print('=== 命令模式板型指纹（%s）===' % ('实发' if args.send else '干跑：不发任何字节'))
+    print('端口 %s @ %d 8-N-1' % (args.port, args.baud))
+    print('')
+    for name, cmd, pl in seq:
+        print('  %-24s cmd=0x%04X payload=%-9s → %s'
+              % (name, cmd, (pl.hex(' ') or '无'), build_cmd(cmd, pl).hex(' ')))
+    print('')
+    print('文档示例（核对 codec 与字段顺序用；数值是文档示例，不是本机实测）：')
+    for k, v in DOC_FRAMES.items():
+        print('  %-18s %s' % (k, v))
+    print('')
+    if not args.send:
+        print('**这是干跑**：未打开端口、未发送任何字节。')
+        print('要真发（会停掉波形流；需先关掉 server.py 与厂商上位机）：')
+        print('  python serial_preflight.py probe --port COM4 --send')
+        return 0
+
+    import serial
+    print('⚠ 即将切到命令模式，波形数据会停止；结束时会发「关闭命令模式」恢复。')
+    try:
+        ser = serial.Serial(args.port, args.baud, timeout=0.05,
+                            bytesize=8, parity='N', stopbits=1)
+    except Exception as e:
+        print('打开失败: %s: %s' % (type(e).__name__, e))
+        return 2
+    try:
+        # 文档三步走：① 发一次（回显不可信，不解析）② delay 清缓存 ③ 再发一次并解析
+        ser.reset_input_buffer()
+        ser.write(build_cmd(CMD_OPEN_CMD_MODE, open_pl))
+        ser.flush()
+        time.sleep(0.15)
+        ser.reset_input_buffer()
+        ser.write(build_cmd(CMD_OPEN_CMD_MODE, open_pl))
+        ser.flush()
+        buf = _read_until_frames(ser, want=1, timeout=args.seconds)
+        reps = parse_cmds(buf)
+        if reps:
+            for d in reps:
+                print('  [0x%04X] %s' % (d['cmd'], decode_cmd_reply(d['cmd'], d['payload'])))
+        else:
+            print('  ⚠ 未收到结构自洽响应（原始 %d 字节）: %s'
+                  % (len(buf), buf[:64].hex(' ')))
+            print('  ⇒ 可能：该固件不支持这套命令模式 / 波特率不对 / 已不在波形流状态。')
+        for name, cmd, pl in seq[1:-1]:
+            ser.reset_input_buffer()
+            ser.write(build_cmd(cmd, pl))
+            ser.flush()
+            got = _read_until_frames(ser, want=1, timeout=args.seconds)
+            reps = parse_cmds(got)
+            print('  %-24s cmd=0x%04X%s'
+                  % (name, cmd, ('' if reps else '   → 原始 %s' % got[:48].hex(' '))))
+            for d in reps:
+                print('      0x%04X %s' % (d['cmd'], decode_cmd_reply(d['cmd'], d['payload'])))
+    finally:
+        try:
+            ser.reset_input_buffer()
+            ser.write(build_cmd(CMD_CLOSE_CMD_MODE))
+            ser.flush()
+            time.sleep(0.15)
+        except Exception as e:
+            print('关闭命令模式失败: %s（建议重新上电）' % e)
+        ser.close()
+        print('已关闭端口（波形流应恢复）。')
+    return 0
+
+
+
 def cmd_selftest(args):
     ok = True
 
@@ -735,6 +1160,101 @@ def cmd_selftest(args):
     r4 = analyze_stream(bytes(range(256)) * 20, dt=0.5, label='noise')
     check('纯噪声不崩且 ICLH=0', r4['magic_counts']['ICLH'] == 0)
 
+    # ---- DEV113P（2T4R）已知格式：契约自检必须能确认 ----
+    print('-- 合成 DEV113P 136B: %d 字节' % len(_synth_dev113p(frames=3)))
+    d8 = _synth_dev113p(frames=3)
+    r8 = analyze_stream(d8, dt=1.0, label='synth-dev113p')
+    dv8 = r8.get('dev113p') or {}
+    check('命中已知格式 dev113p', bool(dv8))
+    check('帧数 = 3×64×4', dv8.get('frames') == 3 * 64 * 4, str(dv8.get('frames')))
+    check('RX 取值集 = 0..3', dv8.get('rx_tag_set') == [0, 1, 2, 3], str(dv8.get('rx_tag_set')))
+    check('chirp 组数 = 192', dv8.get('chirp_groups') == 3 * 64, str(dv8.get('chirp_groups')))
+    check('每组恰 4 帧', dv8.get('groups_of_4') == 3 * 64, str(dv8.get('groups_of_4')))
+    check('RX 依次 0,1,2,3', dv8.get('groups_rx_ordered') == 3 * 64)
+    check('相邻帧间距恒 136', dv8.get('gap_eq_136') == dv8.get('frames', 0) - 1,
+          str(dv8.get('gap_eq_136')))
+    check('组装出 2 个完整帧（末帧未结算）',
+          dv8.get('assembled_complete') == 2 and dv8.get('assembled_incomplete') == 0,
+          'complete=%s incomplete=%s' % (dv8.get('assembled_complete'),
+                                         dv8.get('assembled_incomplete')))
+    check('无整帧丢失', dv8.get('frames_lost_whole') == 0, str(dv8.get('frames_lost_whole')))
+
+    print('-- 合成 DEV113P 漏掉 1 包（第 2 帧 chirp5 RX2）')
+    dv9 = (analyze_stream(_synth_dev113p(frames=3, drop_at=(1, 5, 2)), dt=1.0,
+                          label='synth-dev113p-drop').get('dev113p') or {})
+    check('漏 1 包仍命中已知格式', bool(dv9))
+    check('帧数 = 768-1', dv9.get('frames') == 3 * 64 * 4 - 1, str(dv9.get('frames')))
+    check('不完整帧被检出 = 1', dv9.get('assembled_incomplete') == 1,
+          str(dv9.get('assembled_incomplete')))
+    check('完整帧仍为 1', dv9.get('assembled_complete') == 1, str(dv9.get('assembled_complete')))
+
+    print('-- 合成 DEV113P 整帧丢失（帧序号 0 后直接跳到 2）')
+    d10 = _synth_dev113p(frames=1, shift_seq=0) + _synth_dev113p(frames=2, shift_seq=2)
+    dv10 = (analyze_stream(d10, dt=1.0, label='synth-dev113p-lost').get('dev113p') or {})
+    check('整帧丢失被检出 = 1', dv10.get('frames_lost_whole') == 1,
+          str(dv10.get('frames_lost_whole')))
+
+    # ---- 命令模式 codec：与厂商文档示例**逐字节**一致 ----
+    print('-- 命令模式 codec（对照厂商协议文档示例字节）')
+    check('读取版本 req 与文档逐字节一致',
+          build_cmd(CMD_READ_VERSION).hex(' ') == DOC_FRAMES['读取版本 req'],
+          build_cmd(CMD_READ_VERSION).hex(' '))
+    check('打开命令模式 req 与文档一致',
+          build_cmd(CMD_OPEN_CMD_MODE, DOC_OPEN_VER.to_bytes(2, 'little')).hex(' ')
+          == DOC_FRAMES['打开命令模式 req'])
+    check('关闭命令模式 req 与文档一致',
+          build_cmd(CMD_CLOSE_CMD_MODE).hex(' ') == DOC_FRAMES['关闭命令模式 req'])
+    check('进入厂测模式 req 与文档一致',
+          build_cmd(CMD_FACTORY_CFG).hex(' ') == DOC_FRAMES['进入厂测模式 req'])
+    for k in ('读取版本 resp', '打开命令模式 resp', '关闭命令模式 resp', '进入厂测模式 resp'):
+        bb = bytes.fromhex(DOC_FRAMES[k])
+        rr = parse_cmds(bb)
+        check('%s 可解析且 raw 精确' % k, len(rr) == 1 and rr[0]['raw'] == bb,
+              'n=%d' % len(rr))
+    rf = parse_cmds(bytes.fromhex(DOC_FRAMES['进入厂测模式 resp']))[0]
+    dec = decode_cmd_reply(rf['cmd'], rf['payload'])
+    check('厂测响应 cmd = 0x0124', rf['cmd'] == 0x0124, '0x%04X' % rf['cmd'])
+    check('厂测响应：结果 = 成功', dec['结果'] == '成功', str(dec['结果']))
+    check('厂测响应：级联芯片数 = 2（文档示例）', dec.get('级联芯片数') == 2)
+    check('厂测响应：通道数 = 4（文档示例）', dec.get('接收通道数') == 4)
+    check('厂测响应：1DFFT = 64（文档示例）', dec.get('1DFFT大小') == 64)
+    check('厂测响应：每帧 chirp = 32（文档示例）', dec.get('每帧chirp数') == 32)
+    check('厂测响应：数据类型 0 → 1DFFT', dec.get('数据类型') == '1DFFT', str(dec.get('数据类型')))
+    rv = parse_cmds(bytes.fromhex(DOC_FRAMES['读取版本 resp']))[0]
+    check('版本响应解出 v1.4.14',
+          decode_cmd_reply(rv['cmd'], rv['payload']).get('版本') == 'v1.4.14',
+          str(decode_cmd_reply(rv['cmd'], rv['payload'])))
+    op = parse_cmds(bytes.fromhex(DOC_FRAMES['打开命令模式 resp']))[0]
+    d2 = decode_cmd_reply(op['cmd'], op['payload'])
+    check('打开命令模式响应：版本 = 2 / 缓冲区 = 1024',
+          d2.get('协议版本号') == 2 and d2.get('收发缓冲区大小') == 1024, str(d2))
+    pad = b'\x00\xff' * 5 + bytes.fromhex(DOC_FRAMES['读取版本 resp']) + b'\x55' * 3
+    check('容错扫描：前后夹垃圾仍扫出 1 帧', len(parse_cmds(pad)) == 1)
+    check('残帧（截尾 1 字节）不误报',
+          parse_cmds(bytes.fromhex(DOC_FRAMES['读取版本 resp'])[:-1]) == [])
+
+    print('-- 真机实测口径（10/19 厂商上位机日志）')
+    check('实测 payload 02 00 → 帧字节正确',
+          build_cmd(CMD_OPEN_CMD_MODE, MEASURED_OPEN_VER.to_bytes(2, 'little')).hex(' ')
+          == 'fd fc fb fa 04 00 ff 00 02 00 04 03 02 01', build_cmd(CMD_OPEN_CMD_MODE, MEASURED_OPEN_VER.to_bytes(2, 'little')).hex(' '))
+    check('文档示例 payload 01 00 仍可构造（--open-payload 1 走这条）',
+          build_cmd(CMD_OPEN_CMD_MODE, DOC_OPEN_VER.to_bytes(2, 'little')).hex(' ')
+          == DOC_FRAMES['打开命令模式 req'])
+    check('结果码 0x0000 → 成功', describe_result(0) == '成功', describe_result(0))
+    check('结果码 0x0001 → 失败/不支持且保留原始码',
+          describe_result(1).startswith('失败') and '0x0001' in describe_result(1),
+          describe_result(1))
+    check('结果码 0x0FA7 → 带十进制 4007',
+          '(4007)' in describe_result(0x0FA7), describe_result(0x0FA7))
+    check('结果码 0x0FA8 → 带十进制 4008',
+          '(4008)' in describe_result(0x0FA8), describe_result(0x0FA8))
+    check('结果码 0xA001 → 带十进制 40961',
+          '(40961)' in describe_result(0xA001), describe_result(0xA001))
+    check('未知结果码不吞掉（保留原始十六进制）',
+          '0x1234' in describe_result(0x1234), describe_result(0x1234))
+    check('失败响应经 decode_cmd_reply 仍可读',
+          decode_cmd_reply(0x0105, b'\xa7\x0f').get('结果', '').startswith('失败'))
+
     print('=== selftest %s ===' % ('全部通过' if ok else '**有失败项**'))
     return 0 if ok else 1
 
@@ -769,6 +1289,15 @@ def main():
     p.add_argument('--duration', type=float, default=None, help='该文件对应的抓取时长（用于算速率）')
     p.add_argument('--json', action='store_true')
     p.set_defaults(func=cmd_analyze)
+
+    p = sub.add_parser('probe', help='命令模式板型指纹（默认干跑；--send 才真发，会停波形流）')
+    p.add_argument('--port', required=True)
+    p.add_argument('--baud', type=int, default=1500000)
+    p.add_argument('--seconds', type=float, default=0.8)
+    p.add_argument('--send', action='store_true', help='真正发送命令（会停掉波形流）')
+    p.add_argument('--open-payload', type=lambda v: int(v, 0), default=None,
+                   help='覆盖「打开命令模式」的预期版本号 payload（默认 2 = 真机实测；文档示例是 1）')
+    p.set_defaults(func=cmd_probe)
 
     p = sub.add_parser('selftest', help='用合成流自检统计器')
     p.set_defaults(func=cmd_selftest)
