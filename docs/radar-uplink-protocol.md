@@ -121,6 +121,27 @@ chirpIndex = ((ID & 0x0F) << 4) | ((X1 & 0xF0) >> 4)      // 实测取值 0..63
 > - 注意：**上电即出流**（§1）仍然成立，即"出点云"不依赖下行命令；但"改配置 / 停机"必须走下行命令，
 >   二者不矛盾。详见 `radar-hardware-stop-plan.md`、`radar-control-and-actions.md`。
 
+> **2026-10-19 补充（实测证据，不再依赖文档示例）**：本节此前只有厂商文档与固件层面的描述。
+> 10/19 发现工具配置 `appConfig.xml` 里 `EnableDumpProtocolBuffer="1"` 会把每次收发的**原始 hex**
+> 写进 `Log\LogFile_*.txt`（`_Send:` / `_Recv:` 行的**下一行**）⇒ 由此拿到**两块板真机下达命令的字节原文**。
+> 要点（完整表格、脚本与保密说明见 [`radar-uplink-dev113p-2t4r.md`](radar-uplink-dev113p-2t4r.md) §7.7）：
+>
+> - **实测结果码**：`0x0000` 成功；`0x0001` 失败 / 不支持；`0x0FA7`(4007) 与 `0x0FA8`(4008) 为
+>   **2T4R 固件专用失败码**（读模组名 / 读序列号 / 接口类型 / 通道位）；`0xA001`(40961) 打开命令模式失败。
+> - **写寄存器序列结构**：`0x0012` + 参数 **`0x0100`** = `(段号 u16, 条数 u16)`；
+>   `0x0001` payload = `chipAddr u16` + N × `(addr, val)`，条目宽度 4 B（A16D16，1T2R）
+>   或 8 B（A32D32，2T4R）。**实测条数与声明逐项吻合**：1T2R Stop/Config/Start = 9 / **67** / 5；
+>   2T4R Env/Stop/Config/Start/ModCal = 68 / 6 / 155 / 9 / 60。
+> - **读帧顺序**：先读 **6 B**（magic 4 + `u16LE` 数据长），**再读 `dataLen + 4` B**。
+> - **打开命令模式**：工具实测发 `02 00`（文档示例写 `01 00`），且**三步走**：
+>   发一次不解析返回 → 延时 ~100–150 ms → 再发一次并解析。
+> - **板型指纹**：1T2R → 协议版本 3 / 缓冲 64 / 读模组名 **"DEV202H"**；
+>   2T4R → 协议版本 3 / 缓冲 **512** / 读模组名**失败 `0x0FA7`** / 版本串 **"VA1.0.0"**。
+>   ⇒ 可作**不依赖 USB-UART 芯片**的板型指纹（`serial_preflight.py probe` 已内置，默认干跑）。
+> - ⚠️ **寄存器池内的射频常量搜索为负结果**（含 24.5 GHz / 999 MHz / 0.15 m 等，见同上）
+>   ⇒ **不构成对 `range_res` 的设备侧确认**，该线索已关闭。
+> - 本项目软件**仍未使用**该协议写配置；停机 / 改配置实验仍按 `radar-hardware-stop-plan.md` 的验证门执行。
+
 ---
 
 ## 6. 证据清单
@@ -135,6 +156,8 @@ chirpIndex = ((ID & 0x0F) << 4) | ((X1 & 0xF0) >> 4)      // 实测取值 0..63
 | 波形与帧周期参数 | 厂商工具目录 `Radar_Config.ini` | L52、L57 等 |
 | 实机字节流统计 | `.deepworks/tmp/cap.bin`（154665 B，2974 包，22 帧） | 本地临时目录，不入库 |
 | 实机连续运行 | `server.py --record` 录制 5078 帧 / 657.8 s / 7.72 fps | 本地临时目录，不入库 |
+| 命令模式实测字节（1T2R 与 2T4R） | 源 = 厂商工具 `Log\LogFile_2026_10_*.txt`（`EnableDumpProtocolBuffer=1` 的 hex 转储）；解析见 `.deepworks/tmp/extract_protocol_bytes.out`、`transcripts.out` | 10/19 |
+| 寄存器写序列解码 | `.deepworks/tmp/decode_registers2.out` + `regs_{1t2r,2t4r}.txt`（声明条数 vs 实测条数逐项吻合） | 本地临时目录，不入库 |
 
 > 固件源码为**临时提取件**，位于 `.deepworks/tmp/dev202h/`，属厂商官方资料，**不入库、不外传**；需要复核时请从原始发布包重新提取。
 

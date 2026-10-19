@@ -67,19 +67,58 @@ MAX_STEP_MIN = 0.35       # max_step 下限（米/帧）
 MAX_STEP_MAX = 0.80       # max_step 上限
 MAX_STEP_K = 3.0          # max_step = K × p99(逐帧 |Δpx|)
 BAND_OCC_MIN = 0.30       # 推荐进入距离带所需的最低占用率（提案）
-LEAK_RANGE = 0.70         # 低于此距离的门视为 TX/RX 近场泄漏门，必排除（实测）
+LEAK_RANGE = 0.70         # 低于此距离的门视为 TX/RX 近场泄漏门，必排除（1T2R 实测值）
+
+# ---- 板型（1T2R / 2T4R）自适应 ------------------------------------------
+# BIN_PITCH / LEAK_RANGE / 时间轴换算必须与**采集时那块板**一致，否则
+# 「门号 ↔ 米」与「帧号 ↔ 毫秒」会整体错位（2T4R 误用 1T2R 值 → 时间轴快 4.02×、
+# 门距差 4.5×）。用 set_board() 运行时整体切换；默认仍为 1T2R 原值 →
+# 不调用 set_board 时行为与改动前完全一致。
+BOARD = '1t2r'            # 当前生效板型
+
+
+def set_board(board):
+    """切换全局板型常量（BOARD / BIN_PITCH / LEAK_RANGE），返回生效板型。"""
+    global BOARD, BIN_PITCH, LEAK_RANGE
+    import radar_source as rs
+    BOARD = board if board in ('1t2r', '2t4r') else rs.DEFAULT_BOARD
+    BIN_PITCH = rs.range_res(BOARD)
+    # 近场泄漏门：1T2R = 0.70 m（实测）。2T4R 门距只有 0.150 m，沿用 0.70 m 会
+    # 连门 1~4 一起删掉，所以只排除门 0 —— **提案，待 2T4R 卷尺点检确认**。
+    LEAK_RANGE = 0.70 if BOARD == '1t2r' else rs.range_res(BOARD)
+    return BOARD
+
+
+def time_axis_ms(board=None):
+    """帧序号 → 毫秒的换算系数（相对毫秒 = 帧号 × 本值）。"""
+    import radar_source as rs
+    return rs.frame_period(board or BOARD) * 1000.0
 
 
 # ------------------------------------------------------------------ 数据来源
 def bin_index(r):
-    """距离 → 距离门索引（与 radar_dsp 的 rng=(j+0.5)·0.6813 互为逆运算）。"""
+    """距离 → 距离门索引（与 radar_dsp 的 rng=(j+0.5)·pitch 互为逆运算）。"""
     return int(round(float(r) / BIN_PITCH - 0.5))
 
 
-def frames_from_file(path, proc, limit=None, log=print):
-    """离线回放录制文件，逐帧 yield (idx, t_ms, pts)。"""
-    from radar_protocol import StreamParser, FrameAssembler
-    parser, asm = StreamParser(), FrameAssembler()
+def frames_from_file(path, proc, limit=None, log=print, board=None):
+    """离线回放录制文件，逐帧 yield (idx, t_ms, pts)。
+
+    board=None（默认）→ 按**文件自身字节形态**嗅探板型（1T2R 含外层 ICLH 魔数 /
+    2T4R 是裸 136 B 帧）；嗅探不出就沿用当前板型并打印警告 —— 不猜。
+    解析器与时间轴系数都随板型走，所以同一个函数能正确读两块板的录制文件。
+    """
+    import radar_source as rs
+    b = board or rs.sniff_board_from_file(path)
+    if b is None:
+        b = BOARD
+        log('[calib] 警告：无法从文件判断板型，沿用当前板型 %s'
+            '（可用 board= 显式指定 1t2r / 2t4r）' % b)
+    b = set_board(b)
+    parser, asm = rs.make_protocol(b)
+    fp_ms = time_axis_ms(b)
+    log('[calib] 解析器 = %s，帧周期 = %.4f s，门距 = %.4f m'
+        % (b, fp_ms / 1000.0, BIN_PITCH))
     idx = 0
     with open(path, 'rb') as f:
         while True:
@@ -91,21 +130,30 @@ def frames_from_file(path, proc, limit=None, log=print):
                 if pair is None:
                     continue
                 idx += 1
-                yield idx, idx * ra.FRAME_PERIOD * 1000.0, proc.process(*pair)[0]
+                # 只用前两个 RX（z0/z1）→ 与雷达实时管道
+                # radar_source.build_pipeline 的 on_frame(pair[0], pair[1], stats)
+                # 完全同口径（2T4R 的 assembler 会返回 4 个 RX，不能 *pair 展开）
+                yield idx, idx * fp_ms, proc.process(pair[0], pair[1])[0]
                 if limit is not None and idx >= limit:
                     return
     log('[calib] 离线回放 %s → %d 帧（坏包 %d，跳过 %d 字节）'
         % (os.path.basename(path), idx, parser.bad_packets, parser.skipped_bytes))
 
 
-def frames_live(port, baud, seconds, proc, log=print):
-    """实时串口，逐帧 yield (idx, t_ms, pts)。按秒数自动停止。"""
-    import radar_protocol as rp
+def frames_live(port, baud, seconds, proc, log=print, board=None):
+    """实时串口，逐帧 yield (idx, t_ms, pts)。按秒数自动停止。
+
+    baud=None → 由 SerialSource 按串口指纹自动定波特率（1T2R 921600 / 2T4R 1500000）；
+    board=None → 用 src 探测出的板型（src.board）。两者都不猜。
+    """
     import radar_source as rs
     src = rs.SerialSource(port=port, baud=baud)
-    parser, asm = rp.StreamParser(), rp.FrameAssembler()
     src.open()
-    log('[calib] 已连上 %s@%d，采集 %.1f s' % (port, baud, seconds))
+    b = set_board(board or getattr(src, 'board', None))
+    parser, asm = rs.make_protocol(b)
+    fp_ms = time_axis_ms(b)
+    log('[calib] 已连上 %s@%d（板型 %s，帧周期 %.4f s，门距 %.4f m），采集 %.1f s'
+        % (port, src.baud, b, fp_ms / 1000.0, BIN_PITCH, seconds))
     t_end = time.time() + seconds
     idx = 0
     try:
@@ -118,7 +166,7 @@ def frames_live(port, baud, seconds, proc, log=print):
                 if pair is None:
                     continue
                 idx += 1
-                yield idx, idx * ra.FRAME_PERIOD * 1000.0, proc.process(*pair)[0]
+                yield idx, idx * fp_ms, proc.process(pair[0], pair[1])[0]
     finally:
         src.close()
     log('[calib] 采集结束：%d 帧（坏包 %d，丢弃帧 %d）'
@@ -476,7 +524,12 @@ def main(argv=None):
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument('--file', help='离线：录制文件（.bin）')
     src.add_argument('--port', help='实时：串口，如 COM3')
-    ap.add_argument('--baud', type=int, default=921600)
+    ap.add_argument('--baud', type=int, default=None,
+                    help='串口波特率；默认 None = 按板型指纹自动'
+                         '（1T2R 921600 / 2T4R 1500000）')
+    ap.add_argument('--board', default='auto',
+                    choices=['auto', '1t2r', '2t4r'],
+                    help='板型；默认 auto = 按文件/串口指纹自动判断')
     ap.add_argument('--seconds', type=float, default=20.0, help='实时采集时长（秒）')
     ap.add_argument('--band', type=float, nargs=2, default=None,
                     metavar=('RMIN', 'RMAX'), help='当前使用的距离带（米）')
@@ -516,8 +569,11 @@ def main(argv=None):
           % (args.mode, args.file or ('串口 ' + args.port), band))
     print('=' * 74)
 
+    board_arg = None if getattr(args, 'board', 'auto') in (None, 'auto') \
+        else args.board
     if args.file:
-        it = frames_from_file(args.file, proc, limit=args.limit)
+        it = frames_from_file(args.file, proc, limit=args.limit,
+                              board=board_arg)
     else:
         if args.mode == 'rest':
             print('>> 请站到雷达前【保持不动】%.0f 秒（可以自然呼吸，别迈步/挥手）'
@@ -532,7 +588,8 @@ def main(argv=None):
         for i in (3, 2, 1):
             print('   %d' % i)
             time.sleep(1)
-        it = frames_live(args.port, args.baud, args.seconds, proc)
+        it = frames_live(args.port, args.baud, args.seconds, proc,
+                         board=board_arg)
 
     if args.mode == 'band':
         res = mode_band(it, band)

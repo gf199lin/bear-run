@@ -8,7 +8,7 @@
   采完直接调用 `label_tool.py` 的对照逻辑算出精确率/召回率。
 
 时间基准（关键，别用墙钟）：
-  离线分析的时间轴是 **帧号 × 0.1295 s**（`radar_actions.FRAME_PERIOD`，见其 L241
+  离线分析的时间轴是 **帧号 × 帧周期**（`radar_actions.FRAME_PERIOD`，见其 L241
   `t = asm.frames * FRAME_PERIOD`）。真机实测帧率与 0.1295 s/帧 并不完全相等，
   所以真值必须换算到**帧号**再乘 FRAME_PERIOD，否则一段 90 s 的采集会有秒级漂移，
   对照结果直接作废。本脚本在提示音响起的瞬间抓取 `stats['frames']`，正是为了这个。
@@ -49,7 +49,56 @@ import radar_actions as ra            # noqa: E402
 import radar_source as rs             # noqa: E402
 import label_tool as lt               # noqa: E402
 
-FP = ra.FRAME_PERIOD                  # 0.1295 s/帧，与离线分析同一时间轴
+FP = ra.FRAME_PERIOD                  # 帧周期（s/帧）；**运行时按板型覆盖**，见 set_board()
+BOARD = '1t2r'                        # 当前生效板型（默认 1T2R → 行为与改动前一致）
+
+
+def set_board(board):
+    """按板型切换全局帧周期 FP（1T2R 0.1295 s / 2T4R 0.520840 s），返回生效板型。
+
+    真值窗口按「帧号 × FP」落盘，离线分析也按同一系数回算时间轴；
+    两者必须同板同值 —— 2T4R 若沿用 1T2R 的 0.1295 s，整段真值偏快 4.02 倍。
+    """
+    global FP, BOARD
+    BOARD = board if board in ('1t2r', '2t4r') else rs.DEFAULT_BOARD
+    FP = rs.frame_period(BOARD)
+    return BOARD
+
+
+def resolve_board(args, src=None):
+    """板型优先级：--board 显式 > 数据源指纹（src.board）> 默认板型。"""
+    want = getattr(args, 'board', None)
+    if want and want != 'auto':
+        return want
+    b = getattr(src, 'board', None)
+    if b in ('1t2r', '2t4r'):
+        return b
+    return rs.DEFAULT_BOARD
+
+
+def preflight_board(args):
+    """开工前尽力确定板型：--board 显式 > 串口指纹 > 回放文件嗅探 > 默认。
+
+    任何异常都降级为默认板型 —— 板型识别失败不该拦住采集。
+    """
+    want = getattr(args, 'board', None)
+    if want and want != 'auto':
+        return set_board(want)
+    if getattr(args, 'source', None) == 'serial':
+        try:
+            b = rs.probe_board(args.port)
+        except Exception:
+            b = None
+        if b in ('1t2r', '2t4r'):
+            return set_board(b)
+    if getattr(args, 'source', None) == 'replay' and getattr(args, 'replay_file', None):
+        try:
+            b = rs.sniff_board_from_file(args.replay_file)
+        except Exception:
+            b = None
+        if b:
+            return set_board(b)
+    return set_board(rs.DEFAULT_BOARD)
 
 # 每个距离用哪个距离带。距离门索引 j = round(r/0.6813 - 0.5)（radar_dsp: rng=(j+0.5)*0.6813）
 #   r=1.00 m → j=1（门中心 1.02 m）
@@ -70,6 +119,21 @@ DIST_BAND = {
 }
 ACTION_TEXT = {'LEFT': '向左移动', 'RIGHT': '向右移动', 'DUCK': '下蹲', 'JUMP': '起跳'}
 ACTION_KEY = {'left': 'LEFT', 'right': 'RIGHT', 'duck': 'DUCK', 'jump': 'JUMP'}
+
+
+# 2T4R 距离带：门距只有 0.150 m，DIST_BAND 那三条 (1.36, 2.04) 是按 1T2R 门宽
+# 调出来的，照用会把 2T4R 的站位切到很远处。改为以站位为中心 ±0.35 m（≈±2.3 门）。
+# ⚠ 提案，待 2T4R 卷尺点检 + 左右移动实采确认；不是实测结论。
+BAND_HALF_2T4R = 0.35
+
+
+def band_for_dist(dist, board=None):
+    """按板型返回该站位的距离带（1T2R 沿用原 DIST_BAND → 行为与改动前一致）。"""
+    b = board or BOARD
+    if b != '2t4r':
+        return DIST_BAND.get(dist) or ra.BAND_DEFAULT
+    lo = max(rs.range_res(b), dist - BAND_HALF_2T4R)
+    return (round(lo, 3), round(dist + BAND_HALF_2T4R, 3))
 
 STATE = {'frames': 0, 'fps': 0.0, 'packets': 0, 'bad': 0, 'skipped': 0,
          'connected': True, 'reconnects': 0, 'read_errors': 0}
@@ -226,12 +290,23 @@ def make_source(args):
         if not args.replay_file:
             raise SystemExit('--source replay 需要 --replay-file')
         return rs.ReplaySource(args.replay_file, loop=True)
+    # baud=None → 由 SerialSource 按串口指纹自动定波特率（1T2R 921600 / 2T4R 1500000）。
+    # 写死 921600 会在 2T4R 上开成错波特率 → 收不到有效帧，整段采集成废数据。
     return rs.SerialSource(port=args.port, baud=args.baud)
 
 
-def probe_port(port, baud):
-    """提前试开一次串口：把「被别的进程占着」这类问题在采集前就说清楚。"""
+def probe_port(port, baud=None):
+    """提前试开一次串口：把「被别的进程占着」这类问题在采集前就说清楚。
+
+    baud=None（新默认）→ 先按串口指纹探板型再取该板波特率；探测不出用默认板型。
+    """
     import serial
+    if not baud:
+        try:
+            b = rs.probe_board(port)
+        except Exception:
+            b = None
+        baud = rs.baud_for(b)
     try:
         ser = serial.Serial(port, baud, timeout=0.2)
     except Exception as e:
@@ -331,8 +406,10 @@ def capture_segment(args, dist, band, bin_path, labels_path, index, total):
             'band': list(band), 'frame_period': FP,
             'frames': t_seg_end, 'source': args.source,
             'lead': args.lead,
-            'note': '时间轴 = 帧号 × 0.1295 s（radar_actions.FRAME_PERIOD）；'
-                    '真值由 segment_capture.py 按提示音时刻的真实帧号生成'}
+            'board': BOARD,
+            'note': '时间轴 = 帧号 × %.4f s（板型 %s，radar_source.frame_period）；'
+                    '真值由 segment_capture.py 按提示音时刻的真实帧号生成'
+                    % (FP, BOARD)}
     lt.save_labels(labels_path, labels, meta)
     print('  本段真值 %d 条 → %s' % (len(labels), labels_path))
     return bin_path, labels_path
@@ -372,7 +449,12 @@ def table(agg):
 def main(argv=None):
     ap = argparse.ArgumentParser(description='分段定距采集 + 自动打真值 + 自动对照')
     ap.add_argument('--port', default='COM3')
-    ap.add_argument('--baud', type=int, default=921600)
+    ap.add_argument('--baud', type=int, default=None,
+                    help='串口波特率；默认 None = 按板型指纹自动'
+                         '（1T2R 921600 / 2T4R 1500000）')
+    ap.add_argument('--board', default='auto',
+                    choices=['auto', '1t2r', '2t4r'],
+                    help='板型；默认 auto = 从串口指纹/回放文件自动判断')
     ap.add_argument('--source', default='serial',
                     choices=['serial', 'loopback', 'replay'])
     ap.add_argument('--replay-file', default=None,
@@ -420,6 +502,10 @@ def main(argv=None):
                          for a in args.actions.split(',') if a.strip()]
     distances = [float(x) for x in args.distances.split(',') if x.strip()]
     os.makedirs(args.outdir, exist_ok=True)
+    preflight_board(args)
+    print('[板型] %s：帧周期 %.4f s，门距 %.4f m%s'
+          % (BOARD, FP, rs.range_res(BOARD),
+             '（--board 显式指定）' if getattr(args, 'board', 'auto') != 'auto' else ''))
 
     per_action = args.reps * args.move
     est = len(distances) * (len(args.action_codes) * args.reps
@@ -471,6 +557,10 @@ def main(argv=None):
         if band is None:
             band = ra.BAND_DEFAULT
             print('  (%.2f m 没有预设距离带，用默认 %s)' % (dist, band))
+        if BOARD == '2t4r':
+            band = band_for_dist(dist)
+            print('  (2T4R：%.2f m 站位 → 距离带 %s（提案，门距 %.3f m）'
+                  % (dist, band, rs.range_res('2t4r')))
 
         if i > 1:
             if args.auto:
@@ -494,6 +584,8 @@ def main(argv=None):
                               daemon=True)
         th.start()
         time.sleep(0.5)
+        # src.open() 里已完成串口指纹识别 → 以它为权威刷新帧周期（预检只是预判）
+        set_board(resolve_board(args, src))
         try:
             bin_path, labels_path = capture_segment(args, dist, band, bs, lp,
                                                     i, len(distances))

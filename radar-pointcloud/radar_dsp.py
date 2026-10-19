@@ -32,7 +32,9 @@ ANGLE_MAX = 45.0                         # 水平视场 ±45°
 class PointCloudProcessor:
     def __init__(self, cfar_scale=2.6, min_power=0.0, min_snr=7.0,
                  remove_clutter=True, angle_sign=1.0, max_points=64,
-                 angle_max=ANGLE_MAX, min_range=0.0):
+                 angle_max=ANGLE_MAX, min_range=0.0,
+                 chirps=None, bins=None, range_res=None, v_res=None,
+                 ant_spacing=None, lam=None):
         self.cfar_scale = float(cfar_scale)
         self.min_power = float(min_power)       # 绝对门限（功率，0 = 关闭）
         self.min_snr = float(min_snr)           # 相对本帧噪声底的 SNR 门限 (dB)
@@ -57,7 +59,21 @@ class PointCloudProcessor:
         # 注：以上 0.1% 功率这一项随「场里有没有别的强回波」而变（无人近处时
         #     bin0 可以是最强项）；点数占比 73.5% 才是它「扎眼」的直接原因。
         self.min_range = float(min_range)
-        self.win = np.hamming(CHIRPS).astype(np.float32)
+        # ---- 多板型参数 ----------------------------------------------------
+        # 默认值 == 模块常量（1T2R / DEV202H 实测口径），因此不传参时
+        # 逐字等价于本文件之前的实现。DEV113P (2T4R) 由调用方覆盖：
+        #   bins=32、range_res≈0.150 m、ant_spacing=5.900 mm、λ=24.5005 GHz
+        #   （来源 ONELAB Radar_Config.ini [WAVE_INFO_0]，见 radar_source.BOARD_PROFILES）
+        self.chirps = int(chirps) if chirps else CHIRPS
+        self.bins = int(bins) if bins else BINS
+        self.range_res = float(range_res) if range_res else RANGE_RES
+        self.v_res = float(v_res) if v_res else V_RES
+        self.ant_spacing = float(ant_spacing) if ant_spacing else ANT_SPACING
+        # 波长：默认 1T2R 的 24.125 GHz（模块常量）。测角 sinθ = Δφ·λ/(2π·d) 同时
+        # 依赖 λ 与阵元间距 d，两块板两者都不同，必须成对覆盖 —— 只改 d 不改 λ
+        # 会留下 ~1.5% 的固定角误差（24.125 vs 24.5005 GHz）。
+        self.lam = float(lam) if lam else LAMBDA
+        self.win = np.hamming(self.chirps).astype(np.float32)
         self._guard = 1
         self._train = 2
 
@@ -125,7 +141,7 @@ class PointCloudProcessor:
 
     # ---------------- 主入口 ----------------
     def process(self, z0, z1):
-        """输入两 RX 的 (64, 8) 复矩阵，返回点云列表。"""
+        """输入两 RX 的 (chirps, bins) 复矩阵，返回点云列表。"""
         r0, r1 = self.rd_map(z0, z1)
         power = (np.abs(r0) ** 2)
         mask, noise_med = self.detect(power)
@@ -134,16 +150,16 @@ class PointCloudProcessor:
         for i, j in self._peaks(mask, power):
             p = power[i, j]
             # 距离
-            rng = (j + 0.5) * RANGE_RES
+            rng = (j + 0.5) * self.range_res
             if rng < self.min_range:
                 continue
             # 多普勒 → 径向速度（i 已 fftshift，中心为 0）
-            dop = i - CHIRPS // 2
-            vel = dop * V_RES
+            dop = i - self.chirps // 2
+            vel = dop * self.v_res
             # 两通道相位差测角
             zz = r1[i, j] * np.conj(r0[i, j])
             dphi = math.atan2(zz.imag, zz.real)
-            s = dphi * LAMBDA / (2 * math.pi * ANT_SPACING)
+            s = dphi * self.lam / (2 * math.pi * self.ant_spacing)
             s = max(-1.0, min(1.0, s))
             ang = math.degrees(math.asin(s)) * self.angle_sign
             if abs(ang) > self.angle_max:

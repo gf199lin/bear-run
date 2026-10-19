@@ -88,7 +88,7 @@
   <aside>
     <div class="hd">
       <h1>毫米波雷达 · 实时点云</h1>
-      <p>ICL1122 / DEV202H · 1T2R · 24 GHz · 64 chirp × 8 距离单元</p>
+      <p id="hwinfo">ICL1122 / DEV202H · 1T2R · 24 GHz · 64 chirp × 8 距离单元</p>
       <div class="badge"><span class="dot" id="live"></span><span id="srctxt">连接中</span></div>
       <div class="run">
         <button id="b_start" class="go">开始</button>
@@ -265,28 +265,40 @@
   }
 
   function drawRD(arr){
-    const w = rd.width, h = rd.height, C=8, R=64;
+    const w = rd.width, h = rd.height;
+    // 距离-多普勒图的行=chirp(多普勒)、列=距离单元，随板型变化
+    // （1T2R 64×8；2T4R/DEV113P 64×32），必须从 cfg 取而不是写死。
+    const R = (cfg && cfg.chirps) || 64, C = (cfg && cfg.bins) || 8;
     const cw = w/C, ch = h/R;
     rc.clearRect(0,0,w,h);
-    if(!arr){ return; }
+    if(!arr || !arr.length){ return; }
+    // 容错：万一 cfg 与数据长度不一致，按实际数组长度反推列数
+    const CC = (arr.length % R === 0) ? Math.round(arr.length/R) : C;
+    const cw2 = w/CC;
     for(let d=0; d<R; d++){
-      for(let b=0; b<C; b++){
-        const v = arr[d*C+b]/99;
+      for(let b=0; b<CC; b++){
+        const v = arr[d*CC+b]/99;
         if(v<=0.02) continue;
         // 冷→暖 调色
         const r = Math.round(20 + 235*Math.pow(v,1.5));
         const gg = Math.round(30 + 200*Math.max(0,1-Math.abs(v-0.55)*2.1));
         const bl = Math.round(60 + 160*Math.max(0,1-v*2.0));
         rc.fillStyle = `rgb(${r},${gg},${bl})`;
-        rc.fillRect(b*cw, h-(d+1)*ch, cw+0.6*DPR, ch+0.6*DPR);
+        rc.fillRect(b*cw2, h-(d+1)*ch, cw2+0.6*DPR, ch+0.6*DPR);
       }
     }
     rc.strokeStyle='rgba(255,255,255,.16)';
     rc.beginPath(); rc.moveTo(0,h/2); rc.lineTo(w,h/2); rc.stroke();
     rc.fillStyle='rgba(232,238,247,.5)';
     rc.font=(9*DPR)+'px Inter, sans-serif';
-    rc.fillText('+1.53',3*DPR,h/2-3*DPR);
-    rc.fillText('−1.53',3*DPR,h-3*DPR);
+    // 速度轴标注跟随实际板型（1T2R ±1.53 m/s；2T4R ≈±0.37 m/s）
+    const vm = (cfg && cfg.v_max) ? cfg.v_max.toFixed(2) : '1.53';
+    rc.fillText('+'+vm,3*DPR,h/2-3*DPR);
+    rc.fillText('−'+vm,3*DPR,h-3*DPR);
+    if(cfg && !cfg.range_res_verified){
+      rc.fillStyle='rgba(255,196,120,.85)';
+      rc.fillText('距离轴未标定',3*DPR,h-24*DPR);
+    }
   }
 
   var lastM = null;
@@ -347,14 +359,22 @@
   function pushCfg(){
     if(!cfg) return;
     const rows = [
-      ['距离分辨率', cfg.range_res+' m'],
-      ['最大距离', cfg.max_range+' m'],
+      ['板型', (cfg.board_label||cfg.board||'—')+(cfg.board?' ('+cfg.board+')':'')],
+      ['距离分辨率', cfg.range_res+' m'+(cfg.range_res_verified===false?'（未标定）':'')],
+      ['最大距离', cfg.max_range+' m'+(cfg.range_res_verified===false?'（未标定）':'')],
       ['速度量程', '±'+cfg.v_max+' m/s'],
       ['速度分辨率', cfg.v_res+' m/s'],
       ['chirp × 距离单元', cfg.chirps+' × '+cfg.bins],
       ['静态杂波抑制', cfg.clutter?'开':'关'],
     ];
     document.getElementById('cfg').innerHTML = rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('');
+    // 顶栏副标题随板型走，避免 2T4R 插着却显示「1T2R · 8 距离单元」
+    const hw = document.getElementById('hwinfo');
+    if(hw){
+      const name = (cfg.board_label||'').trim() || '毫米波雷达';
+      const freq = (cfg.range_res_verified===false) ? '' : '24 GHz · ';
+      hw.textContent = name + ' · ' + freq + cfg.chirps + ' chirp × ' + cfg.bins + ' 距离单元';
+    }
   }
 
   // ---------------------------------------------------------------- 采集控制
@@ -550,7 +570,7 @@
     document.getElementById('k_fps').textContent='—'; document.getElementById('k_pts').textContent=pts.length;
     document.getElementById('k_n').textContent='—'; document.getElementById('k_bad').textContent='— / —';
     document.getElementById('hud').innerHTML = '演示动画（不是雷达数据）<br><b>双击「雷达实时点云-一键启动」连接真实雷达</b>';
-    if(!cfg) cfg = {range_res:0.6813,max_range:5.45,v_max:1.535,v_res:0.048,chirps:64,bins:8,clutter:true};
+    if(!cfg) cfg = {range_res:0.6813,max_range:5.45,v_max:1.535,v_res:0.048,chirps:64,bins:8,clutter:true,board:'1t2r',board_label:'DEV202H (ICL1122) 1T2R',range_res_verified:true};
     pushCfg(); draw();
   }, 120);
 
