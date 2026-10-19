@@ -177,6 +177,40 @@ DRIFT_RELEASE_DEFAULT = 0.10   # 释放门：d 回到 -该值以内即释放回 
                                #   连续动作在没有 TARGET_LOST 间隔时被静默吞掉
                                #   （外样本 3/10；修后 6/10，误报 0）。
                                #   取值 0.10 是在 3 个文件上扫出的**样本内**最佳值。
+DRIFT_RELEASE_CONFIRM_DEFAULT = 3
+"""释放端连续确认帧数 M：d 必须连续 M 帧回到 -DRIFT_RELEASE 以上才释放回 CENTER。
+
+为什么需要（2026-10-19 新增，devlog §7.36 有逐帧证据）
+----------------------------------------------------
+释放门只判**单帧**时，一次**真实的单帧 px 野值**就能把 lane 打回 CENTER，接着
+d 又落回触发门以下 ⇒ 3 帧确认**再触发一次** ⇒ 「一次动作被记两次」。
+实测现场（`.deepworks/tmp/seg/seg_01.50.bin`，top_k=1）：
+    第 554 帧触发 RIGHT（px=0.735，base=1.059 ⇒ d=-0.324）
+    第 559 帧 px 单帧跳到 1.023（base=1.034 ⇒ d=-0.011）→ 单帧跨过释放门
+    第 561~563 帧 d 又落回 -0.324/-0.276/-0.269 → 再次 3 帧确认
+    ⇒ 多打一条 `RIGHT@72.91`（与 `RIGHT@71.74` 相隔 1.17 s），在窗级口径里
+      因为真值窗已被用掉而计成**误报**（seg_01.50 误报 1 → 0）。
+静息站位同理：`pos_0p70.bin` 的 px 在 0.644 ↔ -0.718 之间跳（单帧跳变 1.36 m），
+也会诱发同样的跨门。
+
+根因不是「动作前后穿越门槛抖动」，而是：top_k=1 的 px 是**单帧最强点的 x**，
+站立时帧间噪声就有 ±0.15 m（0.70 m 站位更大），而实测站立偏移 |d| ≈ 0.27 m
+**恰好压在触发门 0.25 上** ⇒ 每个 RIGHT 都是边缘事件，噪声一抖就跨门。
+
+取值理由：与触发端已有的 `CONFIRM_DEFAULT = 3` **对称**（都是 0.39 s 确认，
+帧周期 0.1295 s）。A/B 实测（`.deepworks/tmp/ab_dup_variants.py`，8 候选 × 7 文件）：
+    M=1（旧行为）  seg_01.50 误报 1；M=2 与 M=3 **结果完全一致**：误报 0。
+    ★ 且 7 个文件里**其它事件逐条完全不变**（只少了那条重复事件）：
+      样本内 1.25 m 9/10、样本内 1.50 m 4/10、外样本 1.25 m 6/10、静息 4 站位 0 事件。
+被否决的候选（同一 A/B 里实测更差，勿再试）：
+    px 三帧中值（去野值）：1.50 m 多召回 1 条，但 1.25 m 新增 1 条误报、
+      静息 0.70 m 由 2 条恶化到 4 条 ⇒ 否决。
+    野值帧剔除（|Δpx| > 0.52 m/帧 ⇒ 本帧无方向证据）：1.25 m LEFT 由 4 条掉到 0 条
+      ⇒ 反证 LEFT 的真实单帧位移本就 >0.52 m（这也是 MAX_STEP 默认 0 的原因）。
+⚠ M=1 = 旧的「单帧即释放」行为（对照用，仍会「一次动作被记两次」）；
+  M=0 非法（会在清零后又判 0>=0 ⇒ hold 恒真，比旧版更激进地释放）。
+本参数只作用于 crit='drift'。
+"""
 
 # ---------------- 距离带自动选择（2026-10-19 新增；提案，待小组确认） --------
 # 为什么需要它：出厂默认带 `BAND_DEFAULT = (0.70, 1.35)` 圈在 j=1（门中心
@@ -254,6 +288,7 @@ class ActionRecognizer:
                  crit=CRIT_DEFAULT, rest_win=REST_WIN_DEFAULT,
                  drift_left=DRIFT_LEFT_DEFAULT, drift_right=DRIFT_RIGHT_DEFAULT,
                  drift_release=DRIFT_RELEASE_DEFAULT,
+                 drift_release_confirm=DRIFT_RELEASE_CONFIRM_DEFAULT,
                  auto_band_min_frames=AUTO_BAND_MIN_FRAMES_DEFAULT,
                  auto_band_max_frames=AUTO_BAND_MAX_FRAMES_DEFAULT,
                  auto_band_min_points=AUTO_BAND_MIN_POINTS_DEFAULT,
@@ -293,6 +328,9 @@ class ActionRecognizer:
         if not 0.0 <= drift_release < drift_right:
             raise ValueError('须满足 0 <= drift_release < drift_right: %r, %r'
                              % (drift_release, drift_right))
+        if int(drift_release_confirm) < 1:
+            raise ValueError('drift_release_confirm 必须 >= 1（1 = 旧的单帧即释放；'
+                             '0 会让 hold 恒真）: %r' % (drift_release_confirm,))
         # 这四个参数**无条件校验**（不管是否启用自动选带）：这样
         # `auto_band_min_frames=0` 这类手误会当场报错，而不是被
         # 「反正没启用」静默吞掉。
@@ -339,6 +377,9 @@ class ActionRecognizer:
         self.drift_left = float(drift_left)
         self.drift_right = float(drift_right)
         self.drift_release = float(drift_release)
+        # 释放端连续确认帧数（0 = 单帧即释放）。计数器见 push 的 drift 分支。
+        self.drift_release_confirm = int(drift_release_confirm)
+        self._rel_run = 0
 
         # ---- band='auto' 用：按门累计检出，预热期结束后锁定距离带 ----
         self.band_mode = AUTO_BAND if auto else 'fixed'
@@ -492,10 +533,23 @@ class ActionRecognizer:
                 feat['drift'] = 'RIGHT' if drift > 0 else 'LEFT'
                 ev_kw = {'d_rest': d, 'base': base, 'n_rest': len(self._rest)}
             # ★ 释放条件必须与触发条件**不同**（滞回）：d 回到静息附近即释放。
-            #   2026-10-19 修：原实现与 moved 同式且只在 not moved 分支执行，
+            #   2026-10-19 修 1：原实现与 moved 同式且只在 not moved 分支执行，
             #   hold 恒假 ⇒ lane 永不回 CENTER（devlog §7.33）。
-            hold = (self.lane != 'CENTER'
-                    and (d is None or d > -self.drift_release))
+            #   2026-10-19 修 2（devlog §7.36）：释放**也要连续确认 M 帧**。
+            #   只判单帧时，一次真实的单帧 px 野值就能把 lane 打回 CENTER、随即
+            #   再触发 ⇒「一次动作被记两次」（seg_01.50 RIGHT@71.74 与 @72.91）。
+            #   ★ M=1 时与旧版逐帧等价（含「无证据帧即释放」）；无证据帧
+            #   （d is None，仅出现在 base 未收敛时）不计不清零，仍判释放。
+            if self.lane != 'CENTER':
+                if d is not None:
+                    if d > -self.drift_release:
+                        self._rel_run += 1
+                    else:
+                        self._rel_run = 0
+                hold = d is None or self._rel_run >= self.drift_release_confirm
+            else:
+                self._rel_run = 0
+                hold = False
         else:
             moved = (v_lat is not None and abs(v_lat) >= self.v_on
                      and dx is not None and abs(dx) >= self.min_dx)
@@ -706,6 +760,7 @@ class ActionRecognizer:
         self.hist.clear()
         self._last_px = None
         self._dir_frames = 0
+        self._rel_run = 0
         self._gated_run = 0
         self._gated_side = 0
         self._gated_fired = 0
@@ -868,6 +923,10 @@ def main(argv=None):
     ap.add_argument('--drift-release', type=float, default=None,
                     help='crit=drift 的滞回释放门：d 回到 -该值以内 → CENTER，'
                          '默认 0.10（必须 < --drift-right）')
+    ap.add_argument('--drift-release-confirm', type=int, default=None,
+                    help='crit=drift 释放端的连续确认帧数，默认 3（与触发端 confirm '
+                         '对称）。设为 1 = 旧的「单帧即释放」行为（会出现'
+                         '「一次动作被记两次」）')
     ap.add_argument('--auto-band', action='store_true',
                     help='自动选带：预热期按距离门统计检出，取 j>=1 中最多的一门当带'
                          '（预热期不发任何事件）。与 --band 互斥，本开关优先；'
@@ -932,6 +991,8 @@ def main(argv=None):
         over['drift_right'] = args.drift_right
     if args.drift_release is not None:
         over['drift_release'] = args.drift_release
+    if args.drift_release_confirm is not None:
+        over['drift_release_confirm'] = args.drift_release_confirm
     if args.auto_band_min_frames is not None:
         over['auto_band_min_frames'] = args.auto_band_min_frames
     if args.auto_band_max_frames is not None:
@@ -944,8 +1005,9 @@ def main(argv=None):
     print('[actions] 判据: crit=%s%s'
           % (rec.crit,
              '  base=近 %.0f s 内 px 中位数  drift_left=%.2f drift_right=%.2f '
-             'drift_release=%.2f'
-             % (rec.rest_win, rec.drift_left, rec.drift_right, rec.drift_release)
+             'drift_release=%.2f rel_confirm=%d'
+             % (rec.rest_win, rec.drift_left, rec.drift_right, rec.drift_release,
+                rec.drift_release_confirm)
              if rec.crit == 'drift' else ''))
     print('[actions] 估计器: slope=%s dx_mode=%s max_step=%.2f sign_agree=%s '
           'res_pa_frac=%.2f top_k=%d min_pts=%d'

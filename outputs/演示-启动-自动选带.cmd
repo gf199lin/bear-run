@@ -23,6 +23,16 @@ rem                   absolute in-window displacement
 rem    --top-k 1      keep only the strongest point in the band
 rem    --min-pts 1    with top-k 1 and min_pts 2 every frame would
 rem                   be judged "target lost"
+rem    --hotkey       HOT SWAP while running (AGENTS.md hard rule 2:
+rem                   one hotkey switches source within 1 second).
+rem                   Press F2 in the page, or use the "switch data
+rem                   source" button, to cycle
+rem                     serial -> replay -> loopback -> serial
+rem                   (on branch 1 the replay target is the VERIFIED
+rem                   1.25 m recording, so F2 lands on the 9/10 case).
+rem                   Measured: server-side swap 1.4-3.6 ms, HTTP
+rem                   round trip 18-20 ms (2026-10-19, 37 checks).
+rem                   Without --hotkey nothing changes at all.
 rem
 rem  STATUS (be honest, do not overclaim)
 rem    Measured on 2026-10-15 truth data: 2 stations, 1 operator,
@@ -73,10 +83,16 @@ echo        BAND_READY in the page is an INFO event. It is NOT a
 echo        lane change - ignore it.
 echo.
 echo   IF THE RADAR FAILS MID-DEMO
-echo     Press Ctrl+C and choose option 2 or 3. The simulator
-echo     speaks the SAME event interface, so the game keeps
-echo     running. See the note at the bottom of this file about
-echo     what has and has not been verified on that path.
+echo     Press F2 in the page (or the "switch data source" button).
+echo     The source is swapped WITHOUT restarting the server: the
+echo     simulator speaks the SAME event interface, so the game
+echo     keeps running. F2 cycles serial - replay - loopback.
+echo     On branch 1 F2 first lands on the verified 1.25 m
+echo     recording, so the 9/10 case can be replayed on the spot.
+echo     If the page does not have focus, click the page once or
+echo     use the button. If that fails, press Ctrl+C and choose
+echo     option 2 or 3. See the note at the bottom of this file
+echo     about what has and has not been verified on those paths.
 echo ============================================================
 echo.
 
@@ -103,6 +119,8 @@ python -u "radar-pointcloud\server.py" ^
   --crit drift ^
   --top-k 1 ^
   --min-pts 1 ^
+  --replay ".deepworks\tmp\seg\seg_01.25.bin" ^
+  --hotkey ^
   --open
 goto done
 
@@ -117,6 +135,7 @@ python -u "radar-pointcloud\server.py" ^
   --crit drift ^
   --top-k 1 ^
   --min-pts 1 ^
+  --hotkey ^
   --open
 goto done
 
@@ -131,6 +150,7 @@ python -u "radar-pointcloud\server.py" ^
   --crit drift ^
   --top-k 1 ^
   --min-pts 1 ^
+  --hotkey ^
   --open
 goto done
 
@@ -147,6 +167,18 @@ echo   synthetic target sits in a different gate than a real
 echo   person. Whether option 2 actually produces lane-change
 echo   events in the game was NOT established by that probe.
 echo   Option 1 and 3 are the verified paths.
+echo ------------------------------------------------------------
+echo   HOTKEY (--hotkey, on all three branches)
+echo     F2 in the page, or the "switch data source" button,
+echo     swaps the live source WITHOUT restarting the server.
+echo     Measured server-side swap 1.4-3.6 ms, HTTP round trip
+echo     18-20 ms, so the "within 1 second" hard rule is met.
+echo     Verified 2026-10-19 by an offline end-to-end smoke run
+echo     (37 checks, A/B/C/D all pass) - NOT yet rehearsed on
+echo     real hardware. Try it once during T-5:00.
+echo     Note: "swap OK" only means the source was restarted on
+echo     the new mode. Whether the NEW source really produces
+echo     frames still shows in active / frame rate / src_diag.
 echo ============================================================
 echo.
 

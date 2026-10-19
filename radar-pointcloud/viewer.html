@@ -95,6 +95,9 @@
         <button id="b_stop" class="stop">结束</button>
         <button id="b_reset">重置</button>
       </div>
+      <div class="run" id="switchrow" style="display:none">
+        <button id="b_switch" title="一键在 真雷达 / 回放 / 合成 之间切换（快捷键 F2）">切换数据源</button>
+      </div>
       <div class="hint" id="heat">—</div>
       <div class="diagline" id="diag">链路诊断：—</div>
     </div>
@@ -176,6 +179,7 @@
   let paused = false;         // 在线但采集已停止
   let wasActive = false;
   let act = null, evLog = [];
+  let hotkey = null;          // 服务端下发的热切换状态（未启用热切换时为 null）
   const hist = [];
   let lastMsg = 0, msgCount = 0, tPrev = performance.now(), fpsShown = 0;
 
@@ -401,10 +405,26 @@
     el.innerHTML = html;
   }
 
+  function syncSwitchButton(){
+    const row = document.getElementById('switchrow');
+    const bs = document.getElementById('b_switch');
+    if(!row || !bs) return;
+    if(hotkey && hotkey.enabled){
+      row.style.display = '';
+      const cur = hotkey.mode || '?', nxt = hotkey.next || '?';
+      bs.textContent = '切换数据源 → ' + nxt + '（' + (hotkey.key||'F2') + '）';
+      bs.title = '当前 ' + cur + '，按 ' + (hotkey.key||'F2') + ' 或点此切到 ' + nxt
+               + '；循环 ' + (hotkey.modes||[]).join(' → ');
+    }else{
+      row.style.display = 'none';
+    }
+  }
+
   function applyControl(m){
     lastCtl = performance.now();
     serverOnline = true;
     if(m.src_diag) diag = m.src_diag;
+    if(m.hotkey) hotkey = m.hotkey;
     const was = wasActive;
     ctlState = m;
     wasActive = !!m.active;
@@ -427,6 +447,7 @@
     document.getElementById('b_start').disabled = !!m.active;
     document.getElementById('b_stop').disabled = !m.active;
     if(was && !m.active) hist.length = 0;   // 刚停止 → 清屏，避免看着像还在采集
+    syncSwitchButton();
   }
 
   async function ctlPost(action){
@@ -439,6 +460,11 @@
       const j = await r.json();
       if(j && j.active !== undefined) applyControl(j);
       if(j && j.ok === false){ note.className = 'hint warn'; note.textContent = j.msg || '操作被拒绝'; }
+      if(action === 'switch' && j && j.ok && j.source_mode){
+        note.className = 'hint';
+        note.textContent = '已切换数据源 → ' + j.source_mode
+          + '（' + Math.round(j.switch_ms||0) + ' ms）';
+      }
       if(action === 'reset'){ hist.length = 0; evLog = []; act = null; pushAct(); }
     }catch(e){
       note.className = 'hint warn';
@@ -449,6 +475,21 @@
   document.getElementById('b_start').onclick = () => ctlPost('start');
   document.getElementById('b_stop').onclick  = () => ctlPost('stop');
   document.getElementById('b_reset').onclick = () => ctlPost('reset');
+  document.getElementById('b_switch').onclick = () => ctlPost('switch');
+
+  // 页面热键：现场演示前台是浏览器，焦点在页面上时也能一键切换（AGENTS.md 硬约束 2）。
+  // 控制台窗口有焦点时由 server.py 的 msvcrt 热键兜底，两条通道互不依赖。
+  window.addEventListener('keydown', e => {
+    if(!(hotkey && hotkey.enabled)) return;
+    const t = e.target;
+    if(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'
+             || t.tagName === 'SELECT' || t.isContentEditable)) return;
+    if(e.key === (hotkey.key || 'F2')){
+      e.preventDefault();
+      ctlPost('switch');
+    }
+  });
+  syncSwitchButton();
 
   function loop(){
     const now = performance.now();
