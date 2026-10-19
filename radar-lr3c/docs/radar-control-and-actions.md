@@ -27,10 +27,11 @@
 | **开始** | 新建数据源（串口/回放/合成）→ 起采集线程 → `sessions += 1`、`starts += 1`、帧计数归零 | 不改变雷达配置，不重置页面其它状态 |
 | **结束** | 杀采集线程（join ≤2 s）→ `source.close()`**释放串口**，停止解算/推送/渲染 | **不停止雷达发射**（芯片仍在工作，温度不降，见 §2） |
 | **重置** | 帧计数、`active_seconds`、`since_frame`、`restarts` 归零；运行中则把本会话计时清零（会话号不变） | 停止态重置会把 `sessions` 一并清零；不关闭页面 |
+| **热切换**（`switch`，需 `--hotkey`，**默认关闭**） | 同一把锁内**原子**执行「停旧源（释放串口）→ 换模式 → 按原状态重启」：帧计数归零、`sessions`/`starts` 各 +1、`switches` +1，并回传 `perf_counter` 实测的 `switch_ms` | **不重启 HTTP 服务、不关页面**；不改变雷达配置；**不保证新源真的出帧**（见 §6 `switch`） |
 
 补充状态机行为（测试 4 覆盖）：
 
-- **重复开始**被拒（已在采集）；**空闲结束**被拒（当前未在采集）；**未知 action** 被拒。
+- **重复开始**被拒（已在采集）；**空闲结束**被拒（当前未在采集）；**未知 action** 被拒（已知 action = `start` / `stop` / `reset` / `switch` 及其别名）。
 - **停滞自愈**：帧号超过 `--stall-timeout`（默认 8 s）不增长 → 判为停滞，**同会话内重建管道**并 `restarts += 1`，页面会看到 `restarts` 增加而 `sessions` 不变。
 - 网页端用 **1 Hz 控制心跳**区分「服务在、但已结束采集」与「服务不可达」：停止后心跳继续，帧流停止；页面显示「采集已停止」。
 
@@ -85,11 +86,22 @@
 | `V_OFF_DEFAULT` | `0.18` m/s | 滞回释放门限 |
 | `MIN_DX_DEFAULT` | `0.10` m | 窗内横向净位移门限（防抖） |
 | `MIN_INTERVAL_DEFAULT` | `0.5` s | 最短切换间隔 |
-| `CONFIRM_DEFAULT` | `3` 帧 | 连续确认帧数 |
+| `CONFIRM_DEFAULT` | `3` 帧 | 连续确认帧数（**触发端**） |
+| `DRIFT_LEFT_DEFAULT` / `DRIFT_RIGHT_DEFAULT` | `1.30` / `0.25` m | `crit='drift'` 专用：`d` 水平偏移 → `LEFT` / `RIGHT` 的触发门 |
+| `DRIFT_RELEASE_DEFAULT` | `0.10` m | `crit='drift'` 专用：释放门（`d` 回到 `-0.10` 以内 ⇒ 允许回 `CENTER`，滞回） |
+| `DRIFT_RELEASE_CONFIRM_DEFAULT` | `3` 帧 | `crit='drift'` 专用：**释放端**连续确认帧数（2026-10-19 新增，见下）；`1` = 旧的单帧即释放（会出现「一次动作被记两次」） |
 | `LOST_TIMEOUT_DEFAULT` | `0.6` s | 目标丢失判定 |
 | `JUMP_RISE_DEFAULT` | `1.9` 倍 | 回波能量相对基线上升（**候选**） |
 | `DUCK_DROP_DEFAULT` | `0.50` | 回波能量相对基线下降（**候选**） |
 | `min_pts` | `2` | 带内至少几个点才算「有目标」 |
+
+> **`DRIFT_RELEASE_CONFIRM_DEFAULT = 3` 的来源（2026-10-19，`docs/progress-radar-pointcloud.md` §7.36）**：
+> `top_k=1` 时 `px` 是**单帧最强点的 x**，站立噪声 ±0.15 m（0.70 m 站位 ±0.6 m），
+> 而站立偏移 `|d| ≈ 0.27 m` 恰好压在触发门 `0.25` 上 ⇒ 一次**单帧野值**就能跨过释放门
+> （`seg_01.50` 第 559 帧 `d` 由 -0.324 变 -0.011）⇒ `lane` 回 `CENTER` ⇒ 随即**再次触发**
+> （多打 `RIGHT@72.91`，即现场「挥一次手、角色连切两道」）。释放端改为需连续 3 帧确认后，
+> 1.50 m 误报 1 → **0**，且**其余 7 个文件事件逐条不变**。
+> 回退：`radar_actions.py --drift-release-confirm 1`。CLI：`--drift-release-confirm`（`server.py` 未暴露，用模块默认值）。
 
 ### 5.1 判定原则（硬约束，不许改）
 
@@ -151,9 +163,22 @@
 ## 6. 接口
 
 ### `POST /control`（也接受 `/api/control`、`?action=`）
-请求：`{"action": "start" | "stop" | "reset"}`
+请求：`{"action": "start" | "stop" | "reset" | "switch"}`
 响应：`{"ok": true/false, "error"?: "...", ...status()}`，字段含
-`active / sessions / starts / stops / frames / elapsed / active_seconds / since_frame / restarts / source / stop_reason / heat_note`。
+`active / sessions / starts / stops / frames / elapsed / active_seconds / since_frame / restarts / source / source_mode / stop_reason / heat_note / hotkey`。
+
+**`switch`（运行中热切换数据源 —— `AGENTS.md` 硬约束 2）**
+仅在启动时给了 `--hotkey` 时可用；**未启用时服务端明确拒绝**（`ok=false`，并提示「启动服务时加 `--hotkey`」）。
+- 别名：`switch-source` / `switch_source` / `next-source`。
+- 模式循环：**启动模式排最前**，其余按 `serial → replay → loopback` 补齐；可用 `--hotkey-modes` 显式指定（顺序即轮转顺序）。
+- 额外响应字段：`source_mode`（新源）、`switch_ms`（服务端实测切换耗时）、`switches`（累计次数）、`note`。
+- ⚠ **`ok=true` 只表示「已按新模式重启」**，**不代表新源能出数据**（串口被占用／回放文件缺失都会静默无帧）⇒ 判断依据仍是
+  `active` / 帧率 / `src_diag`。响应里的 `note` 就是这个提醒，页面也会把它显示出来。
+- 实测（2026-10-19，37 项离线端到端检查）：服务端 `switch_ms` **1.4~3.6 ms**、HTTP 往返 **17.9~19.8 ms**，远低于 1 秒。
+
+> 2026-10-19 修正：`/status` 原先**只在 `control` 为空时**才回填，于是**切到坏源 / 帧停之后会永久回放过期快照**
+> （`active`、`source_mode`、`switches` 全是旧值）。现在**一律取实时 `control_status()`**，无帧时也能反映真实状态（含 `hotkey`）。
+> 该 bug 是「切到坏源」的用例暴露的，不是代码审查发现的。
 
 ### `/status`
 同上字段 + 链路统计（`connected / reconnects / read_errors / dropped / cb_errors`）。
@@ -165,7 +190,7 @@
 
 ### `/stream`（SSE）
 - `hello`：含 `cfg`（`band / actions / autostart / hw_stop / min_range ...`）与初始 `control`。
-- `control`：**1 Hz 心跳**，页面据此判断在线与采集状态。
+- `control`：**1 Hz 心跳**，页面据此判断在线与采集状态；含 `hotkey`（`enabled / key / modes / mode / next / switches / last_ms`，未启用时 `enabled=false` 且 `modes=[]`）。
 - `frame`：含 `control`（当前会话状态）与 `act`（`lane / target / features`）+ `events`。
 
 ### 命令行（`server.py`）
@@ -173,9 +198,13 @@
 python server.py --port COM3 --http-port 8099 --band 0.70 1.35 --record wave1.bin
 # 省电/省发热：启动后不自动采集，等页面点「开始」
 python server.py --port COM3 --no-autostart
+# 热切换（硬约束 2）：运行中按 F2（或页面「切换数据源」按钮）轮转 真雷达/回放/合成
+python server.py --port COM3 --hotkey
+python server.py --source replay --replay cap.bin --hotkey --hotkey-key F3 --hotkey-modes replay,loopback
 # 其它：--stall-timeout 8.0  --no-stall-restart  --no-actions  --quiet
 ```
 注意：**同时只能有一个进程占 COM3**；跑离线分析/回放不要碰串口（用 `--source replay`）。
+热切换**默认关闭**：不给 `--hotkey` 时行为与改动前完全一致（`switch` 被拒、页面不出现按钮）。
 
 ## 7. 怎么用（完整闭环）
 

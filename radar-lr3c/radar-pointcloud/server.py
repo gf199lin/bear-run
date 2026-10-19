@@ -9,6 +9,8 @@
   python server.py --source loopback            # 无硬件自检（不插雷达也能看页面）
   python server.py --record out.bin             # 同时录制原始字节流
   python server.py --open                       # 启动后自动打开浏览器
+  python server.py --hotkey                     # 运行中一个热键切换 真雷达/回放/合成
+                                                # （页面按 F2，或控制台窗口按 F2）
 
 然后浏览器打开 http://127.0.0.1:8099
 （双击同目录 start_viewer.cmd 可一键完成：启动服务 + 自动打开浏览器）
@@ -64,17 +66,44 @@ CONTROL_HANDLER = None          # 由 main() 注入：action 字符串 → 结�
 SHUTDOWN = threading.Event()
 
 
-def make_source(args):
-    """每次「开始」都新建一个数据源，避免上一次会话的残留污染新会话。"""
+def make_source(args, mode=None):
+    """每次「开始」都新建一个数据源，避免上一次会话的残留污染新会话。
+
+    mode 显式给出时按它建源（热切换用）；不给则沿用 --source，默认路径逐字不变。
+    """
     def evt(msg):
         print(msg, flush=True)
-    if args.source == 'serial':
+    mode = mode or args.source
+    if mode == 'serial':
         return SerialSource(args.port, args.baud, retry_delay=args.retry, on_event=evt)
-    if args.source == 'replay':
+    if mode == 'replay':
         if not args.replay:
             raise SystemExit('--source replay 需要 --replay <文件>')
         return ReplaySource(args.replay, loop=True)
     return LoopbackSource()
+
+
+SOURCE_MODES = ('serial', 'replay', 'loopback')
+
+
+def build_hotkey_modes(args):
+    """热切换可循环的数据源模式列表；首项 = 启动模式。
+
+    现场三分支语义：serial=真雷达 / replay=真实回放 / loopback=合成兜底。
+    不给 --hotkey-modes 时按固定顺序补齐（启动模式排最前）。
+    """
+    if args.hotkey_modes:
+        modes = [m.strip() for m in args.hotkey_modes.split(',') if m.strip()]
+        if not modes:
+            raise SystemExit('--hotkey-modes 不能为空')
+        bad = [m for m in modes if m not in SOURCE_MODES]
+        if bad:
+            raise SystemExit('--hotkey-modes 含未知模式: %s（可选 %s）'
+                             % (', '.join(bad), '/'.join(SOURCE_MODES)))
+        if args.source not in modes:
+            modes.insert(0, args.source)     # 启动模式必须在循环里，否则一切换就跳走
+        return modes
+    return [args.source] + [m for m in SOURCE_MODES if m != args.source]
 
 
 def rd_json(r0):
@@ -163,8 +192,12 @@ class Handler(BaseHTTPRequestHandler):
             st = dict(LATEST.get('status') or {})
             if st.get('cfg') is None:
                 st['cfg'] = LATEST['cfg']
-            if st.get('control') is None:
-                st['control'] = current_control()
+            # control 一律取**实时**状态：帧负载里的 control 是出帧那一刻的快照，
+            # 一旦切源后新源不出数据（帧停），那份快照会永久停在旧值，
+            # 让验收脚本/监控端读到过期的 active、source_mode 与 switches。
+            live = current_control()
+            if live:
+                st['control'] = live
             body = json.dumps(st, ensure_ascii=False).encode('utf-8')
             self._send(200, 'application/json; charset=utf-8', body)
             return
@@ -306,10 +339,35 @@ def main():
     ap.add_argument('--min-pts', type=int, default=None,
                     help='带内点数低于此值即视为目标丢失，默认 2。'
                          '★ top-k=1 时必须给 1，否则每帧都被判成丢失')
+    ap.add_argument('--hotkey', action='store_true',
+                    help='运行中热切换数据源（AGENTS.md 硬约束 2：一个热键 1 秒内切换）。'
+                         '启用后，页面/控制台按热键即可在 真雷达/回放/合成 之间循环切换，'
+                         '**不重启服务、不刷新页面**。默认关闭 ⇒ 不加此参数时行为逐字不变')
+    ap.add_argument('--hotkey-key', default='F2',
+                    help='热键名（默认 F2）。页面端用 KeyboardEvent.key 匹配；'
+                         '控制台端支持 F1~F10')
+    ap.add_argument('--hotkey-modes', default=None,
+                    help='参与循环的数据源模式，逗号分隔，如 serial,replay,loopback。'
+                         '默认 = 启动模式 + 其余按固定顺序补齐')
     ap.add_argument('--quiet', action='store_true')
     args = ap.parse_args()
 
     global CONTROL_HANDLER
+
+    # ---- 热切换状态（AGENTS.md 硬约束 2）------------------------------------
+    # 默认关闭：不给 --hotkey 时 SRC['modes'] 为空、/control 的 switch 动作被拒绝，
+    # 其余所有分支都不生效，现有行为逐字不变。
+    hot_modes = build_hotkey_modes(args)
+    if args.hotkey_modes and not args.hotkey:
+        print('注意: 给了 --hotkey-modes 但没有 --hotkey，热切换仍关闭')
+    SRC = {
+        'mode': args.source,
+        'modes': hot_modes if args.hotkey else [],
+        'enabled': bool(args.hotkey),
+        'key': args.hotkey_key,
+        'switches': 0,
+        'last_ms': None,
+    }
 
     # ---- 校准文件解析：优先级 显式命令行 > calib.json > 内置默认 ----
     cal = load_calib(args.calib) if args.calib else None
@@ -408,7 +466,7 @@ def main():
                         recognizer.band_locked_frame
                     LATEST['cfg']['band_source'] = recognizer.band_source
         payload = make_frame_payload(pts, r0, stats, proc, noise,
-                                     control=ctrl.status(), actions=act)
+                                     control=control_status(), actions=act)
         broadcast(payload)
         LATEST['status'] = {k: v for k, v in payload.items() if k not in ('rd', 'pts')}
         if act and act['events']:
@@ -424,20 +482,114 @@ def main():
                      stats['reconnects'], stats['read_errors']), flush=True)
 
     # 采集会话控制器：开始 / 结束 / 重置，以及线程退出或停滞后的自愈重建
-    ctrl = RadarController(lambda: make_source(args), on_frame,
+    ctrl = RadarController(lambda: make_source(args, SRC['mode']), on_frame,
                            record_path=args.record,
                            log=lambda m: print(m, flush=True),
                            stall_timeout=args.stall_timeout,
                            auto_restart=not args.no_stall_restart)
 
-    def push_control():
+    def hotkey_state():
+        """热切换当前状态：页面按钮、/status、验收脚本都读它。"""
+        modes, cur = SRC['modes'], SRC['mode']
+        nxt = None
+        if SRC['enabled'] and cur in modes:
+            nxt = modes[(modes.index(cur) + 1) % len(modes)]
+        return {
+            'enabled': SRC['enabled'],
+            'key': SRC['key'],
+            'modes': list(modes),
+            'mode': cur,
+            'next': nxt,
+            'switches': SRC['switches'],
+            'last_ms': SRC['last_ms'],
+        }
+
+    def control_status():
+        """ctrl.status() + 热切换字段，作为页面/脚本唯一控制状态来源。"""
         st = ctrl.status()
+        st['source_mode'] = SRC['mode']
+        st['hotkey'] = hotkey_state()
+        return st
+
+    def push_control():
+        st = control_status()
         LATEST['control'] = st
         broadcast({'type': 'control', **st})
 
+    def hotkey_next(direction=1):
+        """把当前模式推进到循环里的下一个（只改模式；重启采集由 switch_source 做）。"""
+        modes = SRC['modes']
+        try:
+            i = modes.index(SRC['mode'])
+        except ValueError:
+            i = -1
+        SRC['mode'] = modes[(i + direction) % len(modes)]
+        return SRC['mode']
+
+    def do_switch_source(direction=1):
+        """热切换数据源——硬约束 2 的执行点：换模式 → 原子 stop/start。
+
+        先改 SRC['mode']，再让 ctrl 停旧源（释放串口）、按新模式重启（保留会话统计）；
+        切换耗时由 ctrl 用单调钟实测后回传，供「1 秒内」验收判定。
+        """
+        if not SRC['enabled']:
+            return dict(ok=False, msg='未启用热切换（启动服务时加 --hotkey）',
+                        **control_status())
+        nxt = hotkey_next(direction)
+        res = ctrl.switch_source(None, reason='hotkey')
+        SRC['switches'] += 1
+        SRC['last_ms'] = res.get('switch_ms')
+        print('[control] 热切换数据源 → %s（%.0f ms）%s'
+              % (nxt, SRC['last_ms'] or 0.0,
+                 '' if res.get('ok') else ' 失败: %s' % res.get('msg')), flush=True)
+        push_control()
+        out = dict(ok=bool(res.get('ok')), msg=res.get('msg'),
+                   source_mode=nxt, switch_ms=SRC['last_ms'],
+                   switches=SRC['switches'],
+                   # 诚实边界：ok 只表示「已按新模式重启」，不代表新源一定能出数据
+                   # （如串口被占/回放文件缺失）。是否真出数据看 active、帧率与链路诊断。
+                   note='ok=切换动作成功；新源是否真出数据看 active/帧率/链路诊断')
+        out.update(ctrl.status())
+        return out
+
+    def console_hotkey_loop():
+        """控制台热键通道：控制台窗口有焦点时也能切换（页面热键的补充）。
+
+        msvcrt 只在真有控制台时可用；无控制台（pythonw / 重定向）时静默退出，
+        不影响页面热键与按钮。
+        """
+        try:
+            import msvcrt
+        except Exception:
+            return
+        # F1~F10 的扩展扫描码（getch 先返回 0x00/0xE0，再返回该字节）
+        scan = {'F1': b';', 'F2': b'<', 'F3': b'=', 'F4': b'>', 'F5': b'?',
+                'F6': b'@', 'F7': b'A', 'F8': b'B', 'F9': b'C', 'F10': b'D'}
+        want = scan.get(str(SRC['key']).strip().upper())
+        if want is None:
+            print('[hotkey] 控制台只支持 F1~F10（当前 %s）：请用页面热键或按钮'
+                  % SRC['key'], flush=True)
+            return
+        while not SHUTDOWN.is_set():
+            try:
+                if not msvcrt.kbhit():
+                    time.sleep(0.05)
+                    continue
+                ch = msvcrt.getch()
+                if ch in (b'\x00', b'\xe0') and msvcrt.getch() == want:
+                    do_switch_source()
+            except Exception:
+                time.sleep(0.2)
+
+    SWITCH_ACTIONS = ('switch', 'switch-source', 'switch_source', 'next-source')
+
     def control_handler(action):
+        a = (action or '').strip().lower()
+        if a in SWITCH_ACTIONS:
+            return do_switch_source()
         if not action:
-            return dict(ok=False, msg='缺少 action（start/stop/reset）', **ctrl.status())
+            return dict(ok=False, msg='缺少 action（start/stop/reset/switch）',
+                        **control_status())
         res = ctrl.control(action)
         print('[control] %s → %s'
               % (action, '成功' if res.get('ok') else res.get('msg')), flush=True)
@@ -445,7 +597,7 @@ def main():
 
     CONTROL_HANDLER = control_handler
     ctrl.set_on_change(lambda st: push_control())
-    CTL_REF['get'] = ctrl.status
+    CTL_REF['get'] = control_status
     try:
         push_control()          # 立刻推一次：页面/探测端一打开就能看到串口诊断
     except Exception:
@@ -481,7 +633,14 @@ def main():
     url = 'http://127.0.0.1:%d' % args.http_port
     print('数据源: %s' % src_txt)
     print('点云页面: %s   （页面上有 开始 / 结束 / 重置 三个按钮）' % url)
-    print('控制接口: POST /control  {"action":"start"|"stop"|"reset"}')
+    print('控制接口: POST /control  {"action":"start"|"stop"|"reset"|"switch"}')
+    if args.hotkey:
+        print('热切换: 已启用 · 键 %s · 循环 %s（页面热键 + 控制台热键 + 页面按钮）'
+              % (SRC['key'], ' → '.join(SRC['modes'])))
+        threading.Thread(target=console_hotkey_loop, daemon=True,
+                         name='radar-hotkey').start()
+    else:
+        print('热切换: 未启用（现场要「一个热键切 真雷达/模拟器」时加 --hotkey）')
     if args.no_autostart:
         print('已禁用自动开始：请点页面「开始」，或 POST /control {"action":"start"}')
     else:

@@ -136,6 +136,53 @@ class RadarController:
         return dict(ok=False, msg='未知动作: %r（支持 start/stop/reset）' % action,
                     **self.status())
 
+    def switch_source(self, apply_fn=None, reason='switch'):
+        """运行中热切换数据源：停当前源（释放串口）→ apply_fn() 改模式 → 按原状态重启。
+
+        用途：现场演示不重启进程、不刷新页面，就能在「真雷达 / 回放 / 合成」之间
+        切换（AGENTS.md 硬约束 2：一个热键 1 秒内切换）。耗时用单调钟实测并回传，
+        供「1 秒内切换」验收判定，而非靠日志观感。
+
+        apply_fn 传 None 表示调用方已先自行改好源模式（本仓库 server.py 即此型）；
+        未在采集时只切模式、不启停，便于「开采集之前先选好源」。
+        """
+        t0 = time.perf_counter()
+        with self._lock:
+            was_active = self._active
+            ok, msg = True, None
+            try:
+                if was_active:
+                    self._finish_locked(reason)
+                if apply_fn is not None:
+                    apply_fn()
+                if was_active:
+                    # 与 start() 内部等价，但在同一把锁内完成，避免出现「已停未起」的
+                    # 中间态被 /status 或 supervisor 看到。
+                    self._active = True
+                    self._t_session = time.time()
+                    self._starts += 1
+                    self.sessions += 1
+                    self._frames = 0
+                    self._last_stop_reason = None
+                    self._spawn_locked(append=self._record_opened_once)
+                    self._record_opened_once = True
+            except (Exception, SystemExit) as e:
+                # 新源建不起来（如串口没了/回放文件缺失）时不要留下「半开」状态：
+                # 回到已停止，把原因如实回传给调用方。
+                self._active = False
+                self._t_session = None
+                self._kill_locked()
+                ok, msg = False, '%s: %s' % (type(e).__name__, e)
+            elapsed = round((time.perf_counter() - t0) * 1000.0, 1)
+            st = self.status()
+        self._log('[control] 热切换数据源（%.0f ms）%s%s'
+                  % (elapsed,
+                     '' if was_active else ' · 未在采集，仅切模式',
+                     '' if ok else ' · 失败: ' + msg))
+        self._notify()
+        return dict(ok=ok, msg=msg, switch_ms=elapsed,
+                    was_active=was_active, **st)
+
     def status(self):
         now = time.time()
         with self._stat_lock:
