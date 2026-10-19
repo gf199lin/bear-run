@@ -17,7 +17,7 @@
   文件里会污染静息口径），且不需要动作真值（无动作本身就是真值）。
 
 时间基准（与全项目一致，别用墙钟）：
-  时间轴 = **帧号 × 0.1295 s**（`radar_actions.FRAME_PERIOD`）。每个站位是一个独立会话，
+  时间轴 = **帧号 × 帧周期**（`radar_actions.FRAME_PERIOD`）。每个站位是一个独立会话，
   因此每文件内的帧号从 1 开始重新计数，与记录下来的窗口帧号一一对应。
 
 用法：
@@ -47,10 +47,31 @@ import label_tool as lt               # noqa: E402
 import radar_calibrate as rc          # noqa: E402
 import segment_capture as sc          # noqa: E402  复用提示音/帧统计（体感与真值口径一致）
 
-FP = ra.FRAME_PERIOD                  # 0.1295 s/帧
-BIN_PITCH = 0.6813                    # 距离门间距（m）
+FP = ra.FRAME_PERIOD                  # 帧周期（s/帧）；**按板型覆盖**，见 apply_board()
+BIN_PITCH = 0.6813                    # 距离门间距（m）；同上，按板型覆盖
 LEAK_RANGE = getattr(rc, 'LEAK_RANGE', 0.70)   # 近场泄漏门，必排除（实测）
 BAND_DEFAULT = tuple(getattr(ra, 'BAND_DEFAULT', (0.70, 1.35)))
+BOARD = rs.DEFAULT_BOARD              # 当前生效板型
+
+# 各板型默认距离带（米）：2T4R 那一行是**提案，待卷尺点检/实测确认**。
+# 1T2R 沿用 radar_actions.BAND_DEFAULT（实测在用带）；2T4R 门距只有 0.150 m，
+# 人体 0.6~2.0 m 落在门 3~13，先给一条宽带来兜住，点检后再收紧。
+BAND_BY_BOARD = {
+    '1t2r': BAND_DEFAULT,
+    '2t4r': (0.30, 2.10),
+}
+
+
+def apply_board(board):
+    """把板型口径同步到本模块 + radar_calibrate（帧周期/门距/泄漏门/默认带）。"""
+    global FP, BIN_PITCH, LEAK_RANGE, BAND_DEFAULT, BOARD
+    BOARD = board if board in ('1t2r', '2t4r') else rs.DEFAULT_BOARD
+    FP = rs.frame_period(BOARD)
+    BIN_PITCH = rs.range_res(BOARD)
+    BAND_DEFAULT = BAND_BY_BOARD[BOARD]
+    rc.set_board(BOARD)          # 离线分析（frames_from_file / mode_*）同口径
+    LEAK_RANGE = float(getattr(rc, 'LEAK_RANGE', LEAK_RANGE))
+    return BOARD
 
 BEEP_START = 'start'                  # 高音=开始
 BEEP_STOP = 'stop'                    # 低音=结束
@@ -106,12 +127,14 @@ def hold(secs, text, tick=5.0, kind=BEEP_START, end_kind=None, debug=False):
 # ------------------------------------------------------------------ 采集
 def capture_station(args, dist, bin_path, labels_path, index, total):
     """采集一个站位（一个独立会话 → 一个独立文件）。成功返回记录 dict，失败返回 None。"""
+    # 帧数期望先用「当前板型」的帧周期估算；串口连上出帧后会按实测板型重算
     want_frames = args.duration / FP
     print('')
     print('=' * 76)
     print('第 %d/%d 段：站位 %.2f m' % (index, total, dist))
     print('  录制: %s' % bin_path)
-    print('  要求: 站定**完全不动** %.0f s（约 %.0f 帧）' % (args.duration, want_frames))
+    print('  要求: 站定**完全不动** %.0f s（约 %.0f 帧；板型 %s，%.4f s/帧）'
+          % (args.duration, want_frames, BOARD, FP))
     print('=' * 76)
 
     sc.pause('走到 %.2f m 的标记处站好：正对雷达、脚跟对齐标记，站定后别再挪' % dist)
@@ -126,6 +149,15 @@ def capture_station(args, dist, bin_path, labels_path, index, total):
         if not sc.wait_frames(3, args.start_delay + 5):
             print('  !! 没有收到任何雷达帧，本段作废（检查设备/串口/是否被别的进程占着）。')
             return None
+
+        # src.open() 里已完成串口指纹识别 → 以实测板型为权威口径（预检只是预判）。
+        # sc.set_board 同步采集侧 FP，apply_board 再同步本模块 + radar_calibrate。
+        apply_board(sc.set_board(sc.resolve_board(args, src)))
+        want_frames = args.duration / FP
+        if not getattr(args, 'band_explicit', False):
+            args.band = BAND_DEFAULT
+        print('  [板型] %s：帧周期 %.4f s，门距 %.4f m，距离带 %s m（期望 %.0f 帧）'
+              % (BOARD, FP, BIN_PITCH, args.band, want_frames))
 
         if args.warmup > 0:
             hold(args.warmup, '先做信号稳定（保持不动，这段不计入统计）',
@@ -152,7 +184,7 @@ def capture_station(args, dist, bin_path, labels_path, index, total):
         valid = True
 
     meta = {'file': os.path.basename(bin_path), 'distance_m': float(dist),
-            'band': list(args.band), 'frame_period': FP,
+            'band': list(args.band), 'frame_period': FP, 'board': BOARD,
             'frames_file': int(sc.STATE['frames']),
             'window': {'frame_start': int(f0), 'frame_end': int(f1),
                        't_start': round(f0 * FP, 3), 't_end': round(f1 * FP, 3)},
@@ -161,7 +193,8 @@ def capture_station(args, dist, bin_path, labels_path, index, total):
             'valid': bool(valid),
             'note': '站位自检引导采集（position_capture.py）：本段是静息（人站定不动），'
                     '**无动作真值** -> 任何 LANE_* 预测都计为误报；'
-                    '时间轴 = 帧号 × 0.1295 s'}
+                    '时间轴 = 帧号 × %.4f s（板型 %s，radar_source.frame_period）'
+                    % (FP, BOARD)}
     lt.save_labels(labels_path, [], meta)
     print('  真值文件（0 条动作 + 元数据）-> %s' % labels_path)
 
@@ -173,9 +206,17 @@ def capture_station(args, dist, bin_path, labels_path, index, total):
 
 
 # ------------------------------------------------------------------ 分析
-def window_frames(bin_path, proc, f0=None, f1=None):
-    """只取 [f0, f1] 窗口内的帧，避免把管道刚打开时的垃圾帧算进统计。"""
-    for idx, t, pts in rc.frames_from_file(bin_path, proc, log=lambda m: None):
+def window_frames(bin_path, proc, f0=None, f1=None, board=None):
+    """只取 [f0, f1] 窗口内的帧，避免把管道刚打开时的垃圾帧算进统计。
+
+    board **必须显式给出**（本模块 BOARD 已知）：`radar_calibrate.frames_from_file`
+    在 board=None 时会去嗅探文件字节形态，而 10/19 新增的嗅探判据会把 1T2R 的
+    **裸帧录制**误判成 2T4R（两种板型的裸帧里都可能出现 `55 AA` 且第 3 字节
+    低 4 位为 0），于是用错解析器 → 一帧都读不出 → 站位报告全 None。
+    见 docs/progress-radar-pointcloud.md「板型嗅探回归」。
+    """
+    for idx, t, pts in rc.frames_from_file(bin_path, proc, log=lambda m: None,
+                                           board=board or BOARD):
         if f0 is not None and idx < f0:
             continue
         if f1 is not None and idx > f1:
@@ -349,7 +390,12 @@ def main(argv=None):
     ap = argparse.ArgumentParser(
         description='站位自检引导采集（自动分段 + 采完当场出 j=2 判据）')
     ap.add_argument('--port', default='COM3')
-    ap.add_argument('--baud', type=int, default=921600)
+    ap.add_argument('--baud', type=int, default=None,
+                    help='串口波特率；默认 None = 按板型指纹自动'
+                         '（1T2R 921600 / 2T4R 1500000）')
+    ap.add_argument('--board', default='auto',
+                    choices=['auto', '1t2r', '2t4r'],
+                    help='板型；默认 auto = 按串口指纹/文件自动判断')
     ap.add_argument('--source', default='serial',
                     choices=['serial', 'loopback', 'replay'])
     ap.add_argument('--replay-file', default=None)
@@ -387,6 +433,7 @@ def main(argv=None):
     sc.NO_BEEP = bool(args.no_beep)
 
     stations = [float(x) for x in args.stations.split(',') if x.strip()]
+    args.band_explicit = bool(args.band)     # 显式 --band 优先于板型默认带
     if args.band:
         args.band = tuple(float(x) for x in args.band.replace(',', ' ').split())
     else:
@@ -399,6 +446,10 @@ def main(argv=None):
         print('[cfg] 已载入校准文件 %s（processor 段作底，显式参数优先）' % args.calib)
 
     os.makedirs(args.outdir, exist_ok=True)
+    if not args.analyze_only:
+        apply_board(sc.preflight_board(args))
+        print('[板型] %s：帧周期 %.4f s，门距 %.4f m，距离带 %s m'
+              % (BOARD, FP, BIN_PITCH, args.band))
 
     started = time.time()
     recs = []
@@ -407,6 +458,16 @@ def main(argv=None):
         files = [x.strip() for x in (args.files or '').split(',') if x.strip()]
         if not files:
             raise SystemExit('--analyze-only 需要 --files')
+        # 分析已有文件：**--board 显式优先**（1T2R 裸帧录制会被嗅探误判成 2T4R，
+        # 见 window_frames 注释）；只有没显式给时才退回文件嗅探，避免
+        # 「用 A 板的门距去解 B 板的文件」。
+        _want = None if args.board == 'auto' else args.board
+        apply_board(_want or rs.sniff_board_from_file(files[0]) or BOARD)
+        if not args.band_explicit:
+            args.band = BAND_DEFAULT
+        print('[板型] %s：帧周期 %.4f s，门距 %.4f m，距离带 %s m（%s）'
+              % (BOARD, FP, BIN_PITCH, args.band,
+                 '由 --board 指定' if _want else '由文件嗅探判定（未给 --board）'))
         if len(files) != len(stations):
             print('[!] --files 个数(%d) 与 --stations 个数(%d) 不一致，'
                   '按较短的对齐' % (len(files), len(stations)))

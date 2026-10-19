@@ -163,11 +163,29 @@ JUMP_DUCK_CONFIRM_DEFAULT = 3
 #     与原判据「绝对 px 不参与判定」的原则一致，区别只是参考系由「窗内起点」
 #     换成「时间基线」。实测（同一真值集）：1.25 m 命中 9/10、误报 1 次(0.5/min)，
 #     优于绝对阈值变体；置换检验 p≤0.0033（详 §7.27/§7.28）。
-#   ⚠ 边界：base 需要一段静息预热（约 10~20 s）才收敛；阈值属**样本内**选定；
-#     LEFT 在 1.50 m 站位上仍检不到（根因是回波弱，不是方向判错）。
+#   ⚠ 边界：base 需要一段静息预热（约 10~20 s）才收敛；阈值属**样本内**选定。
+#     LEFT 在 1.50 m 站位上仍检不到（根因是回波弱、目标丢失，不是方向判错）。
 CRIT_DEFAULT = 'delta'         # 'delta'（原判据：窗内位移）| 'drift'（静息水平偏移）
 REST_WIN_DEFAULT = 60.0        # 静息水平基线的滑动窗口 s（提案值；越大越稳、预热越久）
-DRIFT_LEFT_DEFAULT = 1.30      # d <= -DRIFT_LEFT → LEFT（大负偏移）
+# ★ 2026-10-19 重标定 DRIFT_LEFT（10/19 外样本 3 段 + 样本内 2 段，4 站位 × 10 窗）
+#   现象：外样本里「左移」几乎检不到，检出的事件全被标成 RIGHT。
+#   机理**不是**极性反转，而是**幅度档位标定错**——证据（.deepworks/tmp/sign_probe.py、
+#   scan_drift_left.py 的输出）：
+#     1) 符号不携带方向信息：LEFT 20 窗中 19 个「负向占优」、**0 个正向占优**；
+#        RIGHT 20 窗中 11 个负向占优、**0 个正向占优**。两种动作的 d 都是**负向**。
+#        ⇒ 曾设想的「按符号判定（负→LEFT / 正→RIGHT）」会把两个方向都判成 LEFT，
+#          已验证不成立，故**未采用**。
+#     2) 方向只在 |d| 的**幅度**里，而幅度尺度**随站位变**：
+#          LEFT  0.70 m ≈ 1.0~1.3 m；0.85 m ≈ 0.8~1.2 m；1.25 m ≈ 2.2 m
+#          RIGHT 各站位 ≈ 0.25~0.35 m（稳定）
+#     3) 原值 1.30 正好卡在近站位 LEFT 的峰值上（窗内 min 多为 −1.25~−1.32），
+#        且触发需连续 3 帧 ⇒ LEFT 落进「小负偏移」档，被标成 RIGHT。
+#   重标定结果（同一真值集，只改 drift_left）：LEFT 7/20 → 15/20，
+#   误报 18 → 12，RIGHT 18/20 → 16/20。
+#   ★ 结构**未改**：仍是「d ≤ −drift_left → LEFT；−drift_left < d ≤ −drift_right → RIGHT」。
+#   ★ 0.80 本身是**样本内**扫出的值（提案，待小组确认），且未在未知站位上验证。
+#   ★ crit 默认仍是 'delta'：本改动只影响 crit='drift' 的离线分析/实验路径。
+DRIFT_LEFT_DEFAULT = 0.80      # d <= -DRIFT_LEFT → LEFT（大负偏移）※提案值，待小组确认
 DRIFT_RIGHT_DEFAULT = 0.25     # -DRIFT_LEFT < d <= -DRIFT_RIGHT → RIGHT（小负偏移）
 DRIFT_RELEASE_DEFAULT = 0.10   # 释放门：d 回到 -该值以内即释放回 CENTER（滞回）
                                # ★ 必须满足 0 <= DRIFT_RELEASE < DRIFT_RIGHT。
@@ -788,22 +806,29 @@ class ActionRecognizer:
 
 # ---------------------------------------------------------------- 离线分析
 def analyze_file(path, processor=None, recognizer=None, band=BAND_DEFAULT,
-                 limit=None, log=None):
+                 limit=None, log=None, board=None):
     """对录制文件做离线动作分析。
 
-    time 轴用 **帧号 × 0.1295 s**（等效真实节拍），不用墙钟 —— 离线跑得比实机快，
+    time 轴用 **帧号 × 帧周期**（等效真实节拍），不用墙钟 —— 离线跑得比实机快，
     墙钟时间会让「最短切换间隔」等时间门限失真。
+    帧周期与解析器都按**板型**走（board=None → 从文件字节形态自动嗅探：
+    1T2R 0.1295 s / 2T4R 0.52084 s），所以同一个函数能读两块板的录制文件。
     返回 (records, info)。
     """
-    from radar_protocol import StreamParser, FrameAssembler
+    import radar_source as rs
     from radar_dsp import PointCloudProcessor
+
+    log = log or (lambda *a: None)
+    b = board or rs.sniff_board_from_file(path) or '1t2r'
+    frame_period = rs.frame_period(b)
+    parser, asm = rs.make_protocol(b)
+    if board is None:
+        log('[actions] 板型 = %s（帧周期 %.4f s，门距 %.4f m，解析器已切换）'
+            % (b, frame_period, rs.range_res(b)))
 
     proc = processor or PointCloudProcessor()
     rec = recognizer or ActionRecognizer(band=band)
-    parser = StreamParser()
-    asm = FrameAssembler()
     records = []
-    log = log or (lambda *a: None)
     with open(path, 'rb') as f:
         while True:
             chunk = f.read(1 << 20)
@@ -813,8 +838,11 @@ def analyze_file(path, processor=None, recognizer=None, band=BAND_DEFAULT,
                 pair = asm.push(rf)
                 if pair is None:
                     continue
-                pts, noise = proc.process(*pair)
-                t = asm.frames * FRAME_PERIOD
+                # 只用前两个 RX：与雷达实时管道 radar_source.build_pipeline 的
+                # on_frame(pair[0], pair[1], stats) 同口径
+                # （2T4R 的 assembler 返回 4 个 RX，*pair 展开会 TypeError）
+                pts, noise = proc.process(pair[0], pair[1])
+                t = asm.frames * frame_period
                 r = rec.push(pts, t)
                 r['frame'] = asm.frames
                 r['noise'] = round(float(noise), 1)
@@ -823,7 +851,7 @@ def analyze_file(path, processor=None, recognizer=None, band=BAND_DEFAULT,
                     break
             if limit is not None and len(records) >= limit:
                 break
-    info = {'frames': len(records), 'packets': parser.packets,
+    info = {'frames': len(records), 'packets': getattr(parser, 'packets', 0),
             'skipped': parser.skipped_bytes, 'bad': parser.bad_packets,
             'dropped': asm.dropped, 'file': os.path.basename(path)}
     log('[actions] %s → %d 帧' % (info['file'], info['frames']))
@@ -917,7 +945,7 @@ def main(argv=None):
     ap.add_argument('--rest-win', type=float, default=None,
                     help='crit=drift 的静息水平基线窗口（秒），默认 60')
     ap.add_argument('--drift-left', type=float, default=None,
-                    help='crit=drift：d <= -该值 → LEFT，默认 1.30')
+                    help='crit=drift：d <= -该值 → LEFT，默认 0.80')
     ap.add_argument('--drift-right', type=float, default=None,
                     help='crit=drift：-drift-left < d <= -该值 → RIGHT，默认 0.25')
     ap.add_argument('--drift-release', type=float, default=None,
