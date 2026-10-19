@@ -523,7 +523,8 @@
      `MAX_RANGE=5.45`、`V_MAX=1.535`、`V_RES=0.0480`
    - `radar-pointcloud/radar_actions.py`：`FRAME_PERIOD=0.1295`、`BAND_DEFAULT=(0.70,1.35)`、
      `TOP_K_DEFAULT=0`（**0 = 全保留 ⇒ 默认是质心**）、`CRIT_DEFAULT='delta'`、`REST_WIN_DEFAULT=60.0`、
-     `DRIFT_LEFT_DEFAULT=1.30`、`DRIFT_RIGHT_DEFAULT=0.25`、`AUTO_BAND_MIN_FRAMES_DEFAULT=30`、
+     `DRIFT_LEFT_DEFAULT=1.30`（⚠ **2026-10-19 起已改为 `0.80`**，本行是 10/18 快照，见 §7.39）、
+     `DRIFT_RIGHT_DEFAULT=0.25`、`AUTO_BAND_MIN_FRAMES_DEFAULT=30`、
      `AUTO_BAND_MAX_FRAMES_DEFAULT=120`、`AUTO_BAND_MIN_POINTS_DEFAULT=20`、
      `AUTO_BAND_DOMINANCE_DEFAULT=1.5`、`AUTO_BAND_MIN_GATE=1`
    - **「最强点」的代码含义**：`top_k>0` 时按 `pa` 取前 K 个点（`radar_actions.py` **L635-636**）
@@ -681,7 +682,8 @@ python .deepworks\tmp\run_sse_smoke.py
 - `radar-pointcloud/calib.json`：`min_snr: 7.0`、`cfar_scale: 2.6`、`min_range: 0.681`
 - `ra.BAND_DEFAULT = (0.70, 1.35)` ← **注意：这是 j=1 空门，对 1.25/1.50 m 站位是错的**
 - `ra.CRIT_DEFAULT = 'delta'`（**出厂行为，未变**）；新增 `crit='drift'` 及相关参数：
-  `REST_WIN_DEFAULT=60.0`、`DRIFT_LEFT_DEFAULT=1.30`、`DRIFT_RIGHT_DEFAULT=0.25`、
+  `REST_WIN_DEFAULT=60.0`、`DRIFT_LEFT_DEFAULT=1.30`（⚠ **2026-10-19 重标定为 `0.80`**，见 §7.39）、
+  `DRIFT_RIGHT_DEFAULT=0.25`、
   **`DRIFT_RELEASE_DEFAULT=0.10`**、**`DRIFT_RELEASE_CONFIRM_DEFAULT=3`**（10/19 新增，见 §7.36：
   释放端也需连续 3 帧确认；`1` = 旧的单帧释放，回退用 `--drift-release-confirm 1`）
   （**提案，待小组确认**）
