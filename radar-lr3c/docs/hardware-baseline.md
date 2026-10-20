@@ -44,7 +44,7 @@
 | 设备连接（2T4R） | **已打通**（10/19）—— COM4 @ 1500000 稳定出帧 ≈1.75 雷达帧/s，接入网页跑通 |
 | 串口参数（1T2R） | `Baudrate = 921600`，`SourceType = radar_serial` |
 | 串口参数（2T4R） | **1500000**，8-N-1（固件 `drivers/uart/icl_uart.c:44` 写死；实测一致；**上位机日志里 `SetUartBaudrate`(参数 `0x0008`) = 1500000** 为第二条独立证据） |
-| 设备自述（命令模式，10/19 实测） | 1T2R：协议版本 3 / 缓冲 **64** / 读模组名成功 = **"DEV202H"** / `RxChannelBit=03`； 2T4R：协议版本 3 / 缓冲 **512** / 读模组名**失败 `0x0FA7`** / 版本串 `"VA1.0.0"` / `RxChannelBit=0F`。⇒ 可作为**不依赖 USB-UART 芯片**的板型指纹 | 见 [`radar-uplink-dev113p-2t4r.md`](radar-uplink-dev113p-2t4r.md) §7.7 |
+| 设备自述（命令模式，10/19 实测） | 1T2R：协议版本 3 / 缓冲 **64** / 读模组名成功 = **"DEV202H"** / `RxChannelBit=03`； 2T4R：协议版本 3 / 缓冲 **512** / 读模组名**失败 `0x0FA7`** / 版本串 `"VA1.0.0"` / `RxChannelBit=0F`。⇒ 可作为**不依赖 USB-UART 芯片**的板型指纹。依据见 [`radar-uplink-dev113p-2t4r.md`](radar-uplink-dev113p-2t4r.md) §7.7 |
 | 配置接口 | `ConfigInterface = config_iic`，`DspOutputType = dsp_spi` |
 
 ---
