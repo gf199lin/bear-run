@@ -163,8 +163,14 @@
         // 第一件是滚轮箱时只剩一条道 -- 再堵就是三线全封的死路，必须收手
         if (rest.length >= 2 && Math.random() < 0.24) {
           var lane2 = A.pick(rest);
-          var kind2 = A.pick(kinds);
-          if (kind2 === 'combo') kind2 = 'block';
+          // 滚轮箱一个人就要占两条道，而此刻只剩两条 -- 它一进来就把活路吃光，
+          // 所以第二件只从"占一条道"的障碍里挑（combo 会退化成 block）
+          var kinds2 = [];
+          for (var k2 = 0; k2 < kinds.length; k2++) {
+            var kk = kinds[k2] === 'combo' ? 'block' : kinds[k2];
+            if (kk !== 'mover' && kinds2.indexOf(kk) < 0) kinds2.push(kk);
+          }
+          var kind2 = A.pick(kinds2);
           // 不要在同一条道上放 "跳过" 和 "滑铲" 之外的冲突组合
           spawns.push({ lane: lane2, kind: kind2, lanes: [lane2] });
         }
