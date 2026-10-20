@@ -89,12 +89,20 @@
   偏置下右移仍判对          : 通过   px 由 +0.80 起右移，事件=['TARGET_BACK', 'LANE_RIGHT']
   野值帧被剔除            : 通过   rejected=True 事件=['TARGET_BACK']
   校准阈值生效            : 通过   band=(1.0, 1.6) v_on=0.90 事件=['TARGET_BACK']
-  crit 默认未变         : 通过   默认 crit=delta（不得静默改判据）
+  crit 默认 = xbase   : 通过   默认 crit=xbase（2026-10-20 由 delta 改为 xbase，见 devlog §7.45.6：delta 的方向符号与人体左右相反，0/11 方向正确）
+  crit 仍可选 delta    : 通过   delta 保留为可选项（历史对照/回归用）
   drift 左移识别        : 通过   事件=['TARGET_BACK', 'LANE_LEFT']
   drift 右移识别        : 通过   事件=['TARGET_BACK', 'LANE_RIGHT']
   drift 偏置静止不误报     : 通过   px 恒为 -2.00，事件=['TARGET_BACK']
   drift 无基线不猜       : 通过   仅 6 帧，事件=['TARGET_BACK']
   drift 参数校验        : 通过   未知 crit 与 right>=left 均被拒
+  xbase 默认可构造       : 通过   thr_left=+0.10 thr_right=-0.18 release=0.05 长窗=40 s
+  xbase 左移识别        : 通过   事件=['TARGET_BACK', 'LANE_LEFT']
+  xbase 右移识别        : 通过   事件=['TARGET_BACK', 'LANE_RIGHT']
+  xbase 偏置静止不误报     : 通过   px 恒为 1.60，事件=['TARGET_BACK']
+  xbase 慢漂移不误报      : 通过   px 0.30→0.54 缓漂 120 帧（共 0.24 m），事件=['TARGET_BACK']
+  xbase 无长窗不猜       : 通过   仅 6 帧(<8)，事件=['TARGET_BACK']
+  xbase 参数校验        : 通过   4 个非法取值均被拒: [True, True, True, True]
   自动带 默认关闭          : 通过   默认 band_mode=fixed band=(0.7, 1.35)
   自动带 选中最强门         : 通过   门 j=2 band=(1.36, 2.04) 第 10 帧锁定 事件=['BAND_READY']
   自动带 预热不发动作        : 通过   预热 11 帧（未达 12）事件=无

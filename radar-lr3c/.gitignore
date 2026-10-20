@@ -11,6 +11,10 @@ __pycache__/
 *.log
 *.err
 
+# 环境底噪基线（空场采集所得，随场地/场次变化，属现场产物而非交付物）
+radar-pointcloud/bg_baseline.json
+radar-pointcloud/bg_baseline.json.tmp
+
 # ---------- 保密材料：厂商资料 / 授权 / 课程上传 ----------
 uploads/
 *.lic

@@ -299,7 +299,11 @@ def mode_rest(frames, band, log=print):
     否则量到的噪声和实际判定的噪声不是一回事。
     不需要真值，因此这条结论可以直接采信。
     """
-    rec = ra.ActionRecognizer(band=band)
+    # ⚠ 2026-10-20：显式 crit='delta'。本模块估的是 delta 的参数（v_on / v_off / min_dx），
+    #   而 live 默认判据已改为 'xbase'，且 xbase 有**独立**的门限（xbase_thr_left/right，
+    #   不吃 calib 的 v_on/min_dx）。⇒ 本工具**不校 xbase 门限**；这两套参数在 calib.json
+    #   里是分开的，别把这里算出的 v_on 当成 xbase 的阈值。见 devlog §7.45.6。
+    rec = ra.ActionRecognizer(band=band, crit='delta')
     v_lat, dx, px, steps, rej = [], [], [], [], 0
     n_frames = 0
     n_target = 0
@@ -353,7 +357,7 @@ def mode_rest(frames, band, log=print):
                             MAX_STEP_MIN, MAX_STEP_MAX))
 
     # 闭环检查：用回填后的阈值在原数据上重跑，数「静息期间误报了几次」
-    rec2 = ra.ActionRecognizer(band=band, v_on=v_on, v_off=v_off,
+    rec2 = ra.ActionRecognizer(band=band, crit='delta', v_on=v_on, v_off=v_off,
                                min_dx=min_dx, max_step=max_step)
     fp = {}
     for t, pts in seq:

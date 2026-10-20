@@ -91,6 +91,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
+# 控制台容错：cmd.exe 默认 cp936，打印 '⇒' / '★' 这类字符会抛
+# UnicodeEncodeError 把整个分析进程打成 exit 1（看起来像「分析失败」，实际只是
+# 行首字符编不出来）。用 ? 替代即可 —— 数字和结论都在，别让日志炸掉流程。
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(errors='replace')
+    except Exception:
+        pass
+
 FRAME_PERIOD = 0.1295          # 实测帧周期 129.5 ms（≈7.7 Hz）
 
 LANE_LEFT = 'LANE_LEFT'
@@ -120,7 +129,9 @@ TARGET_BACK = 'TARGET_BACK'
 # ⚠ 2026-10-15 实测修正：j=1 占用率并非 73%，两次独立真机采集实测仅 42.5%/20.7%/15.0%
 #   （带内 0.6/0.2/0.2 点每帧）。**以「带内约 0.2~1.3 点/帧」为基线**。
 BAND_DEFAULT = (0.70, 1.35)    # 只取 j=1(1.02 m)：实测人所在距离门
-WINDOW_DEFAULT = 12            # 滑窗 ≈1.55 s（12 × 129.5 ms）
+WINDOW_DEFAULT = 8             # 滑窗 ≈1.04 s（8 × 129.5 ms）；原 12 帧（1.55 s），
+#   2026-10-20 实测：8 帧把「onset → 首个事件」中位从 0.78 s 压到 0.52 s（1.50 m 段），
+#   静息 36 s 上误报 0（§7.45）。提案，待小组确认。
 V_ON_DEFAULT = 0.35            # 触发用横向速度门限 m/s
 V_OFF_DEFAULT = 0.18           # 滞回释放门限 m/s
 MIN_DX_DEFAULT = 0.10          # 窗内横向净位移门限 m（防抖）
@@ -165,7 +176,10 @@ JUMP_DUCK_CONFIRM_DEFAULT = 3
 #     优于绝对阈值变体；置换检验 p≤0.0033（详 §7.27/§7.28）。
 #   ⚠ 边界：base 需要一段静息预热（约 10~20 s）才收敛；阈值属**样本内**选定。
 #     LEFT 在 1.50 m 站位上仍检不到（根因是回波弱、目标丢失，不是方向判错）。
-CRIT_DEFAULT = 'delta'         # 'delta'（原判据：窗内位移）| 'drift'（静息水平偏移）
+CRIT_DEFAULT = 'xbase'          # 2026-10-20 改为 'xbase'（原 'delta'）。理由见 §7.45.6：
+#   1.50/2.00 m 实采上 'delta' 的**方向符号与人体左右相反**（「向自己右侧移动」被判成 LANE_LEFT，
+#   0/11 方向正确）；同批数据 'xbase' 方向正确 10/11、延迟 0.84~1.04 s。'delta' 仍保留可选。
+#   代价：'xbase' 需要 ~40 s 历史（near 0.8 s vs long 40 s 中位），冷启动前 40 s 不出动作事件。
 REST_WIN_DEFAULT = 60.0        # 静息水平基线的滑动窗口 s（提案值；越大越稳、预热越久）
 # ★ 2026-10-19 重标定 DRIFT_LEFT（10/19 外样本 3 段 + 样本内 2 段，4 站位 × 10 窗）
 #   现象：外样本里「左移」几乎检不到，检出的事件全被标成 RIGHT。
@@ -229,6 +243,60 @@ d 又落回触发门以下 ⇒ 3 帧确认**再触发一次** ⇒ 「一次动�
   M=0 非法（会在清零后又判 0>=0 ⇒ hold 恒真，比旧版更激进地释放）。
 本参数只作用于 crit='drift'。
 """
+
+# ---------------- 「段内自适应基线」判据 crit='xbase'（2026-10-20 新增；提案，待小组确认）
+# 背景与实测依据：docs/progress-radar-pointcloud.md §7.40（本节新增）与
+#   .deepworks/tmp/cap1020_selfbase.py / cap1020_adaptive.py 的输出
+#   （_cap1020_selfbase.txt、_cap1020_adaptive.txt）。
+#
+# 为什么还要再加一个判据：crit='delta' 与 crit='drift' 都在真机真值上失败过——
+#   delta（窗内位移）：15 动作段命中 21%、延迟中位 4.92 s（对照见下）；
+#   drift（全程静息基线）：LEFT 检不到，根因是「静息段与动作段相隔数分钟，
+#     人的站位/姿态已发生慢漂移」⇒ 用**早先采的静息水平**去比**现在**的 px，
+#     参考系本身就是错的（实测 LEFT 窗 x 均值 0.442、RIGHT 窗 0.192，
+#     而静息 base = 0.502 —— 两个方向相对 base 都是负偏，只是幅度不同）。
+#
+# xbase 的做法：把参考系从「早先采的静息段」换成**该段自身的近期水平**——
+#     dev = median(近 xbase_win 秒的 px) − median(近 xbase_base_win 秒的 px)
+#   两项都是同一段数据里现算的，因此**免疫站位/姿态慢漂移**（这是与 drift 的
+#   唯一区别，也是它有效的原因）。判定仍然只用**相对量** dev，不比较 px 绝对数值，
+#   与文件头的判定原则一致。
+#
+# 离线实测（cap-long-1020，1T2R，人站 0.7 m，真值 7 LEFT + 7 RIGHT 动作段
+#   共 384 s；另有 366 s 纯静息段，其中任何 LANE_* 都算误报）：
+#     产线 crit='delta' 现状        命中  7/30 ≈ 21%(旧数据)   延迟中位 4.92 s
+#     crit='drift'   绝对静息基线    命中 6/14 = 43%           延迟中位 1.81 s   误报 0.7/min
+#     crit='xbase'   段内自适应基线  命中 13/14 = 93%          延迟中位 1.81 s   误报 7.2/min
+#     crit='xbase' + 左右独立阈值    命中 12/14 = 86%          延迟中位 1.94 s   误报 3.5/min
+#   ⇒ 命中率提升主要来自「段内自适应基线」；误报控制主要来自「左右独立阈值」。
+#
+# ★ 左右阈值必须独立（这是本判据与 delta/drift 的结构差异）：
+#   实测左右幅度**不对称**。阈值对称（都用 0.12）时 LEFT 7/7 全中、RIGHT 6/7；
+#   阈值提到 0.18 时 RIGHT 7/7 全中而 LEFT 掉到 1/6 ⇒ 同一个门限不可能同时适配两侧。
+#   物理原因：人横移时目标回波只剩约 2 点/帧（静息 3 点、跳 7 点、蹲 5 点），
+#   且 LEFT 动作窗口里最多 20% 的帧**整帧无点**（RIGHT 为 0%）⇒ LEFT 的位移幅度
+#   被系统性地压缩。这一点属于几何/站位问题，须重采数据确认（见 §7.40 待办）。
+#
+# ★ 符号约定（本判据已用真值标定，勿凭直觉改）：
+#   在这套安装几何下实测 **人向自己的左侧移动 ⇒ dev > 0**（LEFT 7/7 命中于 dev>0）。
+#   注意这与 crit='delta' 的约定**相反**（delta 把 v_lat>0 判成 RIGHT）——
+#   delta 的该约定从未被真值验证过，且 delta 本身在本几何下不可用。
+#   该符号依赖安装几何与 angle_sign；换站位/换角度后必须重新用真值标定。
+#
+# ⚠ 边界：本判据只在 1T2R + 单人 + 单一安装几何 + 0.7 m 站位上验证过；
+#   2T4R、其它站位与房间均未验证。默认值 crit 仍是 'delta'（不改既有回归行为），
+#   本判据须显式 `--crit xbase` 或 crit='xbase' 才启用。
+CRIT_XBASE = 'xbase'
+XBASE_WIN_DEFAULT = 0.80        # 近窗（秒）：dev 的「当前位置」项
+XBASE_BASE_WIN_DEFAULT = 40.0   # 长窗（秒）：dev 的「近期常态」项；越大越稳
+XBASE_THR_LEFT_DEFAULT = 0.10   # dev >= +该值 → LEFT（实测 LEFT 幅度偏小，门限须低）
+XBASE_THR_RIGHT_DEFAULT = 0.18  # dev <= -该值 → RIGHT（实测 RIGHT 幅度偏大，可用高门限）
+XBASE_RELEASE_DEFAULT = 0.05    # 释放门：|dev| 回到该值以内即释放回 CENTER（滞回）
+                                # ★ 必须满足 0 <= XBASE_RELEASE < min(两侧阈值)，
+                                #   否则退化成「无滞回」，动作前后穿越门槛会重复触发。
+XBASE_RELEASE_CONFIRM_DEFAULT = 3   # 释放端连续确认帧数（与触发端 confirm 对称）
+XBASE_MIN_SAMPLES = 8           # 长窗最少样本数；不足时**不产生任何方向证据**
+XBASE_MIN_SHORT = 3             # 近窗最少样本数；不足时本帧无证据
 
 # ---------------- 距离带自动选择（2026-10-19 新增；提案，待小组确认） --------
 # 为什么需要它：出厂默认带 `BAND_DEFAULT = (0.70, 1.35)` 圈在 j=1（门中心
@@ -307,6 +375,12 @@ class ActionRecognizer:
                  drift_left=DRIFT_LEFT_DEFAULT, drift_right=DRIFT_RIGHT_DEFAULT,
                  drift_release=DRIFT_RELEASE_DEFAULT,
                  drift_release_confirm=DRIFT_RELEASE_CONFIRM_DEFAULT,
+                 xbase_win=XBASE_WIN_DEFAULT,
+                 xbase_base_win=XBASE_BASE_WIN_DEFAULT,
+                 xbase_thr_left=XBASE_THR_LEFT_DEFAULT,
+                 xbase_thr_right=XBASE_THR_RIGHT_DEFAULT,
+                 xbase_release=XBASE_RELEASE_DEFAULT,
+                 xbase_release_confirm=XBASE_RELEASE_CONFIRM_DEFAULT,
                  auto_band_min_frames=AUTO_BAND_MIN_FRAMES_DEFAULT,
                  auto_band_max_frames=AUTO_BAND_MAX_FRAMES_DEFAULT,
                  auto_band_min_points=AUTO_BAND_MIN_POINTS_DEFAULT,
@@ -334,10 +408,28 @@ class ActionRecognizer:
             raise ValueError("slope 只能是 'theilsen' 或 'lstsq': %r" % (slope,))
         if dx_mode not in ('median', 'endpoints'):
             raise ValueError("dx_mode 只能是 'median' 或 'endpoints': %r" % (dx_mode,))
-        if crit not in ('delta', 'drift'):
-            raise ValueError("crit 只能是 'delta' 或 'drift': %r" % (crit,))
+        if crit not in ('delta', 'drift', CRIT_XBASE):
+            raise ValueError("crit 只能是 'delta'、'drift' 或 'xbase': %r" % (crit,))
         if not rest_win > 0:
             raise ValueError('rest_win 必须 > 0: %r' % (rest_win,))
+        # ---- crit='xbase' 的几何约束（无条件校验，手误当场报错）----
+        if not float(xbase_win) > 0:
+            raise ValueError('xbase_win 必须 > 0: %r' % (xbase_win,))
+        if not float(xbase_base_win) > float(xbase_win):
+            raise ValueError('须满足 xbase_base_win > xbase_win（长窗必须严长于近窗）: %r, %r'
+                             % (xbase_base_win, xbase_win))
+        if not float(xbase_thr_left) > 0 or not float(xbase_thr_right) > 0:
+            raise ValueError('xbase 两侧触发门限都必须 > 0: %r, %r'
+                             % (xbase_thr_left, xbase_thr_right))
+        # 滞回：释放门必须严格小于**较小**的一侧触发门，否则退化成「无滞回」。
+        if not 0.0 <= float(xbase_release) < min(float(xbase_thr_left),
+                                                 float(xbase_thr_right)):
+            raise ValueError('须满足 0 <= xbase_release < min(thr_left, thr_right): '
+                             '%r, %r, %r' % (xbase_release, xbase_thr_left,
+                                             xbase_thr_right))
+        if int(xbase_release_confirm) < 1:
+            raise ValueError('xbase_release_confirm 必须 >= 1（1 = 单帧即释放）: %r'
+                             % (xbase_release_confirm,))
         if not drift_right < drift_left:
             raise ValueError('须满足 drift_right < drift_left: %r, %r'
                              % (drift_right, drift_left))
@@ -398,6 +490,19 @@ class ActionRecognizer:
         # 释放端连续确认帧数（0 = 单帧即释放）。计数器见 push 的 drift 分支。
         self.drift_release_confirm = int(drift_release_confirm)
         self._rel_run = 0
+
+        # ---- crit='xbase' 用：段内自适应基线（近窗 vs 长窗，同为时间参考系）----
+        # dev = median(近 xbase_win 秒 px) − median(近 xbase_base_win 秒 px)
+        # 两个窗口都在**同一段数据内现算**，故免疫站位/姿态慢漂移（与 drift 的区别）。
+        self.xbase_win = float(xbase_win)
+        self.xbase_base_win = float(xbase_base_win)
+        self.xbase_thr_left = float(xbase_thr_left)
+        self.xbase_thr_right = float(xbase_thr_right)
+        self.xbase_release = float(xbase_release)
+        self.xbase_release_confirm = int(xbase_release_confirm)
+        self._xrel_run = 0
+        # px 缓冲区需要同时满足 drift 的 rest_win 与 xbase 的长窗：取两者较大值。
+        self._buf_win = max(float(rest_win), float(xbase_base_win))
 
         # ---- band='auto' 用：按门累计检出，预热期结束后锁定距离带 ----
         self.band_mode = AUTO_BAND if auto else 'fixed'
@@ -508,10 +613,14 @@ class ActionRecognizer:
         }
         self.hist.append((now, px, len(sel), e_sum, rejected))
         # 静息水平基线：只在「帧级门控通过」的帧上喂数据（与判据本身同源）。
-        # 只保留近 rest_win 秒，内存 O(rest_win × 帧率)。
-        if self.crit == 'drift':
+        # 只保留近 _buf_win 秒，内存 O(窗口秒数 × 帧率)。
+        # ★ crit='xbase' 也用这同一个缓冲区：它的「长窗」就是这里的中位数，
+        #   「近窗」则取窗口尾部——两者同源，保证比较的是同一套 px 口径。
+        # ★ 读取端（_win_median / _rest_level）都按 `t >= now - win` 现过滤，
+        #   所以目标长时间丢失后重新捕获时，旧数据不会被当成「近期常态」。
+        if self.crit in ('drift', CRIT_XBASE):
             self._rest.append((now, px))
-            cut = now - self.rest_win
+            cut = now - self._buf_win
             while self._rest and self._rest[0][0] < cut:
                 self._rest.popleft()
 
@@ -567,6 +676,45 @@ class ActionRecognizer:
                 hold = d is None or self._rel_run >= self.drift_release_confirm
             else:
                 self._rel_run = 0
+                hold = False
+        elif self.crit == CRIT_XBASE:
+            # dev = 近窗中位 − 长窗中位。两个窗口都在这**同一段数据内现算**，
+            # 所以站位/姿态的慢漂移会同时进入两项并被相减抵消——这正是
+            # 它比 drift（拿早先静息段当参考系）有效的原因。
+            short = self._win_median(now, self.xbase_win)
+            lng = self._win_median(now, self.xbase_base_win)
+            n_short = self._win_count(now, self.xbase_win)
+            n_long = self._win_count(now, self.xbase_base_win)
+            dev = None
+            if (short is not None and lng is not None
+                    and n_short >= XBASE_MIN_SHORT and n_long >= XBASE_MIN_SAMPLES):
+                dev = float(short - lng)
+            feat['xshort'] = None if short is None else round(short, 3)
+            feat['xbase'] = None if lng is None else round(lng, 3)
+            feat['xdev'] = None if dev is None else round(dev, 3)
+            feat['n_xbase'] = n_long
+            moved = dev is not None and (dev >= self.xbase_thr_left
+                                         or dev <= -self.xbase_thr_right)
+            if moved:
+                # ★ 已用真值标定，勿凭直觉改：本安装几何下
+                #   「人向**自己的左侧**移动 ⇒ dev > 0」（LEFT 7/7 命中于 dev>0）。
+                #   下方状态机的约定是 want='RIGHT' if drift>0 else 'LEFT'，
+                #   故 dev>0 必须映射为 drift=-1。
+                #   ⚠ 这与 crit='delta' 的符号约定相反（delta 把 v_lat>0 判成 RIGHT）。
+                drift = -1.0 if dev > 0 else 1.0
+                feat['xdir'] = 'LEFT' if drift < 0 else 'RIGHT'
+                ev_kw = {'xdev': dev, 'xbase': lng, 'n_xbase': n_long}
+            # 释放端：与触发端构成滞回，且同样需要连续确认（理由同 drift 的
+            # drift_release_confirm：单帧 px 野值会诱发「一次动作被记两次」）。
+            if self.lane != 'CENTER':
+                if dev is not None:
+                    if abs(dev) <= self.xbase_release:
+                        self._xrel_run += 1
+                    else:
+                        self._xrel_run = 0
+                hold = dev is None or self._xrel_run >= self.xbase_release_confirm
+            else:
+                self._xrel_run = 0
                 hold = False
         else:
             moved = (v_lat is not None and abs(v_lat) >= self.v_on
@@ -767,6 +915,23 @@ class ActionRecognizer:
             return None
         return float(np.median(xs))
 
+    def _win_px(self, now, win):
+        """近 win 秒内的 px 列表（crit='xbase' 的近窗/长窗共用）。
+
+        ★ 按**读取时刻**现过滤，不是只靠 append 时裁剪：目标长时间丢失期间
+        不会有 append，缓冲区里会留下跨越丢失期的旧样本；读取端过滤保证
+        「近期常态」里不会混进几分钟前的姿势。
+        """
+        cut = now - float(win)
+        return [p for (t, p) in self._rest if t >= cut]
+
+    def _win_median(self, now, win):
+        xs = self._win_px(now, win)
+        return None if not xs else float(np.median(xs))
+
+    def _win_count(self, now, win):
+        return len(self._win_px(now, win))
+
     @staticmethod
     def _mad_step(xs):
         """窗内逐帧 |Δpx| 的中位数（m）：噪声尺度的稳健度量，供校准/诊断用。"""
@@ -779,6 +944,7 @@ class ActionRecognizer:
         self._last_px = None
         self._dir_frames = 0
         self._rel_run = 0
+        self._xrel_run = 0
         self._gated_run = 0
         self._gated_side = 0
         self._gated_fired = 0
@@ -853,8 +1019,15 @@ def analyze_file(path, processor=None, recognizer=None, band=BAND_DEFAULT,
                 break
     info = {'frames': len(records), 'packets': getattr(parser, 'packets', 0),
             'skipped': parser.skipped_bytes, 'bad': parser.bad_packets,
-            'dropped': asm.dropped, 'file': os.path.basename(path)}
+            'dropped': asm.dropped, 'file': os.path.basename(path),
+            'board': b}
     log('[actions] %s → %d 帧' % (info['file'], info['frames']))
+    if not records:
+        # 静默返回空记录会让人把「解析器判错板型」当成「算法不出事件」，
+        # 10/20 实采就踩过这个坑（裸帧 1T2R 被嗅成 2T4R → 0 帧但 EXIT=0）。
+        log('[actions] ⚠ 解析到 0 帧：板型判成了 %s（帧周期 %.4f s）。'
+            '若这是 1T2R 的裸帧录制（无 ICLH、40 B 一包），请显式指定 board="1t2r"。'
+            % (b, frame_period))
     return records, info
 
 
@@ -880,7 +1053,8 @@ def summarize(records):
 CSV_COLS = ['n', 'px', 'py', 'r_mean', 'v_rad', 'deg_span', 'energy',
             'v_lat', 'dx', 'noise', 'events',
             'rejected', 'n_win', 'px_mad', 'drift',
-            'base', 'd_rest']      # 末两列仅 crit='drift' 有值（delta 下为空）
+            'base', 'd_rest',        # 仅 crit='drift' 有值
+            'xshort', 'xbase', 'xdev', 'n_xbase', 'xdir']   # 仅 crit='xbase' 有值
 
 
 def write_csv(records, path):
@@ -911,6 +1085,10 @@ def main(argv=None):
     ap.add_argument('--file', required=True, help='录制文件（.bin）')
     ap.add_argument('--band', type=float, nargs=2, default=None,
                     metavar=('RMIN', 'RMAX'), help='距离带（米），默认 0.70 1.35')
+    ap.add_argument('--board', default=None, choices=['1t2r', '2t4r'],
+                    help='板型；默认 None = 从文件字节形态嗅探。'
+                         '裸帧 1T2R（无 ICLH、40 B 一包）现在也能嗅出，'
+                         '但显式指定最稳')
     ap.add_argument('--calib', default=None,
                     help='校准文件（radar_calibrate.py 产出的 calib.json）；'
                          '其中的 band/v_on/v_off/min_dx/max_step 会被采用，'
@@ -939,9 +1117,11 @@ def main(argv=None):
                     help='位移锚点，默认 median（稳健）')
     ap.add_argument('--no-sign-agree', action='store_true',
                     help='关闭「v_lat 与 dx 必须同号」的一致性门（不建议）')
-    ap.add_argument('--crit', choices=['delta', 'drift'], default=None,
+    ap.add_argument('--crit', choices=['delta', 'drift', 'xbase'], default=None,
                     help="左右判据：delta=窗内相对位移（默认，原行为）；"
-                         "drift=静息水平偏移（时间基线，见 radar_actions 常量注释）")
+                         "drift=静息水平偏移（时间基线，参考系是早先采的静息段）；"
+                         "xbase=段内自适应基线（近窗中位 vs 长窗中位，免疫站位慢漂移，"
+                         "实测最优，见 radar_actions.XBASE_* 注释）")
     ap.add_argument('--rest-win', type=float, default=None,
                     help='crit=drift 的静息水平基线窗口（秒），默认 60')
     ap.add_argument('--drift-left', type=float, default=None,
@@ -955,6 +1135,29 @@ def main(argv=None):
                     help='crit=drift 释放端的连续确认帧数，默认 3（与触发端 confirm '
                          '对称）。设为 1 = 旧的「单帧即释放」行为（会出现'
                          '「一次动作被记两次」）')
+    ap.add_argument('--window', type=int, default=None,
+                    help='滑窗帧数，默认 12（≈1.55 s）。crit=delta 直接决定位移尺度；'
+                         'crit=drift/xbase 下只影响 v_lat/dx 诊断量')
+    ap.add_argument('--confirm', type=int, default=None,
+                    help='触发端连续确认帧数，默认 3（≈0.39 s）。'
+                         '★ 这是延迟的主要来源之一：降到 2 可省约 0.13 s，但误报上升')
+    ap.add_argument('--min-interval', type=float, default=None,
+                    help='最短切换间隔（秒），默认 0.5。★ 游戏里换道本身就有冷却，'
+                         '调到 0.8~1.0 可在几乎不影响真动作的前提下显著压静息误报')
+    ap.add_argument('--xbase-win', type=float, default=None,
+                    help="crit=xbase 的近窗（秒），默认 0.80。越小延迟越低、噪声越大")
+    ap.add_argument('--xbase-base-win', type=float, default=None,
+                    help="crit=xbase 的长窗（秒），默认 40（必须 > --xbase-win）。"
+                         "这是「近期常态」的估计窗口，越大越稳、跟随越慢")
+    ap.add_argument('--xbase-thr-left', type=float, default=None,
+                    help="crit=xbase：dev >= +该值 → LEFT，默认 0.10（实测 LEFT 幅度偏小）")
+    ap.add_argument('--xbase-thr-right', type=float, default=None,
+                    help="crit=xbase：dev <= -该值 → RIGHT，默认 0.18（实测 RIGHT 幅度偏大）")
+    ap.add_argument('--xbase-release', type=float, default=None,
+                    help="crit=xbase 的滞回释放门：|dev| 回到该值以内 → CENTER，"
+                         "默认 0.05（必须 < 两侧阈值）")
+    ap.add_argument('--xbase-release-confirm', type=int, default=None,
+                    help='crit=xbase 释放端的连续确认帧数，默认 3')
     ap.add_argument('--auto-band', action='store_true',
                     help='自动选带：预热期按距离门统计检出，取 j>=1 中最多的一门当带'
                          '（预热期不发任何事件）。与 --band 互斥，本开关优先；'
@@ -1021,6 +1224,24 @@ def main(argv=None):
         over['drift_release'] = args.drift_release
     if args.drift_release_confirm is not None:
         over['drift_release_confirm'] = args.drift_release_confirm
+    if args.window is not None:
+        over['window'] = args.window
+    if args.confirm is not None:
+        over['confirm'] = args.confirm
+    if args.min_interval is not None:
+        over['min_interval'] = args.min_interval
+    if args.xbase_win is not None:
+        over['xbase_win'] = args.xbase_win
+    if args.xbase_base_win is not None:
+        over['xbase_base_win'] = args.xbase_base_win
+    if args.xbase_thr_left is not None:
+        over['xbase_thr_left'] = args.xbase_thr_left
+    if args.xbase_thr_right is not None:
+        over['xbase_thr_right'] = args.xbase_thr_right
+    if args.xbase_release is not None:
+        over['xbase_release'] = args.xbase_release
+    if args.xbase_release_confirm is not None:
+        over['xbase_release_confirm'] = args.xbase_release_confirm
     if args.auto_band_min_frames is not None:
         over['auto_band_min_frames'] = args.auto_band_min_frames
     if args.auto_band_max_frames is not None:
@@ -1030,13 +1251,24 @@ def main(argv=None):
     band = AUTO_BAND if args.auto_band else (
         tuple(args.band) if args.band else None)
     rec = ActionRecognizer(band=band, calib=cal or None, **over)
-    print('[actions] 判据: crit=%s%s'
-          % (rec.crit,
-             '  base=近 %.0f s 内 px 中位数  drift_left=%.2f drift_right=%.2f '
-             'drift_release=%.2f rel_confirm=%d'
-             % (rec.rest_win, rec.drift_left, rec.drift_right, rec.drift_release,
-                rec.drift_release_confirm)
-             if rec.crit == 'drift' else ''))
+    if rec.crit == 'drift':
+        crit_txt = ('  base=近 %.0f s 内 px 中位数  drift_left=%.2f drift_right=%.2f '
+                    'drift_release=%.2f rel_confirm=%d'
+                    % (rec.rest_win, rec.drift_left, rec.drift_right,
+                       rec.drift_release, rec.drift_release_confirm))
+    elif rec.crit == CRIT_XBASE:
+        crit_txt = ('  近窗=%.2f s 长窗=%.0f s  thr_left=+%.2f thr_right=-%.2f '
+                    'release=%.2f rel_confirm=%d  （符号已真值标定：dev>0 ⇒ LEFT）'
+                    % (rec.xbase_win, rec.xbase_base_win, rec.xbase_thr_left,
+                       rec.xbase_thr_right, rec.xbase_release,
+                       rec.xbase_release_confirm))
+    else:
+        crit_txt = ''
+    print('[actions] 判据: crit=%s%s' % (rec.crit, crit_txt))
+    print('[actions] 时序(按 1T2R 帧周期 %.4f s 折算): 窗=%d 帧(%.2f s)  '
+          'confirm=%d(%.2f s)  min_interval=%.2f s  lost_timeout=%.2f s'
+          % (FRAME_PERIOD, rec.window, rec.window * FRAME_PERIOD, rec.confirm,
+             rec.confirm * FRAME_PERIOD, rec.min_interval, rec.lost_timeout))
     print('[actions] 估计器: slope=%s dx_mode=%s max_step=%.2f sign_agree=%s '
           'res_pa_frac=%.2f top_k=%d min_pts=%d'
           % (rec.slope, rec.dx_mode, rec.max_step, rec.require_sign_agree,
@@ -1049,7 +1281,8 @@ def main(argv=None):
              '  （来自 %s）' % args.calib if args.calib else '  （内置提案值）'))
 
     records, info = analyze_file(args.file, processor=proc, recognizer=rec,
-                                 limit=args.limit, log=lambda m: print(m))
+                                 limit=args.limit, board=args.board,
+                                 log=lambda m: print(m))
     if rec.band_mode == AUTO_BAND:
         print('[actions] 自动选带结果: %s  门 j=%s  检出 %d/%d  第 %s 帧锁定'
               % (rec.band, rec.band_gate, rec.band_count, rec.band_total,
@@ -1072,6 +1305,9 @@ def main(argv=None):
                 extra = '  v_lat=%.2f m/s  dx=%.2f m' % (e['v_lat'], e['dx'])
             elif 'd_rest' in e:
                 extra = '  d_rest=%.2f m  base=%.2f m' % (e['d_rest'], e.get('base', 0.0))
+            elif 'xdev' in e:
+                extra = '  dev=%+.2f m  长窗中位=%.2f m  n=%d' % (
+                    e['xdev'], e.get('xbase', 0.0), e.get('n_xbase', 0))
             elif 'band_gate' in e:
                 extra = '  带=%.2f~%.2f 门j=%s 检出=%d/%d' % (
                     e.get('band_lo') or 0.0, e.get('band_hi') or 0.0,
@@ -1083,6 +1319,11 @@ def main(argv=None):
                                                    e['name'], tag, extra))
     s = summarize(records)
     print('摘要: %s' % json.dumps(s, ensure_ascii=False))
+    if not records:
+        sys.stderr.write('[actions] ✗ 0 帧 —— 原因通常是板型判错（裸帧 1T2R 无 ICLH）。'
+                         '请加 --board 1t2r 重跑；此退出码 2 表示「没读到数据」，'
+                         '不是「没检出动作」。\n')
+        return 2
     if args.csv:
         print('逐帧特征已写出: %s' % write_csv(records, args.csv))
     if args.json:

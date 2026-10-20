@@ -63,6 +63,27 @@ def load_labels(path):
     return out
 
 
+def load_meta(path):
+    """读真值文件头行的 `_meta`（板型 / 距离带 / 时间轴口径）→ dict（没有就 {}）。
+
+    对比步骤必须用它：同一个 `.bin`，板型判错就是 0 帧、带判错就是 0 命中，
+    而这两种「0」看起来都像算法失效。
+    """
+    if not os.path.exists(path):
+        return {}
+    with open(path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            if '_meta' in obj:
+                return obj['_meta'] or {}
+            if 'action' in obj:
+                return {}
+    return {}
+
+
 def save_labels(path, labels, meta=None):
     with open(path, 'w', encoding='utf-8') as f:
         if meta:

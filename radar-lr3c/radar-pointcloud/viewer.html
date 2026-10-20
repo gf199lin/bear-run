@@ -82,6 +82,7 @@
       <button id="z1" class="on">5.5 m</button>
       <button id="z2">3 m</button>
       <button id="hold">拖影</button>
+      <button id="mirror" title="切换点云的左右画法。雷达视角 = 画雷达看到的（人向自己的左侧移动，点云在屏幕上向右跑）。人视角(镜像) = 画人自己看到的（人向自己的左侧移动，点云在屏幕上向左跑，与人的体感一致）。只影响显示，不影响识别结果。">视角: 雷达</button>
     </div>
     <div class="banner" id="banner"></div>
   </div>
@@ -117,6 +118,23 @@
         <div class="kv"><b id="c_t">—</b><span>本次计时 s</span></div>
         <div class="kv"><b id="c_total">—</b><span>累计采集 s</span></div>
         <div class="kv"><b id="c_sess">—</b><span>会话 / 自愈</span></div>
+      </div>
+    </section>
+    <section>
+      <h2>环境底噪（背景基线）</h2>
+      <div class="run">
+        <button id="b_bgcalib"
+                title="人离开波束后采一段空场，逐距离门统计环境自身的占用率 B_j。需先点「开始」">环境底噪校准</button>
+        <button id="b_bgcancel">取消</button>
+      </div>
+      <div class="hint" id="bg_note">—</div>
+      <div class="legend" id="bg_state">尚未读取状态</div>
+      <div class="legend" id="bg_diag">—</div>
+      <div class="legend" style="color:#6b7688">
+        ⚠ 与「校准」（F3：人站在雷达前定左右灵敏度）<b>不是一回事</b>。<br>
+        采集期间必须<b>无人在波束内</b>：基线若被污染，后续减底噪会变差，
+        且<b>不会自动报警</b>。<br>
+        本功能只落盘基线 + 显示诊断数字，<b>不改变识别行为</b>（默认不接入选门）。
       </div>
     </section>
     <section>
@@ -169,6 +187,15 @@
   window.addEventListener('resize', resize);
 
   let span = 5.5, trail = true, cfg = null, live = false;
+  // 视角（只影响**绘制层**的左右，不碰 angle_sign、不碰识别结果）：
+  //   false = 雷达视角：画雷达坐标系（+x 画在屏幕右）。人向自己的左侧移动 ⇒
+  //           雷达 x 增大 ⇒ 点云在屏幕上向右跑（webcam 式的镜像感）。
+  //   true  = 人视角(镜像)：把 +x 画在屏幕左，于是「人向左移动 ⇒ 点云向左跑」，
+  //           与玩家体感一致。这是给现场演示用的观感修正。
+  // 依据：本安装几何下实测「人向自己的左侧移动 ⇒ dev>0（雷达 x 增大）」
+  //   （见 radar_actions.py 的 XBASE_* 注释与 docs/progress-radar-pointcloud.md §7.40）。
+  //   若日后翻转 angle_sign 或换装法，需重新标定该对应关系。
+  let mirror = false;
   // 采集会话控制
   let ctlState = null;        // 服务端 /control 状态对象
   let diag = null;            // 串口链路诊断（服务端下发：端口/枚举结果/失败原因）
@@ -190,7 +217,8 @@
     const k = Math.min((H*0.5-m)/span, (W*0.5-m)/(span*Math.tan(ANGM*Math.PI/180)));
     return {cx: W/2, cy: H - m, k: k};
   }
-  function toScreen(x,y,g){ return [g.cx + x*g.k, g.cy - y*g.k]; }
+  // 绘制层唯一的 x→屏幕 转换点。镜像只改这里（场景本身左右对称，故不需改其它）。
+  function toScreen(x,y,g){ const xx = mirror ? -x : x; return [g.cx + xx*g.k, g.cy - y*g.k]; }
 
   function draw(){
     const g = geom();
@@ -242,6 +270,16 @@
     ctx.beginPath(); ctx.arc(g.cx,g.cy,3.2*DPR,0,7); ctx.fill();
     ctx.fillStyle='#5b6b82';
     ctx.fillText('传感器', g.cx+8*DPR, g.cy+14*DPR);
+
+    // 常驻视角标注：避免演示时把「镜像显示」误判成链路出问题。
+    // 镜像时同时镜像角度刻度文字，否则屏幕位置与数字会互相矛盾。
+    ctx.save();
+    ctx.textAlign = 'left';
+    ctx.font = (10*DPR)+'px Inter, sans-serif';
+    ctx.fillStyle = mirror ? '#f0c859' : '#5b6b82';
+    ctx.fillText(mirror ? '视角: 人视角(镜像) — 横轴左右已翻转（不影响识别）'
+                        : '视角: 雷达视角', 10*DPR, 16*DPR);
+    ctx.restore();
 
     // 拖影
     const frames = trail ? hist.slice(-9) : hist.slice(-1);
@@ -468,6 +506,54 @@
     document.getElementById('b_stop').disabled = !m.active;
     if(was && !m.active) hist.length = 0;   // 刚停止 → 清屏，避免看着像还在采集
     syncSwitchButton();
+    if(m.bgcalib) renderBg(m.bgcalib);
+  }
+
+  // ---- 环境底噪校准（背景基线）----------------------------------------------
+  // 用词纪律：这里绝不用「校准」二字指代 F3（那是「人在场」定左右灵敏度）。
+  // D 只作为诊断数字显示，**不设红/黄/绿语义**——离线实测噪声本底最大 14.6%
+  // 已高于真·0.15 m 场景变化的中位 11%，两个分布严重重叠，任何语义阈值都会被
+  // 噪声跨过（用户裁定，见 docs/ai-decision-log.md #38）。
+  let bgDiagShown = null;
+  function renderBg(bg){
+    const st = document.getElementById('bg_state');
+    const dg = document.getElementById('bg_diag');
+    const nt = document.getElementById('bg_note');
+    const b1 = document.getElementById('b_bgcalib');
+    const b2 = document.getElementById('b_bgcancel');
+    if(!st || !dg || !nt || !b1 || !b2) return;
+    if(!bg){ st.textContent = '未校准（服务端未上报状态）'; return; }
+    const phase = bg.phase || 'idle', running = !!bg.running;
+    b2.disabled = !running;
+    b1.disabled = running || !(ctlState && ctlState.active);
+
+    if(running){
+      const left = (bg.left_s === null || bg.left_s === undefined)
+                 ? null : Math.round(bg.left_s);
+      st.textContent = '校准中… ' + (bg.frames|0) + '/' + (bg.want|0) + ' 帧'
+        + (left === null ? '' : '，约剩 ' + left + ' s')
+        + ((bg.dropped|0) ? '（已丢弃头部 ' + (bg.dropped|0) + ' 帧）' : '');
+      nt.className = 'hint warn';
+      nt.textContent = '请保持空场：人不要站在雷达前方。';
+    }else if(phase === 'failed'){
+      st.textContent = '校准失败：' + (bg.msg || '未知原因');
+      nt.className = 'hint warn';
+      nt.textContent = '先点「开始」确认数据在流，再重试。';
+    }else if((bg.result && bg.result.b_j) || bg.baseline_b_j){
+      const r = bg.result || {};
+      st.textContent = '已有基线 ' + (r.created_at || bg.baseline_created_at || '—')
+        + (r.frames ? ('（' + r.frames + ' 帧）') : '');
+      nt.className = 'hint';
+      nt.textContent = '落盘：' + ((bg.path || '—').split(/[\\\/]/).pop());
+    }else{
+      st.textContent = '尚无基线';
+      nt.className = 'hint';
+      nt.textContent = '点「环境底噪校准」采一段空场（默认约 24 s）。';
+    }
+
+    const lines = (bg.result && bg.result.diag) || bg.baseline_diag || [];
+    const html = lines.length ? lines.join('<br>') : '—';
+    if(html !== bgDiagShown){ bgDiagShown = html; dg.innerHTML = html; }
   }
 
   async function ctlPost(action){
@@ -479,6 +565,7 @@
       });
       const j = await r.json();
       if(j && j.active !== undefined) applyControl(j);
+      if(j && j.bgcalib) renderBg(j.bgcalib);
       if(j && j.ok === false){ note.className = 'hint warn'; note.textContent = j.msg || '操作被拒绝'; }
       if(action === 'switch' && j && j.ok && j.source_mode){
         note.className = 'hint';
@@ -496,6 +583,9 @@
   document.getElementById('b_stop').onclick  = () => ctlPost('stop');
   document.getElementById('b_reset').onclick = () => ctlPost('reset');
   document.getElementById('b_switch').onclick = () => ctlPost('switch');
+  document.getElementById('b_bgcalib').onclick  = () => ctlPost('bgcalib');
+  document.getElementById('b_bgcancel').onclick = () => ctlPost('bgcalib-cancel');
+  renderBg(null);   // 初始态：等服务端第一条控制心跳来填
 
   // 页面热键：现场演示前台是浏览器，焦点在页面上时也能一键切换（AGENTS.md 硬约束 2）。
   // 控制台窗口有焦点时由 server.py 的 msvcrt 热键兜底，两条通道互不依赖。
@@ -594,6 +684,18 @@
   document.getElementById('z2').onclick = function(){ span=3.0; this.classList.add('on'); document.getElementById('z1').classList.remove('on'); };
   document.getElementById('hold').onclick = function(){ trail=!trail; this.classList.toggle('on',trail); };
   document.getElementById('hold').classList.add('on');
+  // 视角开关：只翻转绘制层（见 toScreen / 文件头说明）。用快捷键 M 也可切换，
+  // 现场演示时不必对准按钮。
+  const mirrorBtn = document.getElementById('mirror');
+  function setMirror(v){
+    mirror = !!v;
+    mirrorBtn.classList.toggle('on', mirror);
+    mirrorBtn.textContent = mirror ? '视角: 人视角(镜像)' : '视角: 雷达';
+  }
+  mirrorBtn.onclick = function(){ setMirror(!mirror); };
+  window.addEventListener('keydown', function(ev){
+    if(ev.key === 'm' || ev.key === 'M'){ setMirror(!mirror); }
+  });
 
   pushDiag(); resize(); loop(); connect();
 })();

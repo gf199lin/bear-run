@@ -116,6 +116,12 @@ DIST_BAND = {
     1.0: (1.36, 2.04),
     1.25: (1.36, 2.04),
     1.5: (1.36, 2.04),
+    # 10/20 实测站位报告：2.00 m 站位主回波在 2.385 m（偏移 +0.385 m），
+    # 推荐带 [2.044, 2.725]。原来缺这条 → 落到 ra.BAND_DEFAULT (0.70,1.35)，
+    # 人完全不在带内，对照必然 0 命中（且看起来像算法失效）。
+    2.0: (2.044, 2.725),
+    2.25: (2.044, 2.725),
+    2.5: (2.044, 2.725),
 }
 ACTION_TEXT = {'LEFT': '向左移动', 'RIGHT': '向右移动', 'DUCK': '下蹲', 'JUMP': '起跳'}
 ACTION_KEY = {'left': 'LEFT', 'right': 'RIGHT', 'duck': 'DUCK', 'jump': 'JUMP'}
@@ -416,7 +422,15 @@ def capture_segment(args, dist, band, bin_path, labels_path, index, total):
 
 
 def compare_segment(bin_path, labels_path, band, tol):
-    records, info = ra.analyze_file(bin_path, band=tuple(band), log=lambda m: None)
+    # 真值 _meta 里记了**录这段时的板型与距离带**，必须用它。
+    # 10/20 实采踩过：这里原来两样都没传 → 裸帧 1T2R 被嗅成 2T4R（0 帧），
+    # 2.0 m 站位又落到默认带 (0.70,1.35)，于是对照表打印「0 命中 0 误报」，
+    # 看起来像算法全线失效，实际是工具在读错文件。
+    meta = lt.load_meta(labels_path) or {}
+    board = meta.get('board') or BOARD
+    band = tuple(meta.get('band') or band or ra.BAND_DEFAULT)
+    records, info = ra.analyze_file(bin_path, band=band, board=board,
+                                    log=lambda m: None)
     labels = lt.load_labels(labels_path)
     stats, _rows, preds = lt.compare(records, labels, tol=tol)
     return {'bin': bin_path, 'info': info, 'labels': len(labels),

@@ -34,6 +34,7 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 import radar_dsp as dsp
+import radar_bgcalib as bgcalib
 from radar_dsp import PointCloudProcessor
 from radar_actions import ActionRecognizer, load_calib, AUTO_BAND
 from radar_control import RadarController
@@ -315,6 +316,17 @@ def main():
                          '人站得远(≥2 m)时才用 1.4 连 bin1 一起滤')
     ap.add_argument('--angle-sign', type=float, default=None, choices=[1.0, -1.0],
                     help='方位角正负约定（内置默认 1.0，可由 calib.json 给出）')
+    ap.add_argument('--bg-baseline', default=None,
+                    help='环境底噪基线（背景基线）文件的读写路径，默认 '
+                         '<本目录>%sbg_baseline.json。'
+                         '⚠ 与 --calib 的 F3「校准」不是一回事：'
+                         'F3 是「人站在雷达前」定 LEFT/RIGHT 灵敏度与距离带；'
+                         '本项是「人离开波束」量环境自身的固有门占用率 B_j。'
+                         '本参数只决定基线的落盘/回读位置，**不改变任何识别行为**'
+                         '（默认不接入选门）' % os.sep)
+    ap.add_argument('--bgcalib-frames', type=int, default=None,
+                    help='环境底噪校准的目标帧数（默认 %d ≈ 24 s，与离线空场验证'
+                         '用的窗口帧数一致，便于直接对比）' % bgcalib.DEFAULT_FRAMES)
     ap.add_argument('--angle-max', type=float, default=None,
                     help='有效方位角上限（内置默认 45.0）')
     ap.add_argument('--retry', type=float, default=1.0, help='串口断开后的重连间隔 (秒)')
@@ -340,11 +352,17 @@ def main():
                     help='自动选带最早锁定帧数，默认 30（约 3.9 s）')
     ap.add_argument('--auto-band-max-frames', type=int, default=None,
                     help='自动选带兜底锁定帧数，默认 120（约 15.5 s）')
-    ap.add_argument('--crit', default=None, choices=['delta', 'drift'],
+    ap.add_argument('--crit', default=None, choices=['delta', 'drift', 'xbase'],
                     help='动作判据。delta=与带内静息基线比绝对位移（出厂默认）；'
-                         'drift=只看相对量「当前 px - 静息基线」。'
+                         'drift=只看相对量「当前 px - 静息基线」；'
+                         'xbase=段内自适应基线（近 0.8 s vs 近 40 s 中位，需约 40 s 预热）。'
                          '★ 离线实测：出厂默认 delta 会在 1.25 m 站位主动误报 5 次，'
-                         'drift 配 top-k 1 + min-pts 1 才是真值窗命中 8/10 的组合（提案，待小组确认）')
+                         'drift 配 top-k 1 + min-pts 1 才是真值窗命中 8/10 的组合（提案，待小组确认）。'
+                         '★★ 2026-10-20（devlog §7.45.6）：默认判据已改为 `xbase`。在 1.50/2.00 m'
+                         ' 实采上，`delta` 的**方向符号是反的**（「向自己的右侧移动」被判成 LANE_LEFT，'
+                         '0/11 方向正确）；同一批数据 `xbase` 方向正确 10/11、延迟 0.84~1.04 s。'
+                         '注意：`xbase` 需要约 40 s 历史（冷启动前 40 s 不出动作事件），'
+                         '且**不吃** calib 里的 v_on/min_dx（那两项只对 delta 生效）。')
     ap.add_argument('--top-k', type=int, default=None,
                     help='每帧只取带内最强 K 点（0=全取）。★ 必须与 --min-pts 1 同用')
     ap.add_argument('--min-pts', type=int, default=None,
@@ -461,6 +479,93 @@ def main():
                                remove_clutter=not args.no_clutter,
                                angle_sign=angle_sign, angle_max=angle_max,
                                min_range=min_range, **dsp_kw)
+
+    # ---- 环境底噪校准（背景基线）--------------------------------------------
+    # ⚠ 这里**故意**再建一个处理器，且 min_range 固定 0.0，与上面的 `proc` 分开。
+    # 理由（与 radar_calibrate.make_processor L186-197 同一条教训）：`proc` 默认
+    # 屏蔽近距门（1T2R 时 min_range=0.6813 ⇒ j=0 整门消失）。若用它自己的输出统计
+    # 门占用率，近场泄漏门就会从证据里消失 —— 屏蔽项把自己从证据里删掉，形成自我
+    # 掩盖，下一次校准再也看不到那一门。校准必须看**未截断**的原始点云。
+    # `proc` 继续按原样用于显示与识别，**其行为不受本次改动影响**；额外开销只在
+    # 校准采集窗口内产生（其余时间不调用 bg_proc）。
+    bg_proc = PointCloudProcessor(cfar_scale=cfar, min_power=args.min_power,
+                                  min_snr=min_snr,
+                                  remove_clutter=not args.no_clutter,
+                                  angle_sign=angle_sign, angle_max=angle_max,
+                                  min_range=0.0, **dsp_kw)
+    BG = {
+        'col': None,                                    # 当前采集器；None = 未在校准
+        'path': (args.bg_baseline or bgcalib.DEFAULT_PATH),
+        'want': (args.bgcalib_frames or bgcalib.DEFAULT_FRAMES),
+        'proc': bg_proc,
+        'lock': threading.Lock(),
+        'last': None,          # 最近一次结果摘要（刷新页面后仍能看到上一次结果）
+    }
+    _bg_saved = bgcalib.load(BG['path'])
+    if not args.quiet:
+        print('环境底噪基线: %s%s'
+              % (BG['path'],
+                 ('（已有：%s）' % (_bg_saved or {}).get('created_at'))
+                 if _bg_saved else '（尚无，可用页面「环境底噪校准」或 POST /control '
+                                   '{"action":"bgcalib"} 采集）'))
+
+    def bg_harvest():
+        """采集器已结束/失败时，把结果搬到 BG['last'] 并摘掉（幂等）。
+
+        单独抽出来是因为：采集器可能在 `add()` 里收满帧后自动收尾，而那一刻
+        我们仍在采集线程里；用「下一帧发现它已结束」的方式收尾，最多晚一帧，
+        且**采集中途停管道也不会把结果丢掉**（控制状态轮询也会调用它）。
+        """
+        col = BG['col']
+        if col is None or col.active:
+            return
+        st = col.state
+        with BG['lock']:
+            if BG['col'] is col:
+                BG['last'] = st
+                BG['col'] = None
+        _bg_cache['key'] = None      # 刚落了一份新基线 → 确定性作废缓存
+        print('[bgcalib] ' + (st.get('msg') or '完成：%d/%d 帧 → %s'
+                              % (st['frames'], st['want'], BG['path'])), flush=True)
+
+    _bg_cache = {'key': None, 'rec': None}
+
+    def _bg_load_cached():
+        """按 (路径, mtime_ns, size) 缓存基线文件，避免每个控制心跳都读盘。
+
+        `bgcalib.save()` 是「写 `<path>.tmp` → `os.replace`」的**原子替换**，
+        所以 mtime 一变就是一份完整的新基线，读侧永远不会撞见半截文件。
+        """
+        p = BG['path']
+        try:
+            st_ = os.stat(p)
+            key = (p, st_.st_mtime_ns, st_.st_size)
+        except OSError:
+            key = (p, None, None)
+        if key != _bg_cache['key']:
+            _bg_cache['key'] = key
+            _bg_cache['rec'] = bgcalib.load(p)
+        return _bg_cache['rec']
+
+    def bg_status():
+        """给页面/脚本的校准状态快照。刷新页面后仍能看到上一次结果。"""
+        bg_harvest()
+        col = BG['col']
+        if col is not None:
+            st = col.state
+        else:
+            st = dict(BG['last'] or {'phase': 'idle', 'running': False,
+                                     'frames': 0, 'dropped': 0, 'left_s': None})
+        st['path'] = BG['path']
+        st['want'] = BG['want']
+        # 顺手把「有无可用基线 + 本底行」带给页面，省得页面再发一次请求
+        rec = _bg_load_cached()
+        if rec:
+            st['baseline_created_at'] = rec.get('created_at')
+            st['baseline_b_j'] = rec.get('b_j')
+            st['baseline_diag'] = rec.get('diag')
+        return st
+
     LATEST['cfg'] = {
         'range_res': round(range_res_eff, 4),
         'max_range': round(range_res_eff * prof['bins'], 3),
@@ -487,6 +592,9 @@ def main():
                  else [round(band[0], 2), round(band[1], 2)]),
         'band_mode': ('auto' if band == AUTO_BAND else 'fixed'),
         'calib': os.path.basename(args.calib) if args.calib else None,
+        # 环境底噪基线（与上面 calib 的 F3「校准」是两回事，见 --bg-baseline 说明）
+        'bg_baseline': os.path.basename(BG['path']),
+        'bgcalib_frames': BG['want'],
         'actions': not args.no_actions,
         'autostart': not args.no_autostart,
         'port': args.port,
@@ -517,6 +625,12 @@ def main():
     def on_frame(z0, z1, stats):
         pts, noise = proc.process(z0, z1)
         r0, _ = proc.rd_map(z0, z1)
+        # 环境底噪校准采集：只在采集窗口内跑第二个（未截断）处理器。
+        # 与识别完全并行、互不干扰；`proc` 的输出与识别结果**不受影响**。
+        col = BG['col']
+        if col is not None and col.active:
+            col.add(bg_proc.process(z0, z1)[0])
+            bg_harvest()
         act = recognizer.push(pts, time.time()) if recognizer is not None else None
         # 自动选带：锁定后把真实带写回 cfg，viewer 就能画出正确的带、
         # 「按 status 复盘现场设置」也看得到到底选中了哪个门。
@@ -575,6 +689,8 @@ def main():
         st = ctrl.status()
         st['source_mode'] = SRC['mode']
         st['hotkey'] = hotkey_state()
+        # 环境底噪校准状态（含上一次结果的摘要，刷新页面后不丢）
+        st['bgcalib'] = bg_status()
         return st
 
     def push_control():
@@ -648,13 +764,67 @@ def main():
                 time.sleep(0.2)
 
     SWITCH_ACTIONS = ('switch', 'switch-source', 'switch_source', 'next-source')
+    BGCALIB_ACTIONS = ('bgcalib', 'bg-calib', 'bg_calib', 'calibrate-bg')
+    BGCALIB_CANCEL = ('bgcalib-cancel', 'bg-calib-cancel', 'bg_calib_cancel')
+
+    def do_bgcalib():
+        """开始一次环境底噪校准（背景基线）。
+
+        ⚠ 三条硬前提，全部写在这里以免被遗忘：
+          1. **采集期间必须空场。** 基线被污染时减底噪会**变差**且**不会自动报警**
+             （负对照 FIX 7/10 < BASE 8/10，见 docs/bg-baseline-verification.md）。
+          2. **复用正在跑的在线管道**逐帧喂数据，不自己开串口 —— 所以必须先「开始」。
+          3. 结果只落盘 + 显示诊断数字；**不接入选门**，识别行为一字不改。
+        """
+        bg_harvest()
+        col = BG['col']
+        if col is not None and col.active:
+            st = col.state
+            return dict(ok=False,
+                        msg='环境底噪校准已在进行中（%d/%d 帧）' % (st['frames'], st['want']),
+                        **control_status())
+        if not ctrl.status().get('active'):
+            return dict(ok=False,
+                        msg='数据源未在采集：先点「开始」，再点「环境底噪校准」',
+                        **control_status())
+        secs = bgcalib.est_seconds(board, BG['want'])
+        BG['col'] = bgcalib.BgCollector(board, want_frames=BG['want'],
+                                        path=BG['path'],
+                                        log=lambda m: print(m, flush=True))
+        print('[bgcalib] 开始环境底噪校准：目标 %d 帧（≈%.0f s），板型 %s，落盘 %s'
+              % (BG['want'], secs, board, BG['path']), flush=True)
+        print('[bgcalib] ⚠ 请确保此刻无人在雷达波束内（基线被污染不会自动报警）',
+              flush=True)
+        push_control()
+        return dict(ok=True, msg='已开始环境底噪校准：%d 帧（≈%.0f s），请保持空场'
+                                 % (BG['want'], secs),
+                    **control_status())
+
+    def do_bgcalib_cancel():
+        col = BG['col']
+        if col is None or not col.active:
+            return dict(ok=False, msg='当前没有进行中的环境底噪校准',
+                        **control_status())
+        st = col.state
+        with BG['lock']:
+            BG['col'] = None
+        print('[bgcalib] 已取消（已收 %d/%d 帧，未落盘）' % (st['frames'], st['want']),
+              flush=True)
+        push_control()
+        return dict(ok=True, msg='已取消环境底噪校准（未落盘）',
+                    **control_status())
 
     def control_handler(action):
         a = (action or '').strip().lower()
         if a in SWITCH_ACTIONS:
             return do_switch_source()
+        if a in BGCALIB_ACTIONS:
+            return do_bgcalib()
+        if a in BGCALIB_CANCEL:
+            return do_bgcalib_cancel()
         if not action:
-            return dict(ok=False, msg='缺少 action（start/stop/reset/switch）',
+            return dict(ok=False,
+                        msg='缺少 action（start/stop/reset/switch/bgcalib）',
                         **control_status())
         res = ctrl.control(action)
         print('[control] %s → %s'
@@ -700,7 +870,9 @@ def main():
     url = 'http://127.0.0.1:%d' % args.http_port
     print('数据源: %s' % src_txt)
     print('点云页面: %s   （页面上有 开始 / 结束 / 重置 三个按钮）' % url)
-    print('控制接口: POST /control  {"action":"start"|"stop"|"reset"|"switch"}')
+    print('控制接口: POST /control  {"action":"start"|"stop"|"reset"|"switch"|"bgcalib"}')
+    print('           bgcalib = 环境底噪校准（背景基线）：需先「开始」且保持空场；'
+          '只落盘 + 显示诊断数字，不改变识别行为')
     if args.hotkey:
         print('热切换: 已启用 · 键 %s · 循环 %s（页面热键 + 控制台热键 + 页面按钮）'
               % (SRC['key'], ' → '.join(SRC['modes'])))
