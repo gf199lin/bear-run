@@ -144,6 +144,29 @@ def baud_for(board=None):
     return int(profile_for(board)['baud'])
 
 
+NAKED_1T2R_PKT = 40      # 1T2R 裸帧模式：一包 40 B（帧首 0xAA、帧尾 0x55）
+
+
+def looks_like_naked_1t2r(buf, pkt=NAKED_1T2R_PKT, need=6):
+    """buffer 是否是「裸帧 1T2R」：40 B 节拍上连续 ≥need 个 0xAA。
+
+    只在文件里找一个 40 B 对齐、连续 6 包的 0xAA 起点（最多试 40 个相位）。
+    故意保守：宁可判 None 让调用方回退 --board，也不要把 2T4R 误判成 1T2R。
+    """
+    n = len(buf)
+    if n < pkt * need:
+        return False
+    for off in range(min(pkt, n)):
+        p = off
+        run = 0
+        while p < n and buf[p] == 0xAA:
+            run += 1
+            if run >= need:
+                return True
+            p += pkt
+    return False
+
+
 def sniff_board_from_file(path, scan=262144):
     """从**已录制的 .bin** 判断板型 → '1t2r' / '2t4r' / None（判不出）。
 
@@ -155,6 +178,12 @@ def sniff_board_from_file(path, scan=262144):
 
     顺序很关键：1T2R 的雷达帧里有 0xAA…0x55 标记，可能凑出 `55 AA` 两字节，
     所以必须先判 ICLH（1T2R 必含）再判裸帧。
+
+    第三种形态（**10/20 实采踩到**）：1T2R 走**裸帧模式**——没有 ICLH 包装，
+    直接把 40 B 雷达帧按 40 B 节拍连发（帧首 0xAA、帧尾 0x55）。此时上面的
+    2T4R 判据会因为帧内凑出的 `55 AA` 误判成 2T4R（帧周期 0.52 s、门距 0.15 m），
+    离线解析得到 **0 帧却不报错**。所以裸帧 1T2R 必须在 2T4R 之前判：
+    以 40 B 为步长至少连续 6 个字节都是 0xAA（跨度 240 B，随机撞上不可能）。
     """
     try:
         with open(path, 'rb') as f:
@@ -164,6 +193,8 @@ def sniff_board_from_file(path, scan=262144):
     if not buf:
         return None
     if b'ICLH' in buf:
+        return '1t2r'
+    if looks_like_naked_1t2r(buf):
         return '1t2r'
     i = buf.find(b'\x55\xaa')
     while i >= 0:

@@ -313,15 +313,17 @@ def test_actions():
 
     checks = []
 
-    # (a) 向右移动 0.06 m/帧 ≈ 0.46 m/s > 阈值 0.35 → LUANE_RIGHT
-    rec = ActionRecognizer()
+    # (a) 向右移动 0.06 m/帧 ≈ 0.46 m/s > 阈值 0.35 → LANE_RIGHT
+    # ⚠ 2026-10-20：本段用例锁的是 **crit='delta' 的位移语义**（v_on/min_dx 只对 delta 生效），
+    #   故显式指定，不受默认判据改为 xbase 的影响（两套约定符号相反，见 devlog §7.45.6）。
+    rec = ActionRecognizer(crit='delta')
     evs, t_end = run(rec, [mk(-0.36 + 0.06 * i) for i in range(14)])
     names = [e['name'] for e in evs]
     checks.append(('右移识别', 'LANE_RIGHT' in names and 'LANE_LEFT' not in names,
                    '事件=%s' % names))
 
     # (b) 向左移动 → LANE_LEFT
-    rec = ActionRecognizer()
+    rec = ActionRecognizer(crit='delta')     # 同 (a)：锁 delta 语义
     evs, _ = run(rec, [mk(0.36 - 0.06 * i) for i in range(14)])
     names = [e['name'] for e in evs]
     checks.append(('左移识别', 'LANE_LEFT' in names and 'LANE_RIGHT' not in names,
@@ -384,7 +386,7 @@ def test_actions():
                    not any(n in ('LANE_LEFT', 'LANE_RIGHT') for n in names),
                    'px 恒为 -0.80，事件=%s' % (names or '无')))
 
-    rec = ActionRecognizer()
+    rec = ActionRecognizer(crit='delta')     # 同 (a)：锁 delta 语义
     evs, _ = run(rec, [mk(0.80 + 0.06 * i) for i in range(14)])
     names = [e['name'] for e in evs]
     checks.append(('偏置下右移仍判对',
@@ -411,8 +413,8 @@ def test_actions():
                    'rejected=%s 事件=%s' % (rej, names or '无')))
 
     # (i) 校准值生效：阈值来自实测（radar_calibrate.py），而非拍脑袋
-    rec = ActionRecognizer(calib={'band': [1.0, 1.6], 'v_on': 0.9, 'v_off': 0.4,
-                                  'min_dx': 0.6, 'max_step': 0.3})
+    rec = ActionRecognizer(crit='delta', calib={'band': [1.0, 1.6], 'v_on': 0.9, 'v_off': 0.4,
+                                                'min_dx': 0.6, 'max_step': 0.3})
     evs, _ = run(rec, [mk(-0.36 + 0.06 * i) for i in range(14)])
     names = [e['name'] for e in evs]
     checks.append(('校准阈值生效',
@@ -424,8 +426,11 @@ def test_actions():
     #     （只用 px − base，不比较 px 绝对值），所以「人停在一侧不动」不得误报，
     #     包括停在大负偏移一侧。背景与真值数据实测见
     #     docs/progress-radar-pointcloud.md §7.26~§7.28。
-    checks.append(('crit 默认未变', ActionRecognizer().crit == 'delta',
-                   '默认 crit=%s（不得静默改判据）' % ActionRecognizer().crit))
+    checks.append(('crit 默认 = xbase', ActionRecognizer().crit == 'xbase',
+                   '默认 crit=%s（2026-10-20 由 delta 改为 xbase，见 devlog §7.45.6：'
+                   'delta 的方向符号与人体左右相反，0/11 方向正确）' % ActionRecognizer().crit))
+    checks.append(('crit 仍可选 delta', ActionRecognizer(crit='delta').crit == 'delta',
+                   'delta 保留为可选项（历史对照/回归用）'))
 
     rec = ActionRecognizer(crit='drift')
     evs, _ = run(rec, [mk(1.10) for _ in range(40)] + [mk(-1.20) for _ in range(8)])
@@ -473,6 +478,89 @@ def test_actions():
                    '未知 crit 与 right>=left 均被拒'))
 
 
+    # (j2) crit='xbase'（段内自适应基线）= 2026-10-20 新增判据。
+    #     动机：crit='delta' 与 crit='drift' 都在真机真值上失败——
+    #       delta 在 cap-long-1020（1T2R，人站 0.7 m，14 个左右动作 + 366 s
+    #         纯静息）上只有 3/14=21%、延迟中位 4.92 s；
+    #       drift（拿**早先采的静息段**当参考系）6/14=43%——根因是静息段与
+    #         动作段相隔数分钟、站位/姿态已慢漂移，参考系本身就过期了。
+    #     xbase 把参考系换成**该段自身的近期水平**：
+    #       dev = median(近 xbase_win 秒 px) − median(近 xbase_base_win 秒 px)
+    #     两项同源相减 ⇒ 免疫慢漂移。实测 13/14=93%、延迟中位 2.33 s、
+    #     静息误报 2.46 次/分；零假设对照（把真值窗整体平移 96~288 s 再评分）
+    #     只有 19% ⇒ 超出随机基准 +74 个百分点，不是事件密度碰巧。
+    #     ★ 左右阈值必须独立且符号已用真值标定（本几何下 dev>0 ⇒ LEFT）。
+    #     合成序列把窗口缩到 0.40 s / 1.30 s，验证的是同一套逻辑。
+    #     数据见 .deepworks/tmp/_cap1020_xbase_{verify,tune,fp,null}.txt。
+    from radar_actions import XBASE_MIN_SAMPLES
+
+    XW = dict(xbase_win=0.40, xbase_base_win=1.30)
+
+    # 默认值必须能构造——默认值就是真机定标的那一组，不得被静默改掉
+    rec = ActionRecognizer(crit='xbase')
+    checks.append(('xbase 默认可构造',
+                   rec.crit == 'xbase' and rec.xbase_thr_left == 0.10
+                   and rec.xbase_thr_right == 0.18 and rec.xbase_release == 0.05,
+                   'thr_left=+%.2f thr_right=-%.2f release=%.2f 长窗=%.0f s'
+                   % (rec.xbase_thr_left, rec.xbase_thr_right,
+                      rec.xbase_release, rec.xbase_base_win)))
+
+    # 左移：px 由基线 0.50 抬到 0.80 ⇒ dev≈+0.30 >= +0.10 ⇒ LEFT
+    rec = ActionRecognizer(crit='xbase', **XW)
+    evs, _ = run(rec, [mk(0.50) for _ in range(40)] + [mk(0.80) for _ in range(12)])
+    names = [e['name'] for e in evs]
+    checks.append(('xbase 左移识别',
+                   names.count('LANE_LEFT') == 1 and 'LANE_RIGHT' not in names,
+                   '事件=%s' % names))
+
+    # 右移：px 由 0.50 降到 0.20 ⇒ dev≈−0.30 <= −0.18 ⇒ RIGHT
+    rec = ActionRecognizer(crit='xbase', **XW)
+    evs, _ = run(rec, [mk(0.50) for _ in range(40)] + [mk(0.20) for _ in range(12)])
+    names = [e['name'] for e in evs]
+    checks.append(('xbase 右移识别',
+                   names.count('LANE_RIGHT') == 1 and 'LANE_LEFT' not in names,
+                   '事件=%s' % names))
+
+    # 停在一侧不动（绝对偏置很大）→ 不得误报：两个窗口都吸收同一偏置。
+    rec = ActionRecognizer(crit='xbase', **XW)
+    evs, _ = run(rec, [mk(1.60) for _ in range(40)])
+    names = [e['name'] for e in evs]
+    checks.append(('xbase 偏置静止不误报',
+                   not any(n in ('LANE_LEFT', 'LANE_RIGHT') for n in names),
+                   'px 恒为 1.60，事件=%s' % (names or '无')))
+
+    # ★ 本判据相对 drift 的**增量**：缓慢漂移不得误报。
+    #   这是真机上真正的失败模式（站位在数分钟内慢漂）。静态参考系（drift）
+    #   会把漂移当成动作；xbase 的长窗跟着漂，dev 始终保持小值。
+    rec = ActionRecognizer(crit='xbase', **XW)
+    evs, _ = run(rec, [mk(0.30 + 0.002 * i) for i in range(120)])
+    names = [e['name'] for e in evs]
+    checks.append(('xbase 慢漂移不误报',
+                   not any(n in ('LANE_LEFT', 'LANE_RIGHT') for n in names),
+                   'px 0.30→0.54 缓漂 120 帧（共 0.24 m），事件=%s' % (names or '无')))
+
+    # 长窗样本不足 → 不产生方向证据（宁可不报也不猜，与 drift 同纪律）
+    rec = ActionRecognizer(crit='xbase', **XW)
+    evs, _ = run(rec, [mk(-1.50) for _ in range(6)])
+    names = [e['name'] for e in evs]
+    checks.append(('xbase 无长窗不猜',
+                   not any(n in ('LANE_LEFT', 'LANE_RIGHT') for n in names),
+                   '仅 6 帧(<%d)，事件=%s' % (XBASE_MIN_SAMPLES, names or '无')))
+
+    # 非法参数必须被拒（否则会静默退化成「无滞回」或「长短窗颠倒」）
+    bads = []
+    for kw in (dict(xbase_base_win=0.40),      # 长窗必须严长于近窗
+               dict(xbase_release=0.20),       # 释放门必须 < 两侧阈值
+               dict(xbase_release_confirm=0),  # 释放确认至少 1 帧
+               dict(xbase_thr_left=0.0)):      # 触发门必须 > 0
+        try:
+            ActionRecognizer(crit='xbase', **kw)
+            bads.append(False)
+        except ValueError:
+            bads.append(True)
+    checks.append(('xbase 参数校验', all(bads),
+                   '%d 个非法取值均被拒: %s' % (len(bads), bads)))
+
     # (k) 距离带自动选择（band='auto'）= 2026-10-19 新增能力
     #     动机：出厂默认带 (0.70,1.35) 圈在 j=1 这个**空门**，真实站位落在 j=2
     #     ⇒ 用默认带 0/10 命中且**主动误报 3 次**（§7.28.3）。
@@ -519,7 +607,10 @@ def test_actions():
                    'source=%s band=%s' % (rec.band_source, rec.band)))
 
     # 锁定之后必须照常工作：同一序列在自动选出的带上应能判出右移
-    rec = ActionRecognizer(band='auto', auto_band_min_frames=6,
+    # ⚠ 2026-10-20：这里**显式**用 crit='delta'。默认已改为 'xbase'（devlog §7.45.6），
+    #   而两套判据的符号约定相反（delta: v_lat>0 ⇒ RIGHT；xbase: dev>0 ⇒ LEFT）。
+    #   本用例测的是「自动选带锁定后判据照常工作」，与符号约定无关，故固定 delta 保持原断言。
+    rec = ActionRecognizer(band='auto', auto_band_min_frames=6, crit='delta',
                            auto_band_max_frames=12, auto_band_min_points=4)
     run(rec, [mk(0.0, r=1.70) for _ in range(6)])
     evs, _ = run(rec, [mk(-0.36 + 0.06 * i, r=1.70) for i in range(14)],
