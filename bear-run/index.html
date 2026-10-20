@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="format-detection" content="telephone=no" />
+<meta name="theme-color" content="#2f6b2a" />
+<title>熊二快跑 · Bear Run</title>
+<link rel="stylesheet" href="./style.css" />
+<script>
+/* 启动期错误兜底：任何脚本异常都直接显示在屏幕上，方便现场排查 */
+(function () {
+  window.__bootErrors = [];
+  function show(msg) {
+    window.__bootErrors.push(msg);
+    try {
+      var box = document.getElementById('boot-error');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'boot-error';
+        box.className = 'boot-error';
+        (document.body || document.documentElement).appendChild(box);
+      }
+      box.textContent = '游戏启动出错：\n' + window.__bootErrors.join('\n');
+    } catch (e) { /* 忽略 */ }
+  }
+  window.addEventListener('error', function (e) {
+    var msg = (e && e.message) ? e.message : 'unknown error';
+    if (e && e.filename) msg += '\n  @ ' + e.filename.split('/').pop() + ' : ' + (e.lineno || 0);
+    show(msg);
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    show('Promise: ' + ((e && e.reason && e.reason.message) || e.reason));
+  });
+})();
+</script>
+</head>
+<body>
+<div id="app">
+  <canvas id="game"></canvas>
+
+  <!-- ========== 顶部 HUD ========== -->
+  <header id="hud-top">
+    <div class="hud-group">
+      <div id="hearts" class="hearts" aria-label="生命值"></div>
+      <div id="boost-tag" class="boost-tag hidden">加速中 · 分数 x2</div>
+      <!-- 表情小窗：永远正对玩家的那张脸 -->
+      <div id="face-cam" class="face-cam" aria-hidden="true">
+        <canvas id="face-canvas"></canvas>
+      </div>
+    </div>
+    <div class="hud-group right">
+      <div class="stat">
+        <span class="stat-label">得分</span>
+        <span id="stat-score" class="stat-value">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">最高</span>
+        <span id="stat-best" class="stat-value dim">0</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========== 进入新区域的横幅 ========== -->
+  <div id="region-banner" class="region-banner hidden">
+    <div class="region-banner-kicker">进入新区域</div>
+    <div class="region-banner-name"></div>
+    <div class="region-banner-sub"></div>
+  </div>
+
+  <!-- ========== 底部状态栏 ========== -->
+  <footer id="hud-bottom">
+    <span class="stat"><span class="stat-label">距离</span><span id="stat-distance" class="stat-value">0</span><span class="stat-unit">m</span></span>
+    <span class="stat"><span class="stat-label">蜂蜜</span><span id="stat-coins" class="stat-value">0</span></span>
+    <span class="stat"><span class="stat-label">速度</span><span id="stat-speed" class="stat-value">0.0</span><span class="stat-unit">m/s</span></span>
+    <span class="stat"><span class="stat-label">区域</span><span id="stat-stage" class="stat-value">第 1 区</span></span>
+    <span class="stat"><span class="stat-label">输入</span><span id="stat-input" class="stat-value">键盘</span></span>
+  </footer>
+
+  <!-- ========== 右下角按钮 ========== -->
+  <div id="top-buttons">
+    <button id="btn-debug" class="icon-btn" type="button">面板</button>
+    <button id="btn-pause" class="icon-btn" type="button">暂停</button>
+  </div>
+
+  <!-- ========== 雷达调试面板 ========== -->
+  <aside id="debug-panel" class="hidden">
+    <div class="debug-head">
+      <strong>雷达调试面板</strong>
+      <button id="debug-close" class="mini-btn" type="button">收起</button>
+    </div>
+    <div class="debug-body">
+      <div class="debug-row"><span>输入源</span><b id="dbg-source">-</b></div>
+      <div class="debug-row"><span>连接状态</span><b id="dbg-conn">-</b></div>
+      <div class="debug-row"><span>渲染帧率</span><b id="dbg-fps">-</b></div>
+      <div class="debug-row"><span>雷达帧率</span><b id="dbg-rate">-</b></div>
+      <div class="debug-row"><span>端到端延迟</span><b id="dbg-latency">-</b></div>
+      <hr />
+      <div class="debug-row"><span>x（归一化）</span><b id="dbg-x">-</b></div>
+      <div class="debug-row"><span>height</span><b id="dbg-height">-</b></div>
+      <div class="debug-row"><span>confidence</span><b id="dbg-conf">-</b></div>
+      <div class="debug-row"><span>jump</span><b id="dbg-jump">-</b></div>
+      <div class="debug-row"><span>crouch</span><b id="dbg-crouch">-</b></div>
+      <hr />
+      <div class="debug-row"><span>判定车道</span><b id="dbg-lane">-</b></div>
+      <div class="debug-row"><span>触发事件</span><b id="dbg-events">-</b></div>
+      <div class="debug-row"><span>当前速度</span><b id="dbg-speed">-</b></div>
+      <div class="debug-row"><span>场上对象</span><b id="dbg-count">-</b></div>
+    </div>
+    <div class="debug-note">接口约定：{ts, x, height, jump, crouch, confidence, raw}</div>
+  </aside>
+
+  <!-- ========== 开始界面（狗熊岭主菜单） ========== -->
+  <div id="overlay-start" class="overlay menu-screen">
+    <div class="menu-bg" aria-hidden="true"></div>
+    <div class="menu-veil" aria-hidden="true"></div>
+
+    <div class="menu-inner">
+      <!-- 左侧：游戏名 + 开始 -->
+      <section class="menu-hero">
+        <div class="menu-badge">狗熊岭 · 体感跑酷</div>
+        <h1 class="menu-title">熊二快跑</h1>
+        <div class="menu-title-en">BEAR RUN</div>
+        <button id="btn-start" class="primary-btn menu-start" type="button">开始快跑</button>
+        <div class="best-line">历史最高：<b id="start-best">0</b></div>
+      </section>
+
+      <!-- 右侧：玩法说明 + 设置 -->
+      <aside class="menu-side">
+        <div class="menu-card">
+          <div class="card-title">怎么玩</div>
+          <div class="howto">
+            <div class="howto-row desktop-only"><span class="key">A / D 或 ← →</span><span>左右换道</span></div>
+            <div class="howto-row desktop-only"><span class="key">W / 空格 / ↑</span><span>跳跃</span></div>
+            <div class="howto-row desktop-only"><span class="key">S 或 ↓</span><span>滑铲</span></div>
+            <div class="howto-row desktop-only"><span class="key">P / Esc</span><span>暂停</span></div>
+            <div class="howto-row mobile-only"><span class="key">左右滑动</span><span>换道</span></div>
+            <div class="howto-row mobile-only"><span class="key">上滑 / 下滑</span><span>跳跃 / 滑铲</span></div>
+            <div class="howto-row mobile-only"><span class="key">点按右下角</span><span>暂停</span></div>
+          </div>
+          <p class="hint">跳过低木栅栏 · 滑铲钻过横倒树干 · 换道绕开石头木头堆<br />蜂蜜罐加分 · 红苹果回血 · 蜂蜜滑道双倍得分</p>
+        </div>
+
+        <div class="menu-card">
+          <div class="input-block">
+            <div class="input-label">选择角色</div>
+            <div id="char-picker" class="input-row"></div>
+            <div id="char-note" class="radar-note"></div>
+          </div>
+
+          <div class="input-block last">
+            <div class="input-label">选择输入源</div>
+            <div id="input-picker" class="input-row">
+              <button class="chip" type="button" data-input="keyboard">键盘</button>
+              <button class="chip" type="button" data-input="touch">触屏</button>
+              <button class="chip" type="button" data-input="radar">雷达</button>
+              <button class="chip" type="button" data-input="mock">雷达模拟器</button>
+            </div>
+            <div id="radar-url-note" class="radar-note"></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- ========== 暂停界面 ========== -->
+  <div id="overlay-pause" class="overlay hidden">
+    <div class="panel small">
+      <h2 class="title-sm">已暂停</h2>
+      <div class="btn-col">
+        <button id="btn-resume" class="primary-btn" type="button">继续奔跑</button>
+        <button id="btn-restart-pause" class="ghost-btn" type="button">重新开始</button>
+        <button id="btn-home-pause" class="ghost-btn" type="button">返回主菜单</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 结束界面 ========== -->
+  <div id="overlay-over" class="overlay hidden">
+    <div class="panel small">
+      <h2 class="title-sm">被光头强逮住了</h2>
+      <div id="over-newbest" class="new-best hidden">新纪录</div>
+      <div class="result-grid">
+        <div class="result-item"><span>得分</span><b id="over-score">0</b></div>
+        <div class="result-item"><span>距离</span><b id="over-distance">0</b></div>
+        <div class="result-item"><span>蜂蜜</span><b id="over-coins">0</b></div>
+        <div class="result-item"><span>最高分</span><b id="over-best">0</b></div>
+      </div>
+      <div class="btn-col">
+        <button id="btn-restart" class="primary-btn" type="button">再来一局</button>
+        <button id="btn-home" class="ghost-btn" type="button">返回主菜单</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 光头强逮住熊二时的漫画字幕 ========== -->
+  <div id="vick-shout" class="vick-shout hidden">
+    <div class="vick-shout-word">臭狗熊！</div>
+    <div class="vick-shout-by">—— 光头强</div>
+  </div>
+
+  <!-- ========== 触屏首次提示 ========== -->
+  <div id="touch-hint" class="touch-hint hidden">
+    <div>左右滑动换道</div>
+    <div>上滑跳跃 · 下滑滑铲</div>
+  </div>
+
+  <!-- ========== 竖屏提示 ========== -->
+  <div id="rotate-hint">
+    <div class="rotate-icon"></div>
+    <p>请把手机横过来握持</p>
+  </div>
+
+  <div id="damage-flash"></div>
+</div>
+
+<!-- 经典脚本按顺序加载：不需要 HTTP 服务器，双击 index.html 就能玩 -->
+<script src="./vendor/three.min.js"></script>
+<script src="./js/config.js"></script>
+<script src="./js/InputSource.js"></script>
+<script src="./js/Art.js"></script>
+<script src="./js/World.js"></script>
+<script src="./js/Player.js"></script>
+<script src="./js/Vick.js"></script>
+<script src="./js/ObstacleManager.js"></script>
+<script src="./js/FaceCam.js"></script>
+<script src="./js/Hud.js"></script>
+<script src="./js/DebugPanel.js"></script>
+<script src="./js/Game.js"></script>
+<script src="./js/main.js"></script>
+</body>
+</html>
