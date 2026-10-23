@@ -50,6 +50,7 @@ outputs/       # 面向用户的产物（报告、图表、演示材料）
 
 - 交付文档放 `docs/`；面向展示的成品放 `outputs/`；临时脚本放 `.deepworks/tmp/`。
 - 既有文档：`docs/proposal-motion-game.md`（课程交付用项目提案，1–2 页，含分工与里程碑）、`docs/hardware-baseline.md`、`docs/research-motion-game.md`、`docs/PRD-motion-game-MVP.md`、`docs/TechDesign-motion-game-MVP.md`、`docs/jump-duck-verification-plan.md`、`docs/acceptance-test-table.md`、`docs/ai-decision-log.md`，以及雷达链路侧的 `docs/radar-uplink-protocol.md`、`docs/radar-control-and-actions.md`、`docs/capture-checklist.md`、`docs/radar-hardware-stop-plan.md`、`docs/progress-radar-pointcloud.md`。
+- **交接文档（就近读最新一份）**：`docs/handoff-lr2-1022.md`（左右移 seg-lr2 两轮采集 + 判据诊断，2026-10-22）、`docs/handoff-leftright-radar.md`（更早）。
 
 ## 关键契约
 
