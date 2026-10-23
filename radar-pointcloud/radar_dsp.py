@@ -34,11 +34,19 @@ class PointCloudProcessor:
                  remove_clutter=True, angle_sign=1.0, max_points=64,
                  angle_max=ANGLE_MAX, min_range=0.0,
                  chirps=None, bins=None, range_res=None, v_res=None,
-                 ant_spacing=None, lam=None):
+                 ant_spacing=None, lam=None, clutter_keep=1.0):
         self.cfar_scale = float(cfar_scale)
         self.min_power = float(min_power)       # 绝对门限（功率，0 = 关闭）
         self.min_snr = float(min_snr)           # 相对本帧噪声底的 SNR 门限 (dB)
         self.remove_clutter = bool(remove_clutter)
+        # clutter_keep: MTI 保留系数。1.0 = 完全减掉静止分量（**原行为，默认不变**）；
+        # <1.0 = 只减掉一部分，保留一份 DC 能量。
+        # 依据（2026-10-22 横穿实测，见 docs/静止误报诊断-左门与噪声.md §15）：
+        #   人**正对**雷达站着不动时，回波能量高度集中在零多普勒——
+        #   实测 j1 的 MTI 残余仅 48.1%（斜站时 76~82%），即被减掉一半以上；
+        #   关掉 MTI 后"正对"帧的保留点从 1.38 → 1.92 点/帧（+39%）。
+        #   但关掉 MTI 会放进静态杂波，故改为"可调"而非"开关"。
+        self.clutter_keep = float(clutter_keep)
         self.angle_sign = float(angle_sign)
         self.max_points = int(max_points)
         self.angle_max = float(angle_max)
@@ -85,7 +93,9 @@ class PointCloudProcessor:
         for z in (z0, z1):
             z = np.asarray(z, dtype=np.complex64)
             if remove_clutter:
-                z = z - z.mean(axis=0, keepdims=True)      # 去静态杂波（仅去 DC 多普勒）
+                # clutter_keep=1.0 时为原行为（完全去 DC）；<1.0 时保留一部分，
+                # 以免把"正对雷达站着不动"的人一起减掉（见 __init__ 注释）。
+                z = z - self.clutter_keep * z.mean(axis=0, keepdims=True)
             sp = np.fft.fft(z * self.win[:, None], axis=0)
             out.append(np.fft.fftshift(sp, axes=0))
         return out[0], out[1]

@@ -309,6 +309,9 @@ def main():
     ap.add_argument('--min-snr', type=float, default=None,
                     help='相对噪声底 SNR 门限 (dB，内置默认 7.0)')
     ap.add_argument('--no-clutter', action='store_true', help='不做静态杂波抑制')
+    ap.add_argument('--clutter-keep', type=float, default=None,
+                    help='MTI 保留系数 0~1（默认 1.0 = 完全去静止分量，行为不变）。'
+                         '人正对雷达站着不动会被 MTI 减掉一半以上，试 0.5~0.7 可保留更多。')
     ap.add_argument('--min-range', type=float, default=None,
                     help='屏蔽小于该距离(米)的点。内置默认 0.681 = 整门排除泄漏门 '
                          'bin0(r≈0.34 m)：实测该门占 ~73%% 点数但仅 ~0.1%% 功率，'
@@ -368,6 +371,31 @@ def main():
     ap.add_argument('--min-pts', type=int, default=None,
                     help='带内点数低于此值即视为目标丢失，默认 2。'
                          '★ top-k=1 时必须给 1，否则每帧都被判成丢失')
+    # ---- 2026-10-21（P-0）：把判据/门限/确认旋钮暴露到**在线路径** ----
+    # 动机：这些参数此前只存在于 radar_actions.py 的 CLI，server.py（点云页面/
+    #   演示路径）一个都没暴露 ⇒ 现场只能改源码。用户裁定「落 P-0：补上开关」。
+    # 约定：**只加开关、不改任何默认语义**（不给参数时行为逐字不变）。
+    ap.add_argument('--window', type=int, default=None,
+                    help='判据滑窗帧数（默认 8 ≈ 1.04 s；2026-10-20 起默认由 12 改为 8）')
+    ap.add_argument('--confirm', type=int, default=None,
+                    help='触发端连续确认帧数（默认 3 = 388.5 ms）。调小可降延迟，'
+                         '但静息误报会上升（0.70 m 实测：confirm=2 误报升到 1.1~3.6 次/分）')
+    ap.add_argument('--min-interval', type=float, default=None,
+                    help='最短切换间隔 s（默认 0.5）。★ 注意它在结构上通常不是约束：'
+                         '释放确认 3 帧 + 触发确认 3 帧已给出 ≥0.78 s 的实际间隔')
+    ap.add_argument('--xbase-win', type=float, default=None,
+                    help='crit=xbase 近窗秒数（默认 0.80）：dev 的「当前位置」项')
+    ap.add_argument('--xbase-base-win', type=float, default=None,
+                    help='crit=xbase 长窗秒数（默认 40）：dev 的「近期常态」项，须严长于近窗')
+    ap.add_argument('--xbase-thr-left', type=float, default=None,
+                    help='crit=xbase 左门限（默认 0.14；2026-10-21 由 0.10 上调以压静止误报，'
+                         '见 docs/静止误报诊断-左门与噪声.md）')
+    ap.add_argument('--xbase-thr-right', type=float, default=None,
+                    help='crit=xbase 右门限（默认 0.18）')
+    ap.add_argument('--xbase-release', type=float, default=None,
+                    help='crit=xbase 释放门（默认 0.05，须 < min(两侧门限)）')
+    ap.add_argument('--xbase-release-confirm', type=int, default=None,
+                    help='crit=xbase 释放端连续确认帧数（默认 3）')
     ap.add_argument('--hotkey', action='store_true',
                     help='运行中热切换数据源（AGENTS.md 硬约束 2：一个热键 1 秒内切换）。'
                          '启用后，页面/控制台按热键即可在 真雷达/回放/合成 之间循环切换，'
@@ -478,7 +506,10 @@ def main():
                                min_snr=min_snr,
                                remove_clutter=not args.no_clutter,
                                angle_sign=angle_sign, angle_max=angle_max,
-                               min_range=min_range, **dsp_kw)
+                               min_range=min_range,
+                               clutter_keep=(args.clutter_keep
+                                             if args.clutter_keep is not None else 1.0),
+                               **dsp_kw)
 
     # ---- 环境底噪校准（背景基线）--------------------------------------------
     # ⚠ 这里**故意**再建一个处理器，且 min_range 固定 0.0，与上面的 `proc` 分开。
@@ -605,8 +636,18 @@ def main():
 
     state = {'last': 0.0}
     a_kw = {}
+    # 2026-10-21（P-0）：None 一律跳过 ⇒ 不给参数时用 radar_actions 的默认值，
+    # 行为与补开关之前**逐字相同**（其余旋钮的既有语义不受影响）。
     for key, val in (('crit', args.crit), ('top_k', args.top_k),
                      ('min_pts', args.min_pts),
+                     ('window', args.window), ('confirm', args.confirm),
+                     ('min_interval', args.min_interval),
+                     ('xbase_win', args.xbase_win),
+                     ('xbase_base_win', args.xbase_base_win),
+                     ('xbase_thr_left', args.xbase_thr_left),
+                     ('xbase_thr_right', args.xbase_thr_right),
+                     ('xbase_release', args.xbase_release),
+                     ('xbase_release_confirm', args.xbase_release_confirm),
                      ('auto_band_min_frames', args.auto_band_min_frames),
                      ('auto_band_max_frames', args.auto_band_max_frames)):
         if val is not None:
@@ -616,11 +657,18 @@ def main():
     recognizer = None if args.no_actions else ActionRecognizer(
         band=band, calib=cal, max_step=args.max_step, **a_kw)
     if recognizer is not None and not args.quiet:
-        print('动作识别: band=%s crit=%s top_k=%d min_pts=%d'
+        print('动作识别: band=%s crit=%s top_k=%d min_pts=%d window=%d confirm=%d min_interval=%.2fs'
               % ('自动选带（预热 %d~%d 帧）' % (recognizer.auto_band_min_frames,
                                               recognizer.auto_band_max_frames)
                  if band == AUTO_BAND else recognizer.band,
-                 recognizer.crit, recognizer.top_k, recognizer.min_pts))
+                 recognizer.crit, recognizer.top_k, recognizer.min_pts,
+                 recognizer.window, recognizer.confirm, recognizer.min_interval))
+        if recognizer.crit == 'xbase':
+            # 现场核对用：把 xbase 的实际生效值打出来（改门限后应当能在此看到 0.14）
+            print('  xbase: 近窗=%.2fs 长窗=%.1fs 左门=+%.3f 右门=-%.3f 释放=%.3f/%d帧'
+                  % (recognizer.xbase_win, recognizer.xbase_base_win,
+                     recognizer.xbase_thr_left, recognizer.xbase_thr_right,
+                     recognizer.xbase_release, recognizer.xbase_release_confirm))
 
     def on_frame(z0, z1, stats):
         pts, noise = proc.process(z0, z1)
