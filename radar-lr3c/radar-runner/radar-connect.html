@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>雷达联调台 · 熊二快跑</title>
+<link rel="icon" href="data:,">
+<style>
+  :root{
+    --ink:#f6efdc; --ink-dim:#b9c4a4; --gold:#f7c531; --blood:#d7473a;
+    --moss:#8ed14f; --boost:#f79a1f; --panel:rgba(21,36,18,.94);
+    --panel-line:rgba(247,197,49,.34);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:#10200c radial-gradient(circle at 50% 0%, #23431a 0%, #10200c 62%) fixed;
+    color:var(--ink);
+    font:15px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    padding:18px 14px 46px; min-height:100vh;
+  }
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 4px;letter-spacing:.5px}
+  h1 span{color:var(--gold)}
+  .sub{color:var(--ink-dim);font-size:13px;margin-bottom:16px}
+  .sub a{color:var(--gold);text-decoration:none;border-bottom:1px dashed rgba(247,197,49,.5)}
+  .card{
+    background:var(--panel);border:1px solid var(--panel-line);border-radius:14px;
+    padding:14px 16px;margin-bottom:14px;
+  }
+  .card > h2{
+    font-size:15px;margin:0 0 10px;color:var(--gold);font-weight:600;
+    display:flex;align-items:center;gap:8px;
+  }
+  .card > h2 em{font-style:normal;color:var(--ink-dim);font-size:12px;font-weight:400}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  input[type=text]{
+    flex:1 1 320px;min-width:220px;padding:10px 12px;border-radius:10px;
+    border:1px solid rgba(247,197,49,.35);background:#0d1a0a;color:var(--ink);
+    font:14px/1.4 ui-monospace,Consolas,monospace;
+  }
+  input[type=text]:focus{outline:none;border-color:var(--gold)}
+  button{
+    padding:10px 16px;border-radius:10px;border:1px solid rgba(247,197,49,.45);
+    background:rgba(247,197,49,.12);color:var(--ink);font:600 14px/1 inherit;cursor:pointer;
+  }
+  button:hover{background:rgba(247,197,49,.22)}
+  button.primary{background:var(--gold);color:#2a2000;border-color:var(--gold)}
+  button.primary:hover{background:#ffd75c}
+  button.ghost{background:transparent;border-color:rgba(246,239,220,.28);color:var(--ink-dim)}
+  button.small{padding:6px 11px;font-size:12.5px}
+  button[disabled]{opacity:.45;cursor:not-allowed}
+  .chipbtn{
+    padding:6px 11px;border-radius:999px;font-size:12.5px;font-weight:500;
+    border:1px solid rgba(247,197,49,.3);background:rgba(247,197,49,.07);color:var(--ink-dim);cursor:pointer;
+  }
+  .chipbtn:hover{color:var(--ink);border-color:var(--gold)}
+  .status{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13.5px}
+  .dot{width:10px;height:10px;border-radius:50%;background:#8a8a8a;flex:0 0 auto}
+  .dot.ok{background:var(--moss);box-shadow:0 0 8px rgba(142,209,79,.8)}
+  .dot.pending{background:var(--gold)}
+  .dot.err{background:var(--blood)}
+  .hint{color:var(--ink-dim);font-size:12.5px;margin-top:8px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .metric{background:rgba(0,0,0,.28);border:1px solid rgba(246,239,220,.1);border-radius:10px;padding:9px 11px}
+  .metric b{display:block;font-size:12px;color:var(--ink-dim);font-weight:500;margin-bottom:2px}
+  .metric i{font-style:normal;font:700 21px/1.2 ui-monospace,Consolas,monospace}
+  .metric small{display:block;color:var(--ink-dim);font-size:11.5px;margin-top:2px}
+  .bar{height:8px;border-radius:5px;background:rgba(246,239,220,.14);overflow:hidden;margin-top:6px}
+  .bar span{display:block;height:100%;background:var(--gold);width:0}
+  .lane{font:700 15px/1 inherit;padding:3px 10px;border-radius:8px;background:rgba(246,239,220,.12)}
+  .lane.L{background:rgba(215,71,58,.28)}
+  .lane.C{background:rgba(246,239,220,.14)}
+  .lane.R{background:rgba(142,209,79,.28)}
+  canvas{width:100%;height:110px;display:block;background:rgba(0,0,0,.3);border-radius:10px;margin-top:10px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid rgba(246,239,220,.1);vertical-align:top}
+  th{color:var(--ink-dim);font-weight:500;white-space:nowrap}
+  code{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:var(--gold)}
+  pre{background:rgba(0,0,0,.35);border-radius:10px;padding:10px 12px;overflow:auto;font-size:12.5px;margin:8px 0 0}
+  details{margin-top:8px}
+  summary{cursor:pointer;color:var(--gold);font-size:13.5px}
+  details ol{margin:8px 0 0;padding-left:20px;color:var(--ink-dim);font-size:13px}
+  details li{margin-bottom:5px}
+  .verdict{margin-top:10px;padding:9px 12px;border-radius:10px;font-size:13.5px;display:none}
+  .verdict.show{display:block}
+  .verdict.ok{background:rgba(142,209,79,.16);border:1px solid rgba(142,209,79,.45)}
+  .verdict.warn{background:rgba(247,197,49,.14);border:1px solid rgba(247,197,49,.45)}
+  .verdict.err{background:rgba(215,71,58,.16);border:1px solid rgba(215,71,58,.45)}
+  .steps{display:flex;flex-wrap:wrap;gap:14px}
+  .steps > div{flex:1 1 300px;background:rgba(0,0,0,.22);border-radius:10px;padding:11px 13px}
+  .steps h3{margin:0 0 7px;font-size:13.5px;color:var(--gold);font-weight:600}
+  .steps p{margin:0 0 8px;font-size:12.5px;color:var(--ink-dim)}
+  .kv{font:12.5px/1.7 ui-monospace,Consolas,monospace;color:var(--ink-dim);white-space:pre-wrap;word-break:break-all}
+  .foot{color:var(--ink-dim);font-size:12px;text-align:center;margin-top:22px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>雷达联调台 <span>· 熊二快跑</span></h1>
+  <div class="sub">
+    填雷达地址 → 测连通 → 看实时数值 → 一键带校准进游戏。
+    帧格式与游戏完全一致（<code>ws://…</code> + 每帧一个 JSON），
+    详细约定见 <a href="./README.md" target="_blank">README 第六节</a>。
+  </div>
+
+  <!-- ============ 1. 连接 ============ -->
+  <div class="card">
+    <h2>1. 连接雷达 <em>（浏览器要求页面不能在 https 下连 ws://）</em></h2>
+    <div class="row">
+      <input id="url" type="text" spellcheck="false" placeholder="ws://192.168.1.7:8766">
+      <button id="btn-connect" class="primary" type="button">连接</button>
+      <button id="btn-disconnect" class="ghost" type="button" disabled>断开</button>
+      <button id="btn-play" class="primary" type="button" disabled>进入游戏（带校准）</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <span class="hint" style="margin:0">常用：</span>
+      <button class="chipbtn" type="button" data-fill="ws://127.0.0.1:8766">本机 8766</button>
+      <button class="chipbtn" type="button" data-fill="ws://192.168.1.7:8766">192.168.1.7:8766</button>
+      <button class="chipbtn" type="button" id="btn-fill-host">当前主机名:8766</button>
+      <button class="chipbtn" type="button" id="btn-clear-url">清掉记忆的地址</button>
+    </div>
+    <div class="status"><span id="dot" class="dot"></span><span id="status">未连接</span></div>
+    <div class="hint" id="url-memory"></div>
+  </div>
+
+  <!-- ============ 2. 实时数据 ============ -->
+  <div class="card">
+    <h2>2. 实时数值 <em>（这里显示的 x 是上游原始值；校准后游戏用的是下面那行）</em></h2>
+    <div class="grid">
+      <div class="metric"><b>横向 x <span id="lane" class="lane C">中间</span></b>
+        <i id="v-x">—</i><small id="v-x-cal">未校准</small></div>
+      <div class="metric"><b>jump</b><i id="v-jump">—</i><small id="v-jump-th">阈值 —</small></div>
+      <div class="metric"><b>crouch</b><i id="v-crouch">—</i><small id="v-crouch-th">阈值 —</small></div>
+      <div class="metric"><b>height</b><i id="v-height">—</i><small>当前未参与判定</small></div>
+      <div class="metric"><b>confidence</b><i id="v-conf">—</i><small id="v-conf-th">阈值 —</small></div>
+      <div class="metric"><b>帧率 / 帧数</b><i id="v-rate">—</i><small id="v-frames">0 帧</small></div>
+      <div class="metric"><b>端到端延迟</b><i id="v-lat">—</i><small id="v-lat-note">依赖 ts 字段</small></div>
+      <div class="metric"><b>丢帧 / 断流</b><i id="v-gap">0</i><small id="v-last">还没收到帧</small></div>
+    </div>
+    <canvas id="wave" width="1200" height="220"></canvas>
+    <div class="hint">蓝线=上游原始 x（−1 左 … +1 右），黄虚线=<code>enterThreshold</code> 车道线；
+      曲线贴在一条水平线上不动 = 雷达没采到人 / x 恒定。</div>
+  </div>
+
+  <!-- ============ 3. 现场自检 ============ -->
+  <div class="card">
+    <h2>3. 现场自检 <em>（两项都过了，进游戏基本一次过）</em></h2>
+    <div class="steps">
+      <div>
+        <h3>① 左右方向对不对</h3>
+        <p>先向左走一步（别弯腰），再向右走一步。只比较两个方向的 x 大小。</p>
+        <div class="row">
+          <button class="small" type="button" id="btn-left">我在左边，采样 1.5 秒</button>
+          <button class="small" type="button" id="btn-right">我在右边，采样 1.5 秒</button>
+          <button class="small ghost" type="button" id="btn-dir-reset">重来</button>
+        </div>
+        <div class="kv" id="dir-out" style="margin-top:8px">左：—   右：—</div>
+        <div class="verdict" id="dir-verdict"></div>
+      </div>
+      <div>
+        <h3>② 静站有没有误报</h3>
+        <p>站着别动、别跳别蹲，10 秒。这期间你自己做的动作也会被算进来，所以中途做了动作请重来一次。
+          判据与游戏里校准向导的探针同口径（24 帧以上、误报 >2 次 或 占比 >6% 即判噪）。</p>
+        <div class="row">
+          <button class="small" type="button" id="btn-still">开始 10 秒静息自检</button>
+        </div>
+        <div class="kv" id="still-out" style="margin-top:8px">还没开始</div>
+        <div class="verdict" id="still-verdict"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 4. 校准存档 ============ -->
+  <div class="card">
+    <h2>4. 校准存档 <em>（localStorage，换浏览器/清缓存就要重测）</em></h2>
+    <div class="kv" id="cal-out">读取中…</div>
+    <div class="row" style="margin-top:9px">
+      <button class="small" type="button" id="btn-cal-clear">清除校准存档（下次进游戏重新引导）</button>
+      <button class="small ghost" type="button" id="btn-cal-reload">刷新</button>
+    </div>
+  </div>
+
+  <!-- ============ 5. 排错 ============ -->
+  <div class="card">
+    <h2>5. 连不上时按顺序查</h2>
+    <details open>
+      <summary>地址、网络、协议三类问题</summary>
+      <ol>
+        <li><b>地址写成了 <code>127.0.0.1</code> 但雷达在另一台机器</b> —— 要写那台机器的局域网 IP，
+          且浏览器所在设备要和它同一网段（手机同 WiFi 也算）。</li>
+        <li><b>雷达服务没起 / 端口不是 8766</b> —— 在雷达那台机器上确认
+          <code>ws://0.0.0.0:8766</code> 已在听（不是只绑 127.0.0.1），防火墙放行该端口。</li>
+        <li><b>页面是 https 却连 <code>ws://</code></b> —— 浏览器会直接拦掉混合内容；用 http 打开本页
+          （见 README 方式 B），或让雷达侧上 <code>wss://</code>。</li>
+        <li><b>连上了但一直"还没收到帧"</b> —— 雷达侧发的是二进制/非 JSON，或字段名不对。
+          必须是每帧一个 JSON 对象（数组也行），见下方约定。</li>
+        <li><b>连上也有帧，但 x 恒定不变</b> —— 大概率是没人站在探测区，或采集端把 x 写成了常量；
+          先让人站在中间左右走动看曲线。</li>
+        <li><b>想一次看清卡在哪一环</b> —— 在雷达那台机器上跑
+          <code>python tools/check_radar.py &lt;雷达地址&gt;</code>，
+          它会分别报 TCP 连通 / WebSocket 握手 / 帧率 / 字段齐全 / 数据质量，一眼看出是网络、协议还是数据的问题。</li>
+        <li><b>雷达给的不是 WebSocket</b>（串口 / UDP / TCP / HTTP 接口 / 厂商 SDK）—— 不用改游戏：
+          跑 <code>python tools/radar_bridge.py</code> 把雷达原始输出转成 ws，再连
+          <code>ws://127.0.0.1:8766</code>。第一次用加 <code>--print-sample</code>，先确认它收到的报文长什么样。</li>
+      </ol>
+    </details>
+    <details>
+      <summary>数据帧格式（与硬件同学对齐用）</summary>
+      <pre>{"ts":1730000000000,"x":0.42,"height":0.0,"jump":0,"crouch":0,"confidence":0.93,"raw":{}}
+
+ts          采集时间戳（毫秒，采集时刻而非发送时刻）—— 用来算延迟
+x           横向位置，归一化 [-1,1]，左负右正（极性装反没关系，游戏会现场学）
+height      起跳高度 0~1（当前不参与判定）
+jump        起跳标志 0~1 / bool
+crouch      下蹲标志 0~1 / bool
+confidence  本帧可信度 0~1，低于 minConfidence 会被游戏丢弃
+raw         原始数据（可选），调试面板会展示</pre>
+      <div class="hint">也支持一次发多帧：发送一个 JSON 数组，游戏会顺序处理。</div>
+    </details>
+  </div>
+
+  <div class="foot">
+    本页是开发/联调页，纯静态、无依赖，双击即可打开（<code>file://</code>）；
+    但<b>校准存档需要 localStorage</b>，建议用 <code>python -m http.server</code> 打开。
+  </div>
+</div>
+
+<script src="./js/config.js?v=20261020h"></script>
+<script src="./js/Calibration.js?v=20261020h"></script>
+<script>
+(function () {
+  'use strict';
+  var CFG = (window.RR && RR.CFG) || {};
+  var RADAR = CFG.RADAR || {};
+  var KEY = CFG.STORAGE_KEY_RADAR_URL || 'bear-run:radar:url';
+  function $(id) { return document.getElementById(id); }
+
+  // ---------------- 地址记忆 ----------------
+  function memGet() { try { return localStorage.getItem(KEY) || ''; } catch (e) { return ''; } }
+  function memSet(v) { try { localStorage.setItem(KEY, v); } catch (e) { /* file:// 下可能受限 */ } }
+  function memClear() { try { localStorage.removeItem(KEY); } catch (e) { /* 忽略 */ } }
+
+  function initUrl() {
+    var q = new RegExp('[?&]radar=([^&]*)').exec(location.search);
+    var u = (q && decodeURIComponent(q[1])) || memGet() || RADAR.defaultUrl || 'ws://127.0.0.1:8766';
+    $('url').value = u;
+    refreshMemoryNote();
+  }
+  function refreshMemoryNote() {
+    var m = memGet();
+    $('url-memory').textContent = m
+      ? '游戏会记住这个地址（主菜单点「雷达」就用它）：' + m
+      : '还没记住地址：连接成功后会自动记住，游戏主菜单点「雷达」会直接用它。';
+  }
+
+  // ---------------- 连接 ----------------
+  var ws = null;
+  var S = {
+    frames: 0, lastFrame: null, lastAt: 0, gaps: 0, errs: 0,
+    at: [], lat: [], xbuf: [], expectMs: 0,
+    still: null, dir: { left: null, right: null }
+  };
+
+  function setStatus(text, kind) {
+    $('status').textContent = text;
+    $('dot').className = 'dot' + (kind ? ' ' + kind : '');
+  }
+
+  function connect() {
+    var url = $('url').value.trim();
+    if (!url) { setStatus('先填一个地址', 'err'); return; }
+    if (!/^wss?:\/\//i.test(url)) {
+      setStatus('地址要以 ws:// 或 wss:// 开头', 'err'); return;
+    }
+    disconnect(true);
+    setStatus('连接中… ' + url, 'pending');
+    var sock;
+    try { sock = new WebSocket(url); } catch (e) {
+      setStatus('地址无效：' + e.message, 'err'); return;
+    }
+    ws = sock;
+    failed = false;
+    sock.onopen = function () {
+      if (ws !== sock) return;
+      setStatus('已连接 ' + url, 'ok');
+      $('btn-disconnect').disabled = false;
+      $('btn-play').disabled = false;
+      memSet(url);
+      refreshMemoryNote();
+    };
+    sock.onmessage = function (evt) { if (ws === sock) onData(evt.data); };
+    sock.onerror = function () { if (ws === sock) failed = true; };
+    sock.onclose = function (evt) {
+      if (ws !== sock) return;
+      ws = null;
+      $('btn-disconnect').disabled = true;
+      $('btn-play').disabled = true;
+      if (evt.wasClean && !failed) { setStatus('已断开 ' + url, ''); return; }
+      failStatus(url, evt.code);
+    };
+  }
+
+  var failed = false;
+
+  // 连接失败时，把「最可能是哪一环」直接写进状态栏，而不是只说"地址/端口/防火墙？"
+  function failStatus(url, code) {
+    var host = '';
+    try { host = new URL(url).hostname; } catch (e) { host = ''; }
+    var local = (host === '' || host === '127.0.0.1' || host === 'localhost' || host === '::1');
+    var why;
+    if (location.protocol === 'https:' && /^ws:\/\//i.test(url)) {
+      why = '本页是 https，浏览器会拦 ws:// —— 用 http 打开本页，或让雷达侧提供 wss://';
+    } else if (local) {
+      why = '127.0.0.1 只指「你这台电脑」：雷达服务不在这台电脑上时，要填雷达那台机器的局域网 IP';
+    } else if (code === 1006) {
+      why = '1006 = 握手失败：' + host + ' 的端口没服务 / 被防火墙挡 / 不在同一网段';
+    } else {
+      why = '确认 ' + host + ' 上的雷达服务在跑，且绑定的是 0.0.0.0';
+    }
+    setStatus('连接失败 ' + url + (code ? '（code=' + code + '）' : '') + ' —— ' + why, 'err');
+  }
+
+  function disconnect(silent) {
+    if (ws) {
+      var old = ws;
+      ws = null;
+      try { old.close(); } catch (e) { /* 忽略 */ }
+      $('btn-disconnect').disabled = true;
+      $('btn-play').disabled = true;
+      if (!silent) setStatus('已断开', '');
+    }
+  }
+
+  function onData(raw) {
+    var payload;
+    try { payload = JSON.parse(raw); } catch (e) {
+      S.errs++;
+      setStatus('收到非 JSON 数据（' + (typeof raw) + '），请检查雷达侧输出格式', 'err');
+      return;
+    }
+    if (Array.isArray(payload)) {
+      for (var i = 0; i < payload.length; i++) onFrame(payload[i]);
+    } else {
+      onFrame(payload);
+    }
+  }
+
+  function num(v, d) { return (typeof v === 'number' && isFinite(v)) ? v : (v === true ? 1 : (v === false ? 0 : d)); }
+
+  function onFrame(f) {
+    if (!f || typeof f !== 'object') return;
+    var now = performance.now();
+    if (S.lastAt) {
+      var gap = now - S.lastAt;
+      S.at.push(gap);
+      if (S.at.length > 30) S.at.shift();
+      if (S.expectMs && gap > S.expectMs * 3) S.gaps++;
+    }
+    S.lastAt = now;
+    S.lastFrame = f;
+    S.frames++;
+    S.xbuf.push(num(f.x, 0));
+    if (S.xbuf.length > 240) S.xbuf.shift();
+
+    var ts = num(f.ts, 0);
+    if (ts > 1e12) S.lat.push(Math.max(0, Date.now() - ts));
+    if (S.lat.length > 30) S.lat.shift();
+
+    if (S.still) stillTick(f);
+    drawWave();
+  }
+
+  // ---------------- 数值渲染（节流到 ~15fps） ----------------
+  var renderAt = 0;
+  function render() {
+    requestAnimationFrame(render);
+    var now = performance.now();
+    if (now - renderAt < 66) return;
+    renderAt = now;
+    var f = S.lastFrame;
+    if (!f) return;
+    var x = num(f.x, 0), jump = num(f.jump, 0), crouch = num(f.crouch, 0);
+    var height = num(f.height, 0), conf = num(f.confidence, 1);
+
+    $('v-x').textContent = x.toFixed(3);
+    var enter = num(RADAR.enterThreshold, 0.36), exit = num(RADAR.exitThreshold, 0.22);
+    var lane = x >= enter ? 'R' : (x <= -enter ? 'L' : 'C');
+    var laneEl = $('lane');
+    laneEl.className = 'lane ' + lane;
+    laneEl.textContent = lane === 'R' ? '右边' : (lane === 'L' ? '左边' : '中间');
+    laneEl.title = '游戏判据：|x| ≥ enterThreshold(' + enter + ') 进两侧，回到 |x| ≤ exitThreshold(' + exit + ') 才算中间';
+
+    var cal = null;
+    try { cal = window.RR && RR.Calibration ? RR.Calibration.load() : null; } catch (e) { cal = null; }
+    if (cal && cal.lrOk) {
+      var nx = (x - num(cal.x0, 0)) * (num(cal.sign, 1) < 0 ? -1 : 1);
+      $('v-x-cal').textContent = '校准后 x = ' + nx.toFixed(3) + '（x0=' + num(cal.x0, 0).toFixed(3) +
+        ', sign=' + num(cal.sign, 1) + '）';
+    } else {
+      $('v-x-cal').textContent = '未校准（进游戏走一遍向导即可）';
+    }
+
+    var jth = num(RADAR.jumpThreshold, 0.5);
+    $('v-jump').textContent = jump.toFixed(2);
+    $('v-jump').style.color = jump >= jth ? 'var(--gold)' : '';
+    $('v-jump-th').textContent = jth >= 2 ? '阈值 ' + jth + '（已停用）' : '阈值 ' + jth +
+      (jump >= jth ? ' · 会触发跳' : '');
+    var cth = num(RADAR.crouchThreshold, 0.5);
+    $('v-crouch').textContent = crouch.toFixed(2);
+    $('v-crouch').style.color = crouch >= cth ? 'var(--gold)' : '';
+    $('v-crouch-th').textContent = cth >= 2 ? '阈值 ' + cth + '（已停用）' : '阈值 ' + cth +
+      (crouch >= cth ? ' · 会触发蹲' : '');
+    $('v-height').textContent = height.toFixed(2);
+    var minc = num(RADAR.minConfidence, 0.3);
+    $('v-conf').textContent = conf.toFixed(2);
+    $('v-conf').style.color = conf < minc ? 'var(--blood)' : 'var(--moss)';
+    $('v-conf-th').textContent = conf < minc ? '低于 ' + minc + '，这帧会被丢弃' : '可用（阈值 ' + minc + '）';
+
+    var avg = S.at.length ? S.at.reduce(function (a, b) { return a + b; }, 0) / S.at.length : 0;
+    $('v-rate').textContent = avg ? (1000 / avg).toFixed(1) + ' Hz' : '—';
+    $('v-frames').textContent = S.frames + ' 帧';
+    if (avg) S.expectMs = avg;
+    var lat = S.lat.length ? S.lat.reduce(function (a, b) { return a + b; }, 0) / S.lat.length : null;
+    $('v-lat').textContent = lat === null ? '—' : Math.round(lat) + ' ms';
+    $('v-lat-note').textContent = lat === null ? 'ts 缺失或不是毫秒时间戳' : '按帧里的 ts 计算';
+    $('v-gap').textContent = S.gaps;
+    $('v-last').textContent = '最近一帧 ' + ((performance.now() - S.lastAt) / 1000).toFixed(1) + ' 秒前';
+  }
+
+  // ---------------- x 波形 ----------------
+  function drawWave() {
+    var c = $('wave'), g = c.getContext('2d');
+    var w = c.width, h = c.height;
+    g.clearRect(0, 0, w, h);
+    var enter = num(RADAR.enterThreshold, 0.36);
+    function py(v) { return h / 2 - v * (h / 2 - 8); }
+    g.strokeStyle = 'rgba(246,239,220,.18)';
+    g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
+    g.strokeStyle = 'rgba(247,197,49,.5)'; g.setLineDash([6, 6]);
+    [enter, -enter].forEach(function (v) {
+      g.beginPath(); g.moveTo(0, py(v)); g.lineTo(w, py(v)); g.stroke();
+    });
+    g.setLineDash([]);
+    if (S.xbuf.length < 2) return;
+    g.strokeStyle = '#7ec8ff'; g.lineWidth = 2; g.beginPath();
+    for (var i = 0; i < S.xbuf.length; i++) {
+      var px = i / (S.xbuf.length - 1) * w;
+      var v = Math.max(-1, Math.min(1, S.xbuf[i]));
+      if (i === 0) g.moveTo(px, py(v)); else g.lineTo(px, py(v));
+    }
+    g.stroke();
+  }
+
+  // ---------------- 自检① 方向 ----------------
+  function sample(which) {
+    if (!S.lastFrame) { alert('还没收到帧，先连接雷达'); return; }
+    var btnL = $('btn-left'), btnR = $('btn-right');
+    btnL.disabled = btnR.disabled = true;
+    var acc = [], t0 = performance.now();
+    var iv = setInterval(function () {
+      if (S.lastFrame) acc.push(num(S.lastFrame.x, 0));
+      if (performance.now() - t0 > 1500) {
+        clearInterval(iv);
+        btnL.disabled = btnR.disabled = false;
+        var avg = acc.length ? acc.reduce(function (a, b) { return a + b; }, 0) / acc.length : NaN;
+        S.dir[which] = avg;
+        $('dir-out').textContent = '左：' + fmt(S.dir.left) + '   右：' + fmt(S.dir.right);
+        dirVerdict();
+      }
+    }, 50);
+  }
+  function fmt(v) { return (typeof v === 'number' && isFinite(v)) ? v.toFixed(3) : '—'; }
+  function dirVerdict() {
+    var L = S.dir.left, R = S.dir.right, el = $('dir-verdict');
+    if (typeof L !== 'number' || typeof R !== 'number') {
+      el.className = 'verdict show warn';
+      el.textContent = typeof L !== 'number'
+        ? '还差"左"这一侧：站到左边点一次「我在左边，采样 1.5 秒」。'
+        : '还差"右"这一侧：站到右边点一次「我在右边，采样 1.5 秒」。';
+      return;
+    }
+    var d = Math.abs(R - L);
+    var msg, cls;
+    if (d < 0.2) {
+      cls = 'warn';
+      msg = '两边几乎一样（|右−左| = ' + d.toFixed(3) + '）：上游没分辨出你走了哪边。' +
+        '进游戏后第 2 步会提示"再远 0.35"，需要硬件同学看横向分辨率/摆位。';
+    } else if (L < R) {
+      cls = d >= 0.35 ? 'ok' : 'warn';
+      msg = '极性正常（左 ' + L.toFixed(2) + ' < 右 ' + R.toFixed(2) + '）。' +
+        (d >= 0.35 ? '幅度 ' + d.toFixed(2) + ' 够用（第 2 步要 ≥0.35），进游戏可以一次过。'
+                   : '但幅度只有 ' + d.toFixed(2) + '（第 2 步要 ≥0.35），走大一点再看。');
+    } else {
+      cls = 'warn';
+      msg = '极性装反了（左 ' + L.toFixed(2) + ' > 右 ' + R.toFixed(2) + '）。' +
+        '不用改硬件 —— 校准向导会现场学出 sign = -1 自动纠正；' +
+        (d >= 0.35 ? '幅度够用。' : '只是幅度 ' + d.toFixed(2) + ' 偏小（要 ≥0.35）。');
+    }
+    el.className = 'verdict show ' + cls;
+    el.textContent = msg;
+  }
+
+  // ---------------- 自检② 静息误报（与向导探针同口径） ----------------
+  function startStill() {
+    if (!S.lastFrame) { alert('还没收到帧，先连接雷达'); return; }
+    var jth = num(RADAR.jumpThreshold, 0.5); if (jth >= 2) jth = 0.5;
+    var cth = num(RADAR.crouchThreshold, 0.5); if (cth >= 2) cth = 0.5;
+    S.still = {
+      left: 10, frames: 0, jr: 0, cr: 0, jPrev: false, cPrev: false,
+      jEvents: 0, cEvents: 0, spurious: 0, jth: jth, cth: cth
+    };
+    $('btn-still').disabled = true;
+    var el0 = $('still-verdict');
+    el0.className = 'verdict show warn';
+    el0.textContent = '自检进行中：站着别动、别跳别蹲（这期间的动作会被计为"误报"）。';
+    var iv = setInterval(function () {
+      S.still.left -= 0.1;
+      if (S.still.left <= 0) { clearInterval(iv); finishStill(); return; }
+      stillOut();
+    }, 100);
+  }
+  function stillTick(f) {
+    var st = S.still;
+    if (!st || st.left <= 0) return;
+    st.frames++;
+    var j = num(f.jump, 0) >= st.jth, c = num(f.crouch, 0) >= st.cth;
+    if (j && !st.jPrev) st.jEvents++;
+    if (c && !st.cPrev) st.cEvents++;
+    if (j || c) st.spurious++;
+    st.jPrev = j; st.cPrev = c;
+    stillOut();
+  }
+  function stillOut() {
+    var st = S.still;
+    if (!st) return;
+    $('still-out').textContent = '倒计时 ' + Math.max(0, st.left).toFixed(1) + 's ｜ 已看 ' + st.frames +
+      ' 帧 ｜ 跳上升沿 ' + st.jEvents + ' 次 ｜ 蹲上升沿 ' + st.cEvents + ' 次 ｜ 误报帧占比 ' +
+      (st.frames ? (st.spurious / st.frames * 100).toFixed(1) : '0.0') + '%';
+  }
+  function finishStill() {
+    var st = S.still;
+    $('btn-still').disabled = false;
+    if (!st || st.frames < 8) {
+      $('still-verdict').className = 'verdict show warn';
+      $('still-verdict').textContent = '这 10 秒只收到 ' + (st ? st.frames : 0) + ' 帧 —— 帧率太低或断流，先解决数据流再做这项。';
+      return;
+    }
+    var rate = st.spurious / st.frames;
+    var noisy = st.jEvents > 2 || st.cEvents > 2 || rate > 0.06;
+    var el = $('still-verdict');
+    if (noisy) {
+      el.className = 'verdict show err';
+      el.textContent = '上游静息误报偏高：' + st.frames + ' 帧里跳 ' + st.jEvents + ' 次 / 蹲 ' + st.cEvents +
+        ' 次（误报帧 ' + (rate * 100).toFixed(1) + '%）。' +
+        '超过向导的容忍线（>2 次 或 >6%），进游戏后校准向导会判"雷达把站着不动也当成跳/蹲"，' +
+        '并停用雷达跳/蹲、退回键盘 —— 这是有意设计的降级，不是卡死。' +
+        '要修得让上游看这段静息数据的 dev 值。' +
+        ((st.jEvents || st.cEvents) ? '（如果你刚才确实跳了或蹲了，请重来一次并保持不动。）' : '');
+    } else {
+      el.className = 'verdict show ok';
+      el.textContent = '静息干净：' + st.frames + ' 帧里跳 ' + st.jEvents + ' 次 / 蹲 ' + st.cEvents +
+        ' 次（误报帧 ' + (rate * 100).toFixed(1) + '%），在向导容忍线内，跳/蹲可以正常标定。';
+    }
+  }
+
+  // ---------------- 校准存档 ----------------
+  function refreshCal() {
+    var el = $('cal-out'), C = window.RR && RR.Calibration;
+    if (!C) { el.textContent = 'js/Calibration.js 没加载成功（确认本页与 js/ 在同一目录）。'; return; }
+    var cal = null;
+    try { cal = C.load(); } catch (e) { el.textContent = '读存档失败：' + e.message; return; }
+    if (!cal) { el.textContent = '当前没有校准存档：第一次用雷达进游戏会自动引导 5 步校准。'; return; }
+    var usable = C.isUsable(cal);
+    var lines = ['v=' + cal.v + (usable ? '（可用）' : '（已被判过期，会重新引导）')];
+    try { lines.push(C.describe(cal)); } catch (e) { /* 忽略 */ }
+    ['x0', 'sign', 'lrOk', 'jumpOk', 'crouchOk', 'keyboardOnly', 'upVerdict',
+     'jumpTh', 'crouchTh', 'at'].forEach(function (k) {
+      if (cal[k] !== undefined) lines.push(k + ' = ' + JSON.stringify(cal[k]));
+    });
+    if (cal.probe) lines.push('probe = ' + JSON.stringify(cal.probe));
+    el.textContent = lines.join('\n');
+  }
+
+  // ---------------- 绑定 ----------------
+  $('btn-connect').addEventListener('click', connect);
+  $('btn-disconnect').addEventListener('click', function () { disconnect(false); });
+  $('btn-play').addEventListener('click', function () {
+    var url = $('url').value.trim();
+    if (!url) return;
+    memSet(url);
+    location.href = './index.html?input=radar&radar=' + encodeURIComponent(url);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-fill]'), function (b) {
+    b.addEventListener('click', function () { $('url').value = b.getAttribute('data-fill'); });
+  });
+  $('btn-fill-host').addEventListener('click', function () {
+    $('url').value = 'ws://' + (location.hostname || '127.0.0.1') + ':8766';
+  });
+  $('btn-clear-url').addEventListener('click', function () {
+    memClear(); refreshMemoryNote(); alert('已清掉记住的雷达地址。');
+  });
+  $('btn-left').addEventListener('click', function () { sample('left'); });
+  $('btn-right').addEventListener('click', function () { sample('right'); });
+  $('btn-dir-reset').addEventListener('click', function () {
+    S.dir = { left: null, right: null };
+    $('dir-out').textContent = '左：—   右：—';
+    $('dir-verdict').className = 'verdict';
+  });
+  $('btn-still').addEventListener('click', startStill);
+  $('btn-cal-clear').addEventListener('click', function () {
+    try { window.RR.Calibration.clear(); } catch (e) { /* 忽略 */ }
+    refreshCal();
+  });
+  $('btn-cal-reload').addEventListener('click', refreshCal);
+  $('url').addEventListener('keydown', function (e) { if (e.key === 'Enter') connect(); });
+
+  initUrl();
+  refreshCal();
+  requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+# ==========================================
+# 换行符与二进制文件规范
+# ==========================================
+# 统一：仓库内部一律存 LF。Windows 检出时会自动转换，
+# 这样老师和同学在 Mac / Linux 上 clone 下来不会看到"整个文件都变了"的 diff。
+
+* text=auto eol=lf
+
+# ---- 明确声明为二进制，禁止 Git 做换行/编码转换 ----
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.mp3 binary
+*.wav binary
+*.ogg binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+
+# ---- 压缩过的第三方库不参与逐行 diff ----
+vendor/three.min.js -diff
