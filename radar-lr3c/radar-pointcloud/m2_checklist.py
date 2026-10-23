@@ -79,6 +79,14 @@ def bad(t):
     print('  [问题] %s' % t)
 
 
+# ---------------------------------------------------------------- 预设（现场引导用）
+# 2026-10-21 新增：允许用 CLI 预设「站位 / 静息时长 / 动作次数」，使现场引导
+# 可以**双击即跑**、不必逐步手输（本次复采规格：0.70 m 站位、静息 >= 5 min、
+# 左右各 >= 10 次 —— 见 docs/静止误报诊断-左门与噪声.md §6.2）。
+# ★ 不传预设时行为**逐字不变**：每个值仍照常提问、用原有默认。
+PRESET = {}
+
+
 def ask(prompt, default=''):
     # EOF（管道输入用完 / 控制台关闭）时退回默认值，不要抛 Traceback
     try:
@@ -383,10 +391,11 @@ def step_rest(args=None):
     say('  目的：得到**人在场、完全不动**的对照段（任何 LANE_* 事件都是误报）。')
     say('  站位与复采站位**必须一致**，否则误报率不可比。')
     say('')
-    stations = ask('站位距离（米，逗号分隔）', DEFAULT_STATIONS)
+    stations = PRESET.get('stations') or ask('站位距离（米，逗号分隔）', DEFAULT_STATIONS)
     a = ['--port', ask('串口', STATE.get('port') or 'COM3'),
          '--stations', stations,
-         '--duration', str(ask_float('每站时长(秒)', 30.0)),
+         '--duration', str(PRESET.get('rest_sec')
+                           or ask_float('每站时长(秒)', 30.0)),
          '--outdir', rundir(),
          '--board', ask('板型', '1t2r')]
     rc = run_py('position_capture.py', a)
@@ -407,8 +416,8 @@ def step_action(args=None):
     say('  --auto 是无人值守模式：人站在雷达前看不到屏幕、够不到键盘，')
     say('  全程由语音 + 提示音驱动（3 声短拍=回中间，「嘟」=开始，低「嘟」=停）。')
     say('')
-    stations = ask('站位距离（米）', DEFAULT_STATIONS)
-    reps = ask_int('每个动作重复次数（左右各 N 次，建议 ≥7）', 7)
+    stations = PRESET.get('stations') or ask('站位距离（米）', DEFAULT_STATIONS)
+    reps = PRESET.get('reps') or ask_int('每个动作重复次数（左右各 N 次，建议 ≥7）', 7)
     stride = ask_float('要求的最小横移距离(米)（真值备注会写它）', DEFAULT_STRIDE)
     a = ['--port', ask('串口', STATE.get('port') or 'COM3'),
          '--auto',
@@ -1076,11 +1085,26 @@ def main():
     ap.add_argument('--segment', type=int, default=None,
                     help='直接指定第 N 段（1 起），用于 --step 脚本化')
     ap.add_argument('--selftest', action='store_true', help='自检本引导自身（无需硬件）')
+    ap.add_argument('--preset-stations', default=None,
+                    help='预设站位距离（逗号分隔，如 0.7）：跳过该提问')
+    ap.add_argument('--preset-rest-sec', type=float, default=None,
+                    help='预设静息每站时长（秒，如 300）：跳过该提问')
+    ap.add_argument('--preset-reps', type=int, default=None,
+                    help='预设每方向动作次数（如 10）：跳过该提问')
     a = ap.parse_args()
 
     STATE['dir'] = a.dir or DEFAULT_DIR
     STATE['port'] = a.port
     STATE['segment'] = a.segment
+    if a.preset_stations:
+        PRESET['stations'] = a.preset_stations
+    if a.preset_rest_sec:
+        PRESET['rest_sec'] = a.preset_rest_sec
+    if a.preset_reps:
+        PRESET['reps'] = a.preset_reps
+    if PRESET:
+        say('  已启用预设（以下几项不再提问）：%s'
+            % '，'.join('%s=%s' % (k, v) for k, v in sorted(PRESET.items())))
 
     if a.selftest:
         return guide_selftest()

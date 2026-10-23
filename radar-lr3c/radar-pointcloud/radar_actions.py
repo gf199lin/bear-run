@@ -289,7 +289,17 @@ d 又落回触发门以下 ⇒ 3 帧确认**再触发一次** ⇒ 「一次动�
 CRIT_XBASE = 'xbase'
 XBASE_WIN_DEFAULT = 0.80        # 近窗（秒）：dev 的「当前位置」项
 XBASE_BASE_WIN_DEFAULT = 40.0   # 长窗（秒）：dev 的「近期常态」项；越大越稳
-XBASE_THR_LEFT_DEFAULT = 0.10   # dev >= +该值 → LEFT（实测 LEFT 幅度偏小，门限须低）
+# ★ 2026-10-21 由 0.10 上调到 0.14（依据 docs/静止误报诊断-左门与噪声.md）。
+#   原因：0.10 **恰好等于** 0.70 m 站位静息噪声的 p90（实测正侧 p90=0.102）
+#   ⇒ 人站着不动时单帧越过左门的机会 5.1%（右门仅 1.0%），实测误报
+#   **2.46 次/分且 80% 是 LEFT**（用户现场报告「静止却判向左」）。
+#   提到 0.14 后：静息误报 **1.0 次/分（−60%）**，且**延迟不受影响**
+#   （0.78 s 恒定——延迟由证据累积决定，不由门限决定）；代价是 LEFT 检出
+#   由 2/2 降到 1/2（该站位 LEFT 证据峰值 p50=0.170 与静息噪声 p99=0.182
+#   本就重叠，抬门限必然折损 LEFT 召回）。
+#   ⚠ 仍属**样本内**结论（0.70 m / 单日单人 / 366 s 静息），待复采重新标定；
+#     该值只影响 crit='xbase'，对 delta/drift 无作用。
+XBASE_THR_LEFT_DEFAULT = 0.14   # dev >= +该值 → LEFT（LEFT 幅度小于右侧，门限须低于右门）
 XBASE_THR_RIGHT_DEFAULT = 0.18  # dev <= -该值 → RIGHT（实测 RIGHT 幅度偏大，可用高门限）
 XBASE_RELEASE_DEFAULT = 0.05    # 释放门：|dev| 回到该值以内即释放回 CENTER（滞回）
                                 # ★ 必须满足 0 <= XBASE_RELEASE < min(两侧阈值)，
@@ -1150,7 +1160,9 @@ def main(argv=None):
                     help="crit=xbase 的长窗（秒），默认 40（必须 > --xbase-win）。"
                          "这是「近期常态」的估计窗口，越大越稳、跟随越慢")
     ap.add_argument('--xbase-thr-left', type=float, default=None,
-                    help="crit=xbase：dev >= +该值 → LEFT，默认 0.10（实测 LEFT 幅度偏小）")
+                    help="crit=xbase：dev >= +该值 → LEFT，默认 0.14"
+                         "（2026-10-21 由 0.10 上调以压静止误报，见"
+                         " docs/静止误报诊断-左门与噪声.md）")
     ap.add_argument('--xbase-thr-right', type=float, default=None,
                     help="crit=xbase：dev <= -该值 → RIGHT，默认 0.18（实测 RIGHT 幅度偏大）")
     ap.add_argument('--xbase-release', type=float, default=None,

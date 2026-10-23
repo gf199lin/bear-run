@@ -498,14 +498,16 @@ def test_actions():
 
     # 默认值必须能构造——默认值就是真机定标的那一组，不得被静默改掉
     rec = ActionRecognizer(crit='xbase')
+    # thr_left 0.10 → **0.14**（2026-10-21，静止误报诊断；见
+    # docs/静止误报诊断-左门与噪声.md：0.10 压在静息噪声 p90 上 ⇒ 误报 2.46 次/分、80% 为 LEFT）
     checks.append(('xbase 默认可构造',
-                   rec.crit == 'xbase' and rec.xbase_thr_left == 0.10
+                   rec.crit == 'xbase' and rec.xbase_thr_left == 0.14
                    and rec.xbase_thr_right == 0.18 and rec.xbase_release == 0.05,
                    'thr_left=+%.2f thr_right=-%.2f release=%.2f 长窗=%.0f s'
                    % (rec.xbase_thr_left, rec.xbase_thr_right,
                       rec.xbase_release, rec.xbase_base_win)))
 
-    # 左移：px 由基线 0.50 抬到 0.80 ⇒ dev≈+0.30 >= +0.10 ⇒ LEFT
+    # 左移：px 由基线 0.50 抬到 0.80 ⇒ dev≈+0.30 >= +0.14 ⇒ LEFT
     rec = ActionRecognizer(crit='xbase', **XW)
     evs, _ = run(rec, [mk(0.50) for _ in range(40)] + [mk(0.80) for _ in range(12)])
     names = [e['name'] for e in evs]

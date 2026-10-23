@@ -96,7 +96,7 @@
   drift 偏置静止不误报     : 通过   px 恒为 -2.00，事件=['TARGET_BACK']
   drift 无基线不猜       : 通过   仅 6 帧，事件=['TARGET_BACK']
   drift 参数校验        : 通过   未知 crit 与 right>=left 均被拒
-  xbase 默认可构造       : 通过   thr_left=+0.10 thr_right=-0.18 release=0.05 长窗=40 s
+  xbase 默认可构造       : 通过   thr_left=+0.14 thr_right=-0.18 release=0.05 长窗=40 s
   xbase 左移识别        : 通过   事件=['TARGET_BACK', 'LANE_LEFT']
   xbase 右移识别        : 通过   事件=['TARGET_BACK', 'LANE_RIGHT']
   xbase 偏置静止不误报     : 通过   px 恒为 1.60，事件=['TARGET_BACK']
