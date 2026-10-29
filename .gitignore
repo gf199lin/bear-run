@@ -11,6 +11,10 @@ __pycache__/
 *.log
 *.err
 
+# 标定 / 实验采集的原始帧（npz、逐帧 json）一律不入库。
+# 纯合成或人工构造的样本如需入库，请放在 data/ 之外。
+data/
+
 # 环境底噪基线（空场采集所得，随场地/场次变化，属现场产物而非交付物）
 radar-pointcloud/bg_baseline.json
 radar-pointcloud/bg_baseline.json.tmp

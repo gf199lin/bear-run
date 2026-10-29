@@ -22,7 +22,7 @@ DeepWorks has a built-in browser that agents can control directly.
 Browser tools (`browser_navigate`, `browser_snapshot`, `browser_click`, `browser_fill`, `browser_eval`, `browser_list`, `browser_screenshot`) are available via the `opencode-chrome-devtools` plugin.
 
 **DeepWorks Browser**:
-- `browser_url`: always use `"http://127.0.0.1:9223"`.
+- `browser_url`: always use `"http://127.0.0.1:9228"`.
 - Use for browsing tasks. The user sees what you do in real time.
 - The DeepWorks main interface is protected and hidden from browser tools by default. Without an explicit user request to operate that interface, never click, type, switch sessions/settings, run scripts, or call its bridge. Task failures, unavailable tools, troubleshooting, and ambiguous intent are not authorization. Explain the blocker or clarify intent instead. Never bypass target filtering or change debug settings to expose the main interface, and never navigate it to an external site even when the user requests main-interface operations.
 - Always call `browser_list` first to discover available targets, then use the appropriate `target_id`.
