@@ -155,11 +155,7 @@
       this.hud.setInput(src.label);
       this.hud.markInputChoice(src.id);
       if (src.id === 'radar') {
-        if (src.urlText) {
-          this.hud.setRadarNote('双雷达（左右 + 上下）：' + src.urlText);
-        } else {
-          this.hud.setRadarNote('雷达地址：' + (src.url || CFG.RADAR.defaultUrl));
-        }
+        this.hud.setRadarNote('雷达地址：' + (src.url || CFG.RADAR.defaultUrl));
       } else if (src.id === 'mock') {
         this.hud.setRadarNote('模拟器：虚拟人体以 30Hz 产出雷达帧，走与真雷达完全相同的解码链路。');
       } else if (src.id === 'touch') {
