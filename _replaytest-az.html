@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>方位维接入评测（不入交付包）</title>
+</head>
+<body>
+<pre id="status">RUNNING</pre>
+<pre id="out"></pre>
+
+<script src="./js/config.js"></script>
+<script src="./js/InputSource.js"></script>
+<script src="./_radarreplay/radar-action-1020-v3.js"></script>
+<script>
+// 用游戏真实的 ReplayRadarInputSource + RadarDecoder 跑完整段回放，
+// 对 truth / energy / azimuth 三种模式做方向敏感的评测：
+//   1) 换道事件：左移/右移分开算 命中/漏报/误报（tol = ±3 帧）
+//   2) 车道逐帧准确率：解码出的 lane 与 truth.x 逐步比对
+//   3) 跳/蹲：命中/漏报/误报
+(function () {
+  var status = document.getElementById('status');
+  var out = document.getElementById('out');
+  var lines = [];
+  function log(s) { lines.push(s); out.textContent = lines.join('\n'); }
+
+  var data = window.RR_RADAR_REPLAY;
+  if (!data) { status.textContent = 'FAIL: 回放数据未加载'; return; }
+
+  var names = Object.keys(data.series);
+  var sname = names[0];
+  var ser = data.series[sname];
+  var n = ser.frames, FPS = ser.rate;
+  var TOLF = Math.round(0.45 * FPS);
+
+  var hasAz = Array.isArray(ser.az);
+  log('series=' + names.join(', ') + '  frames=' + n + '  rate=' + FPS.toFixed(3) + 'Hz'
+      + '  az=' + (hasAz ? 'YES' : 'NO'));
+  log('meta.station=' + (data.meta && data.meta.station_m) + 'm  board=' + (data.meta && data.meta.board)
+      + '  az_base=' + (data.meta && data.meta.az_base));
+  log('');
+
+  // ---- 真值 ----
+  function edges(arr) {
+    var e = [];
+    for (var i = 1; i < n; i++) if (arr[i] && !arr[i - 1]) e.push(i);
+    if (arr[0]) e.unshift(0);
+    return e;
+  }
+  var tX = [];
+  for (var i = 0; i < n; i++) tX.push(Math.round(ser.truth.x[i]));
+  var tLane = tX.map(function (v) { return v + 1; });
+  var tLeft = [], tRight = [];
+  for (var j = 1; j < n; j++) {
+    if (tX[j] < tX[j - 1]) tLeft.push(j);
+    else if (tX[j] > tX[j - 1]) tRight.push(j);
+  }
+  var tJump = edges(ser.truth.jump), tCrouch = edges(ser.truth.crouch);
+  log('真值换道：左移 ' + tLeft.length + ' 次 ' + JSON.stringify(tLeft)
+      + '   右移 ' + tRight.length + ' 次 ' + JSON.stringify(tRight));
+  log('真值跳 ' + tJump.length + ' 次，蹲 ' + tCrouch.length + ' 次  (tol=±' + TOLF + ' 帧)');
+  log('');
+
+  function score(det, tr) {
+    var hit = 0, used = {};
+    for (var a = 0; a < tr.length; a++) {
+      var ok = false;
+      for (var b = 0; b < det.length; b++) {
+        if (!used[b] && Math.abs(det[b] - tr[a]) <= TOLF) { ok = true; used[b] = 1; break; }
+      }
+      if (ok) hit++;
+    }
+    var fp = 0;
+    for (var c = 0; c < det.length; c++) if (!used[c]) fp++;
+    return { hit: hit, miss: tr.length - hit, fp: fp, n: tr.length };
+  }
+
+  function run(mode, opts, label) {
+    opts = opts || {};
+    var src = new window.RR.ReplayRadarInputSource({
+      url: '', series: sname, k: opts.k === undefined ? 3.2 : opts.k,
+      speed: 1, loop: false, window: 40, mode: mode,
+      azLeft: opts.azLeft, azRight: opts.azRight, ampGate: opts.ampGate,
+      azNeed: opts.azNeed, azWin: opts.azWin
+    });
+    src.attach();
+
+    var ev = [], laneTrace = [];
+    src.onEvent = function (t) { ev.push({ t: t, f: src._idx }); };
+
+    var dt = 1000 / 60, guard = 0;
+    var lastIdx = -1;
+    while (!src.stats.end && guard++ < 60000) {
+      src.update(dt);
+      // 逐帧记录解码出的车道（_idx 每跳一帧记一次）
+      while (lastIdx < src._idx - 1 && lastIdx + 1 < n) {
+        lastIdx++;
+        laneTrace.push(src.decoder.lane);
+      }
+    }
+
+    function pick(t) {
+      return ev.filter(function (e) { return e.t === t; }).map(function (e) { return e.f; });
+    }
+    var L = score(pick('left'), tLeft), R = score(pick('right'), tRight);
+    var J = score(pick('jump'), tJump), C = score(pick('slide'), tCrouch);
+
+    var correct = 0, cmp = Math.min(laneTrace.length, n);
+    for (var q = 0; q < cmp; q++) if (laneTrace[q] === tLane[q]) correct++;
+
+    return {
+      label: label, mode: mode, k: src.k, gate: opts.ampGate, azLeft: opts.azLeft,
+      az: isFinite(src.lastAz) ? src.lastAz.toFixed(2) : '-',
+      nL: pick('left').length, nR: pick('right').length,
+      laneAcc: cmp ? correct / cmp : 0,
+      Lhit: L.hit, Lmiss: L.miss, Lfp: L.fp,
+      Rhit: R.hit, Rmiss: R.miss, Rfp: R.fp,
+      Jh: J.hit, Jm: J.miss, Jf: J.fp,
+      Ch: C.hit, Cm: C.miss, Cf: C.fp
+    };
+  }
+
+  var rows = [];
+  rows.push(run('truth', {}, 'truth(上限)'));
+  [1.5, 2.0, 2.5, 3.2, 4.0].forEach(function (k) {
+    rows.push(run('energy', { k: k }, 'energy k=' + k));
+  });
+
+  // 方位模式：围绕离线扫参得到的最优解，扫一条保守->激进的线
+  var azGrid = [
+    { azLeft: -1.55, ampGate: 3600, azNeed: 3, azWin: 10 },   // 保守：0 误报
+    { azLeft: -1.55, ampGate: 3000, azNeed: 3, azWin: 10 },
+    { azLeft: -1.65, ampGate: 3000, azNeed: 3, azWin: 6 },    // 平衡
+    { azLeft: -1.45, ampGate: 2600, azNeed: 2, azWin: 10 },
+    { azLeft: -1.35, ampGate: 2200, azNeed: 2, azWin: 12 }    // 激进
+  ];
+  azGrid.forEach(function (g, idx) {
+    rows.push(run('azimuth', g, 'az#' + (idx + 1)));
+  });
+
+  log('标签'.padEnd(13) + ' mode    gate  azL   | 左移:h/m/f   右移:h/m/f   | 跳:h/m/f   蹲:h/m/f   | 车道准确率');
+  rows.forEach(function (r) {
+    log(
+      r.label.padEnd(13) + ' ' + r.mode.padEnd(8) +
+      String(r.gate === undefined ? '' : r.gate).padEnd(6) +
+      String(r.azLeft === undefined ? '' : r.azLeft).padEnd(6) + '| ' +
+      (r.Lhit + '/' + r.Lmiss + '/' + r.Lfp).padEnd(14) +
+      (r.Rhit + '/' + r.Rmiss + '/' + r.Rfp).padEnd(14) + '| ' +
+      (r.Jh + '/' + r.Jm + '/' + r.Jf).padEnd(12) +
+      (r.Ch + '/' + r.Cm + '/' + r.Cf).padEnd(12) + '| ' +
+      (100 * r.laneAcc).toFixed(1) + '%'
+    );
+  });
+  log('');
+  log('读法：az 模式只开「左」阈值，所以右移命中必然为 0（truth 右移 ' + tRight.length
+      + ' 次）；车道准确率 = 解码 lane 与 truth lane 的逐帧一致率。');
+  status.textContent = 'RESULT=OK';
+})();
+</script>
+</body>
+</html>

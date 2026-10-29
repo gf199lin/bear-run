@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>banner / facecam 渲染自检</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* 借真实游戏的深色底当"画布"，排除 3D 层干扰，只看 HUD 样式 */
+  #app { background: linear-gradient(#9fd0ef 0%, #cfe6c4 45%, #5faa34 100%); }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="game"></canvas>
+
+  <header id="hud-top">
+    <div class="hud-group">
+      <div class="hearts">
+        <div class="heart"></div><div class="heart"></div><div class="heart"></div>
+      </div>
+      <div id="face-cam" class="face-cam">
+        <canvas id="face-canvas" width="224" height="224"></canvas>
+      </div>
+    </div>
+    <div class="hud-group right">
+      <div class="stat"><span class="stat-label">得分</span><span class="stat-value">1234</span></div>
+      <div class="stat"><span class="stat-label">最高</span><span class="stat-value dim">5678</span></div>
+    </div>
+  </header>
+
+  <div id="region-banner" class="region-banner">
+    <div class="region-banner-kicker">进入新区域</div>
+    <div class="region-banner-name">第 2 区 · 密林深处</div>
+    <div class="region-banner-sub">树越来越密，石头木头堆要换道绕开</div>
+  </div>
+
+  <footer id="hud-bottom">
+    <span class="stat"><span class="stat-label">距离</span><span class="stat-value">180</span><span class="stat-unit">m</span></span>
+    <span class="stat"><span class="stat-label">蜂蜜</span><span class="stat-value">4</span></span>
+    <span class="stat"><span class="stat-label">速度</span><span class="stat-value">11.2</span><span class="stat-unit">m/s</span></span>
+    <span class="stat"><span class="stat-label">区域</span><span class="stat-value">第 2 区</span></span>
+    <span class="stat"><span class="stat-label">输入</span><span class="stat-value">键盘</span></span>
+  </footer>
+</div>
+
+<script>
+// 往小窗里画一张脸，顺便确认 canvas 缩放 + 圆形裁切是否符合预期
+(function () {
+  var c = document.getElementById('face-canvas');
+  var x = c.getContext('2d');
+  x.fillStyle = '#2c3b1c'; x.fillRect(0, 0, 224, 224);
+  x.fillStyle = '#d9a45e';
+  x.beginPath(); x.arc(112, 126, 76, 0, 6.284); x.fill();
+  x.fillStyle = '#f5e3bd';
+  x.beginPath(); x.arc(112, 150, 40, 0, 6.284); x.fill();
+  x.fillStyle = '#ffffff';
+  x.beginPath(); x.arc(84, 104, 16, 0, 6.284); x.fill();
+  x.beginPath(); x.arc(140, 104, 16, 0, 6.284); x.fill();
+  x.fillStyle = '#241a10';
+  x.beginPath(); x.arc(84, 106, 7, 0, 6.284); x.fill();
+  x.beginPath(); x.arc(140, 106, 7, 0, 6.284); x.fill();
+  x.strokeStyle = '#241a10'; x.lineWidth = 6;
+  x.beginPath(); x.arc(112, 142, 26, 0.15, 3.0); x.stroke();
+})();
+</script>
+</body>
+</html>
