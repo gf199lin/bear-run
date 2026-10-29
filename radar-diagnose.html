@@ -90,7 +90,8 @@
   <div class="sub">
     <a href="./index.html" style="margin-right:12px">← 返回游戏主页</a>
     录原始帧 → 按标准动作打点 → 自动出指标。判定口径与游戏内校准探针一致（帧率 ≥20Hz、静息噪声 ≤0.18、误报 ≤6%）。<br>
-    页面本身不发任何数据；报告和 CSV 都在本地生成，导出后发给游戏组。
+    页面本身不发任何数据；报告和 CSV 都在本地生成，导出后发给游戏组。<br>
+    <span style="color:#fbbf24">注意：线上 HTTPS 页面会被浏览器拦截 ws:// 连接。要在 Pages 上打开本页，请改为本地双击文件，或用 <code>python -m http.server</code> 起 http 访问。</span>
   </div>
 
   <!-- 1. 连接 -->
@@ -301,6 +302,10 @@
   function connect(role) {
     var url = ($('url-' + role).value || '').trim();
     if (!url) { setStatus(role, '先填地址', 'err'); return; }
+    if (location.protocol === 'https:' && url.indexOf('ws://') === 0) {
+      setStatus(role, 'HTTPS 页面禁止连 ws://，请用本地 http/file 打开本页', 'err');
+      return;
+    }
     var c = state[role];
     disconnect(role, true);
     c.badJson = 0;
