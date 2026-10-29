@@ -801,7 +801,10 @@
       this.onEvent = options.onEvent || function () {};
       this.canvas = options.canvas;
       this.getThreats = options.getThreats || function () { return []; };
-      this.radarUrl = options.radarUrl || R.defaultUrl;
+      // 这里**不要**快照 R.defaultUrl：main.js 是先 new RR.Game()（本类随之构造）、
+      // 之后才解析 ?radar= 参数和联调台记下的地址。快照会导致雷达源永远连 config 里的默认地址，
+      // ?radar=/radar-connect.html 设的地址根本不生效。改成 setSource 时再取当下的值。
+      this.radarUrl = options.radarUrl || null;
       this.source = null;
     }
 
@@ -813,7 +816,7 @@
 
       var src;
       if (id === 'touch') src = new TouchInputSource(this.canvas);
-      else if (id === 'radar') src = new RadarInputSource(this.radarUrl);
+      else if (id === 'radar') src = new RadarInputSource(this.radarUrl || R.defaultUrl);
       else if (id === 'mock') src = new MockRadarInputSource(this.getThreats);
       else if (id === 'replay') {
         src = new ReplayRadarInputSource({

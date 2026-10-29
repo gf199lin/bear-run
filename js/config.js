@@ -55,20 +55,135 @@
     },
 
     // ---------- 速度与难度 ----------
-    SPEED: { start: 8.5, max: 25, gainPerMeter: 0.011 },
-    SPAWN: { startGap: 15.5, minGap: 6.8, rampMeters: 1500 },
+    // 速度不是"一条直线爬到底"，而是两段：
+    //   热身段 0 -> cruiseAt 米：只从 start 爬到 cruise。玩家要在这一段里学会
+    //                            跳 / 滑铲 / 换道，必须给足低压力时间。
+    //   爬升段 cruiseAt -> 约 1080 米：每米 +gainPerMeter，到 max 封顶。
+    // 旧版是一条直线（gainPerMeter 0.011），前 180 米就吃掉了一半以上的速度余量，
+    // 结果"前段太陡、后段太肉"：新手还没学会滑铲，速度已经上来了。
+    SPEED: {
+      start: 8.5,
+      max: 25,
+      cruise: 13.5,          // 热身段结束时的速度
+      cruiseAt: 180,         // 热身段里程（与第 2 区解锁点对齐）
+      gainPerMeter: 0.0128   // 热身段之后每米加速度
+    },
+
+    /**
+     * 速度曲线（纯函数：只读 SPEED，方便离线断言与调参）。
+     * 两段都是直线，在 cruiseAt 处连续，全程单调不减。
+     */
+    speedAt: function (distance) {
+      var s = RR.CFG.SPEED;
+      var d = (distance > 0) ? distance : 0;
+      if (d <= s.cruiseAt) return s.start + (s.cruise - s.start) * (d / s.cruiseAt);
+      var v = s.cruise + (d - s.cruiseAt) * s.gainPerMeter;
+      return v > s.max ? s.max : v;
+    },
+
+    // 生成间隔：用"时间"定义，再乘当时速度换算成米。
+    // 这是整条难度曲线里最关键的一处修正。旧版把间隔从 15.5 米收到 6.8 米，
+    // 而速度同时在涨（8.5 -> 25）——两件事一起挤"两行之间的反应时间"：
+    //     开局   15.5 / 8.5  = 1.82s
+    //     第 4 区 6.8 / 25   = 0.27s   ← 连看清都做不到，实际是"随机送命"
+    // 现在只收时间：1.82s -> 1.02s；米数反而是变大的（速度涨得比时间收得快）。
+    // 于是"越跑越快"依然成立，而"永远来得及反应"也成立。
+    SPAWN: {
+      timeGapStart: 1.82,
+      timeGapMin: 1.02,
+      rampMeters: 1500,       // 时间间隔从 timeGapStart 收到 timeGapMin 所需里程
+      minGap: 8.0,            // 米数硬下限（低速或特殊情形下的兜底）
+      jitter: [0.86, 1.18],   // 间隔随机抖动：不给玩家"踩点"的节奏
+      mercyMeters: 55         // 掉血后的喘息距离：这段里程内不生成双障碍与 combo
+    },
     HP: { start: 3, max: 5 },
     SCORE: { perMeter: 1, perCoin: 20, boostMul: 2 },
     BOOST: { duration: 3.2, speedMul: 1.45 },
 
-    // 分段解锁：跑到指定距离后出现新障碍
-    // 节奏：约 19s / 23s / 23s 进入下一区（速度 8.5→25 m/s，gainPerMeter 0.011）
+    // ---------- 连击（任务 2） ----------
+    // "一口气吃一路 / 连着擦过去"必须换得到收益，否则玩家没有理由贴着障碍跑。
+    //   window      : 多久没吃到东西 / 没擦到障碍就断连（秒）
+    //   maxStep     : 倍率最多叠几档
+    //   step        : 每档加多少（6 档 = 满档 x2.50）
+    //   coinAdd     : 吃一颗蜂蜜加几连
+    //   nearMissAdd : 擦过一次障碍加几连
+    // 倍率不写死，一律由 comboLevel * step 算出来，离线断言能直接对表。
+    COMBO: {
+      window: 2.4,
+      maxStep: 6,
+      step: 0.25,
+      coinAdd: 1,
+      nearMissAdd: 1
+    },
+
+    // ---------- 险躲（任务 2） ----------
+    // margin  : 竖向余量（米）—— 跳过矮栏时"脚底离栏顶"多高以内算擦过去
+    // xMargin : 横向余量（米）—— 绕开实心堆时"车身离它"多近以内算擦过去
+    // score   : 一次险躲的基础分（还要再乘连击倍率与加速倍率）
+    // close   : 余量小到这个数以内，提示文案升级成"毫厘之间"
+    // 说明：悬吊物（钻树干）没有对应的竖向险躲 —— 蹲下后头顶离洞底恒为 0.46 米，
+    // 一旦收进 margin，就等于"每次滑铲白送分"，所以这里刻意不覆盖它。
+    NEAR_MISS: { margin: 0.34, xMargin: 0.52, score: 30, close: 0.12 },
+
+    // ---------- 每局随机挑战（任务 3） ----------
+    // 每局开局从下表随机抽一条（上一条不会连着出现两次），达标一次性给 bonus。
+    // bonus 还会再乘加速倍率，所以"压着加速带刚好冲线"是有额外回报的。
+    //   id     : 稳定标识（纪录与调试参数都用它，改文案别改它）
+    //   metric : 用哪个数据算进度 —— 由 Game._challengeProgress() 映射，必须是它认识的键
+    //   target : 达标线
+    //   bonus  : 完成奖励分
+    //   label  : HUD 徽标上的名字（短）
+    //   text   : 结算面板里的一句话
+    // 设计口径（三条，难度大致递进：顺手 → 堆命 → 真难）：
+    //   honey  —— 顺手的收益，鼓励走蜂蜜滑道（15 罐 ≈ 一局中等水平）
+    //   long   —— 纯里程，新手也能靠命堆出来，属于"低难度保底"
+    //   steady —— "连续不撞"最容易理解，也最容易翻车（撞一下就归零）
+    // 注：险躲 / 连击 两条挑战（原 dodge / combo）已从每局目标里下线，
+    //     但险躲与连击机制本身仍在计分，只是更适合留作长期成就。
+    CHALLENGES: [
+      { id: 'honey',  metric: 'coins',       target: 15,  bonus: 200,
+        label: '蜂蜜猎人', text: '一局吃到 15 罐蜂蜜' },
+      { id: 'long',   metric: 'distance',    target: 600, bonus: 300,
+        label: '森林疾行', text: '一局跑满 600 米' },
+      { id: 'steady', metric: 'cleanMeters', target: 250, bonus: 250,
+        label: '无伤高手', text: '连续 250 米不撞障碍' }
+    ],
+
+    // ---------- 结算与个人纪录（任务 4） ----------
+    // 纪录按**维度**分开存，而不是只看分数：得分高 != 距离远（险躲和连击也加分），
+    // 分开存玩家才有多个可以逐个突破的目标，也才有"下一局追什么"可讲。
+    //   historyMax : 本地最多留几局历史（结算面板只列 showHistory 条）
+    RECORDS: {
+      historyMax: 5,
+      showHistory: 3
+    },
+
+    // 本局亮点：够门槛才上榜（按下面写的顺序取前 max 条）。
+    // 门槛刻意定得比"随便打一局"高一点，否则每局都是同一串字，等于没亮点。
+    HIGHLIGHT: {
+      max: 3,
+      noHitDistance: 250,   // 一次没撞 + 跑够这么远 -> "毫发无伤"
+      nearMiss: 3,          // 险躲次数
+      combo: 3,             // 最长连击
+      coins: 10,            // 蜂蜜罐数
+      distance: 300         // 里程（米）
+    },
+
+    // 分段解锁：跑到指定距离后出现新障碍。
+    //   doubleChance = 这一行再堵第二条道的概率（永远留一条活路）
+    //   comboChance  = 这一行直接堵死两条道、只留一条的概率（只有第 4 区才有）
+    // 旧版这两个数是死写在 ObstacleManager 里的（0.24 / 0.2），第 1 区就在掷双障碍，
+    // 与"第 1 区只教跳和滑铲"的设计意图相矛盾。挪进分区配置后，难度是看得见的表。
     // sub 只在"进入新区域"横幅上显示一句玩法提示，ObstacleManager 不读它。
     DIFFICULTY: [
-      { at: 0,   name: '第 1 区 · 狗熊岭入口', sub: '跳过木栅栏，滑铲钻过横倒的树干',       kinds: ['low', 'high'] },
-      { at: 180, name: '第 2 区 · 密林深处',   sub: '树越来越密，石头木头堆要换道绕开',     kinds: ['low', 'high', 'block'] },
-      { at: 450, name: '第 3 区 · 伐木场',     sub: '原木顺着坡滚下来，看准空隙再走',       kinds: ['low', 'high', 'block', 'mover'] },
-      { at: 800, name: '第 4 区 · 光头强工地', sub: '光头强的地盘，障碍连成一串，别硬撞',   kinds: ['low', 'high', 'block', 'mover', 'combo'] }
+      { at: 0,   name: '第 1 区 · 狗熊岭入口', sub: '跳过木栅栏，滑铲钻过横倒的树干',
+        kinds: ['low', 'high'], doubleChance: 0, comboChance: 0 },
+      { at: 180, name: '第 2 区 · 密林深处', sub: '树越来越密，石头木头堆要换道绕开',
+        kinds: ['low', 'high', 'block'], doubleChance: 0.16, comboChance: 0 },
+      { at: 450, name: '第 3 区 · 伐木场', sub: '原木顺着坡滚下来，看准空隙再走',
+        kinds: ['low', 'high', 'block', 'mover'], doubleChance: 0.24, comboChance: 0 },
+      { at: 800, name: '第 4 区 · 光头强工地', sub: '光头强的地盘，障碍连成一串，别硬撞',
+        kinds: ['low', 'high', 'block', 'mover', 'combo'], doubleChance: 0.30, comboChance: 0.22 }
     ],
 
     /**
@@ -381,7 +496,37 @@
       replayAzRight: null,    // 窗内方位中位 >= 此值 => x = +1（右）
       replayAmpGate: null,    // 幅度门控：只采信幅度高于此值的帧（口径 = series.energy_bin）
       replayAzNeed: null,     // 滑动窗内至少这么多高幅帧才判定，避免单帧抖动
-      replayAzWin: null       // 方位滑动窗长度（帧，10 帧 ≈ 1.3s @7.72Hz）
+      replayAzWin: null,      // 方位滑动窗长度（帧，10 帧 ≈ 1.3s @7.72Hz）
+
+      // ---- 开局校准（新手教程，js/Calibration.js）：现场测符号 + 基线 ----
+      // 为什么必须现场测：组员的 lr-move 数据里用 px_delta 符号判左右只有 53.3% 准确率，
+      // 且静息基线已经偏到 +0.53~+0.97；符号/基线随站位与安装角度变化，没人能替玩家定。
+      //
+      // v2 增加「上游跳/蹲质量探针 + 有界自适应阈值」：
+      //   DEV113P 那批跳/蹲数据（1.92Hz）里，上游判据在静息时的 FPR 高达 85~91%
+      //   （等长 5 帧窗混淆矩阵，见 .deepworks/tmp/gtd/_work/），照抄这类判据会让玩家
+      //   站着不动也在跳/蹲。所以教程第 1~3 步顺便统计上游误报，超限就直接停用雷达跳/蹲。
+      calib: {
+        autoOpen: true,        // 选了雷达且没有可用校准时，自动弹出向导（每页一次）
+        baseFrames: 8,         // 第 1 步：连续多少帧算「站好了」
+        baseStdMax: 0.18,      // 第 1 步：这 8 帧 x 的标准差上限
+        moveDelta: 0.35,       // 第 2/3 步：相对基线的位移阈值（贴着进道阈值 0.36）
+        holdFrames: 3,         // 第 2/3 步：位移要连续保持几帧（@7.75Hz ≈ 390ms）
+        minSpread: 0.5,        // 左右位移差下限（默认参数下数学下界 0.70，仅作安全网）
+        stepTimeoutMs: 25000,  // 单步超时（超时自动重试）
+
+        // ---- v2 质量探针（第 1~3 步静站/走位期间统计上游跳/蹲误报）----
+        probeFrames: 24,       // 探针参考帧数（不足 8 帧不下结论，避免掉线误判）
+        probeSpuriousMax: 2,   // 误报「事件」数上限（左右各算：静站时上游跳/蹲各 <= 2 次）
+        probeRateMax: 0.06,    // 或误报帧占比上限 6%
+        // ---- v2 有界自适应阈值 ----
+        weakPeak: 0.40,        // 玩家自身峰值低于它 => 信号太弱，判不可用（不硬凑阈值）
+        attemptLevel: 0.30,    // 原始值冲破它 = "玩家确实试了一下"（给"太弱"提示用，只认上升沿）
+        learnMargin: 0.6,      // 学到的阈值 = 峰值 × margin（只放松）
+        thFloor: 0.30,         // 自适应下限（再低就是在噪声里触发）
+        thCeil: 0.50,          // 自适应上限（= 上面 jump/crouchThreshold 的占位值）
+        disableTh: 2           // 判不可信时写入的阈值（字段 0~1，>=1 不可达 => 彻底停用该动作）
+      }
     },
 
     /* ---------------- 音频 ----------------
@@ -416,7 +561,11 @@
     STORAGE_KEY: 'bear-run:best-score',
     STORAGE_KEY_INPUT: 'bear-run:input-source',
     STORAGE_KEY_CHAR: 'bear-run:character',
-    STORAGE_KEY_AUDIO: 'bear-run:audio'
+    STORAGE_KEY_AUDIO: 'bear-run:audio',
+    STORAGE_KEY_RECORDS: 'bear-run:records:v1',
+    // 雷达地址记忆：由 radar-connect.html（联调台）写入，main.js 在没给 ?radar= 时读它，
+    // 这样组员在联调台连过一次以后，主菜单点「雷达」直接就是那台机器。
+    STORAGE_KEY_RADAR_URL: 'bear-run:radar:url'
   };
 
 })(window);

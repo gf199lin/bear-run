@@ -147,6 +147,100 @@ html, body {
 
 .face-cam canvas { display: block; width: 100%; height: 100%; }
 
+/* --- 连击徽标（任务 2）---
+   位置接在右上角"得分 / 最高"下面往下排，不用绝对定位，永远不会挡跑道；
+   只有 2 连以上才出现，所以平时这块地方是空的。 */
+.combo-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  margin-top: 4px;
+  padding: 4px 9px 5px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(58, 40, 6, 0.72), rgba(30, 20, 4, 0.6));
+  border: 1px solid rgba(247, 197, 49, 0.5);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.42);
+}
+
+.combo-mult {
+  font-size: 20px;
+  font-weight: 900;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.7);
+}
+
+.combo-line { font-size: 11px; color: var(--ink-dim); letter-spacing: 0.5px; }
+.combo-line b { font-size: 13px; color: var(--ink); }
+
+.combo-bar {
+  display: block;
+  width: 62px;
+  height: 4px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.combo-bar > b {
+  display: block;
+  height: 100%;
+  width: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--boost), var(--gold));
+}
+
+/* 升档那一下：徽标弹一弹，不放大到挡视线 */
+.combo-badge.pop { animation: comboPop 260ms ease-out both; }
+
+.combo-badge.is-max {
+  border-color: rgba(255, 236, 130, 0.95);
+  box-shadow: 0 0 16px rgba(247, 197, 49, 0.55);
+}
+
+@keyframes comboPop {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.16); }
+  100% { transform: scale(1); }
+}
+
+/* --- 险躲避过提示（任务 2）---
+   放在底部状态栏上方：不挡跑道，也不跟顶部的区域横幅抢位置。 */
+.nearmiss-toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--safe-b) + 76px);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 16px 5px;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  background: rgba(12, 22, 8, 0.62);
+  border: 1px solid rgba(142, 209, 79, 0.7);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  animation: nearMissToast 900ms ease-out both;
+}
+
+.nearmiss-word {
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: var(--moss);
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+}
+
+.nearmiss-close { font-size: 12px; font-weight: 700; color: var(--gold); }
+
+@keyframes nearMissToast {
+  0% { opacity: 0; transform: translate(-50%, 8px) scale(0.9); }
+  18% { opacity: 1; transform: translate(-50%, 0) scale(1.06); }
+  70% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, 0) scale(1); }
+}
+
 /* --- 跑进新区域的横幅 ---
    只在画面最上沿占一条扁带（那里基本只有天空，不挡跑道），
    底板半透明 + 磨砂，底下的景物还透得出来；
@@ -937,3 +1031,330 @@ html, body {
   .chip { padding: 6px 12px; font-size: 12px; }
   .menu-card .radar-note { font-size: 10px; line-height: 1.5; }
 }
+
+/* ================= 雷达开局校准（新手教程，js/Calibration.js） ================= */
+
+.calib-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.calib-open-btn { padding: 8px 14px; font-size: 13px; }
+
+.calib-status { font-size: 12px; color: var(--ink-dim); }
+.calib-status.is-ok { color: var(--moss); }
+
+.calib-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--safe-t) + 16px) calc(var(--safe-r) + 16px) calc(var(--safe-b) + 16px) calc(var(--safe-l) + 16px);
+  background: radial-gradient(circle at 50% 40%, rgba(28, 52, 22, 0.9), rgba(6, 12, 5, 0.97));
+  z-index: 40;
+  overflow-y: auto;
+}
+
+.calib-overlay.hidden { display: none; }
+
+.calib-card {
+  width: 100%;
+  max-width: 460px;
+  padding: 22px 22px 18px;
+  border: 1px solid var(--panel-line);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+  text-align: center;
+}
+
+.calib-title { font-size: 13px; letter-spacing: 4px; color: var(--ink-dim); }
+
+.calib-step {
+  margin-top: 8px;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--gold);
+  text-shadow: 0 2px 0 #8a6110;
+}
+
+.calib-text { margin-top: 10px; font-size: 15px; line-height: 1.6; color: var(--ink); }
+
+.calib-msg { margin-top: 12px; min-height: 20px; font-size: 14px; color: var(--ink-dim); }
+.calib-msg.calib-ok { color: var(--moss); }
+.calib-msg.calib-warn { color: var(--boost); }
+.calib-msg.calib-error { color: var(--blood); }
+
+.calib-live {
+  margin-top: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+  font: 12px/1.5 Consolas, "Courier New", monospace;
+  color: var(--ink-dim);
+}
+
+.calib-dots { display: flex; justify-content: center; gap: 8px; margin: 14px 0 4px; }
+.calib-dot { width: 10px; height: 10px; border-radius: 50%; background: rgba(255, 255, 255, 0.18); }
+.calib-dot-done { background: var(--moss); }
+.calib-dot-now { background: var(--gold); transform: scale(1.25); }
+
+.calib-actions { display: flex; gap: 10px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
+
+.calib-btn {
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 14px;
+  border: 1px solid var(--panel-line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.calib-btn:active { transform: translateY(1px); }
+
+@media (max-width: 560px) {
+  .calib-card { padding: 18px 16px 14px; }
+  .calib-step { font-size: 19px; }
+  .calib-text { font-size: 14px; }
+}
+
+/* ================= 每局随机挑战（任务 3） ================= */
+
+/* 徽标放在顶部 HUD 的正中间（#hud-top 是 space-between 的两栏，插在中间即居中）：
+   它必须"一直在那儿"，玩家才记得这局在追什么；所以做得比连击徽标更安静一点。 */
+.challenge-tag {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  max-width: 40vw;
+  margin-top: 2px;
+  padding: 3px 12px 5px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(14, 26, 10, 0.62), rgba(8, 16, 6, 0.5));
+  border: 1px solid rgba(142, 209, 79, 0.42);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4);
+}
+
+.challenge-head { display: flex; align-items: baseline; gap: 6px; }
+
+.challenge-kicker {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: rgba(178, 219, 148, 0.9);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
+}
+
+.challenge-name {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--ink);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7);
+}
+
+.challenge-prog {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.challenge-bar {
+  display: block;
+  width: 132px;
+  height: 4px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.challenge-bar > b {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--moss), var(--gold));
+  transition: width 140ms linear;
+}
+
+.challenge-tag.pop { animation: challengePop 320ms ease-out both; }
+
+.challenge-tag.done {
+  border-color: rgba(255, 236, 130, 0.92);
+  box-shadow: 0 0 16px rgba(247, 197, 49, 0.5);
+}
+
+.challenge-tag.done .challenge-prog { color: #ffe887; }
+.challenge-tag.done .challenge-bar > b { background: var(--gold); }
+
+@keyframes challengePop {
+  0%   { opacity: 0; transform: translateY(-6px) scale(0.88); }
+  55%  { opacity: 1; transform: translateY(0) scale(1.06); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* 达标那一刻的提示：压在区域横幅下面（横幅在顶部偏上，这里往下让开 132px），
+   1.8s 自己走完"弹入 -> 停留 -> 上浮淡出"，与 Hud 里的 1800ms 定时器对齐。 */
+.challenge-toast {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--safe-t) + 132px);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 20px 7px;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  background: rgba(20, 30, 8, 0.68);
+  border: 1px solid rgba(255, 208, 74, 0.8);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.42), 0 0 22px rgba(255, 196, 60, 0.26);
+  animation: challengeToast 1800ms ease-out both;
+}
+
+.challenge-toast-word {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--moss);
+}
+
+.challenge-toast-name {
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: #ffe887;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+}
+
+.challenge-toast-bonus {
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes challengeToast {
+  0%   { opacity: 0; transform: translate(-50%, 10px) scale(0.92); }
+  12%  { opacity: 1; transform: translate(-50%, 0) scale(1.04); }
+  26%  { transform: translate(-50%, 0) scale(1); }
+  82%  { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -6px) scale(1); }
+}
+
+@media (max-width: 900px) {
+  .challenge-tag { max-width: 44vw; padding: 2px 9px 4px; }
+  .challenge-name { font-size: 12px; }
+  .challenge-bar { width: 96px; }
+}
+
+/* ================= 结算页：本局亮点 / 挑战 / 个人纪录（任务 4） ================= */
+
+/* 结算面板比其它面板宽一点：6 项数据 + 挑战小结 + 历史列表要排得下 */
+#overlay-over .panel.small { max-width: 420px; }
+#overlay-over .panel { padding: 22px 20px; }
+#overlay-over .title-sm { margin-bottom: 8px; }
+
+.record-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.record-badge {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: #10240a;
+  background: linear-gradient(180deg, var(--moss), #6fae37);
+  box-shadow: 0 0 12px rgba(142, 209, 79, 0.45);
+}
+
+.over-challenge {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--panel-line);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.28);
+  text-align: left;
+}
+
+.over-challenge.done { border-color: rgba(142, 209, 79, 0.55); }
+
+.over-challenge-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--ink-dim);
+}
+
+.over-challenge-head b { font-size: 12px; letter-spacing: 0; color: var(--ink); }
+.over-challenge.done .over-challenge-head b { color: var(--moss); }
+.over-challenge-name { margin-top: 6px; font-size: 15px; font-weight: 900; color: var(--ink); }
+.over-challenge-text { margin-top: 2px; font-size: 12px; line-height: 1.5; color: var(--ink-dim); }
+
+.over-highlights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.hl-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--panel-line);
+}
+
+.over-next {
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--gold);
+  background: rgba(247, 197, 49, 0.08);
+  border: 1px dashed rgba(247, 197, 49, 0.35);
+}
+
+.over-next.all {
+  color: var(--moss);
+  background: rgba(142, 209, 79, 0.08);
+  border-color: rgba(142, 209, 79, 0.35);
+}
+
+.over-history { margin-bottom: 16px; text-align: left; }
+.over-history-head { margin-bottom: 6px; font-size: 11px; letter-spacing: 1px; color: var(--ink-dim); }
+.over-history-list { display: flex; flex-direction: column; gap: 4px; }
+
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.26);
+}
+
+.history-row b { font-size: 14px; color: var(--gold); font-variant-numeric: tabular-nums; }
+.history-row span { color: var(--ink-dim); }
+.history-won { margin-left: auto; font-style: normal; font-size: 11px; color: var(--moss); }

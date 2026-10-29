@@ -8,7 +8,7 @@
 <meta name="format-detection" content="telephone=no" />
 <meta name="theme-color" content="#2f6b2a" />
 <title>熊二快跑 · Bear Run</title>
-<link rel="stylesheet" href="./style.css?v=20261020e" />
+<link rel="stylesheet" href="./style.css?v=20261020h" />
 <script>
 /* 启动期错误兜底：任何脚本异常都直接显示在屏幕上，方便现场排查 */
 (function () {
@@ -60,6 +60,21 @@
         <span class="stat-label">最高</span>
         <span id="stat-best" class="stat-value dim">0</span>
       </div>
+      <!-- 连击徽标：够 2 连才出现，倍率从 x1.25 起往上叠 -->
+      <div id="combo-badge" class="combo-badge hidden">
+        <span id="combo-mult" class="combo-mult">x1.00</span>
+        <span class="combo-line"><b id="combo-count">0</b> 连击</span>
+        <span class="combo-bar"><b id="combo-bar-fill"></b></span>
+      </div>
+
+    <!-- 每局随机挑战（任务 3）：开局抽一条，达标即得奖励分 -->
+    <div id="challenge-tag" class="challenge-tag hidden">
+      <div class="challenge-head">
+        <span class="challenge-kicker">挑战</span>
+        <span id="challenge-name" class="challenge-name">-</span>
+        <span id="challenge-progress" class="challenge-prog">0 / 0</span>
+      </div>
+      <span class="challenge-bar"><b id="challenge-bar-fill"></b></span>
     </div>
   </header>
 
@@ -68,6 +83,19 @@
     <div class="region-banner-kicker">进入新区域</div>
     <div class="region-banner-name"></div>
     <div class="region-banner-sub"></div>
+  </div>
+
+  <!-- ========== 险躲避过提示 ========== -->
+  <div id="nearmiss-toast" class="nearmiss-toast hidden">
+    <span class="nearmiss-word">险躲</span>
+    <span id="nearmiss-close" class="nearmiss-close hidden"></span>
+  </div>
+
+  <!-- ========== 挑战达标提示（任务 3） ========== -->
+  <div id="challenge-toast" class="challenge-toast hidden">
+    <span class="challenge-toast-word">挑战完成</span>
+    <span class="challenge-toast-name">-</span>
+    <span class="challenge-toast-bonus">+0</span>
   </div>
 
   <!-- ========== 底部状态栏 ========== -->
@@ -160,6 +188,14 @@
               <button class="chip" type="button" data-input="mock">雷达模拟器</button>
             </div>
             <div id="radar-url-note" class="radar-note"></div>
+            <div class="radar-note" style="margin-top:2px">
+              <a href="./radar-connect.html" target="_blank" style="color:#f7c531">雷达连不上 / 要换地址 → 打开雷达联调台</a>
+            </div>
+
+            <div class="calib-menu-row">
+              <button id="btn-calib" class="ghost-btn calib-open-btn" type="button">校准雷达动作</button>
+              <span id="calib-status" class="calib-status"></span>
+            </div>
           </div>
         </div>
       </aside>
@@ -183,11 +219,31 @@
     <div class="panel small">
       <h2 class="title-sm">被光头强逮住了</h2>
       <div id="over-newbest" class="new-best hidden">新纪录</div>
+      <div id="over-badges" class="record-badges hidden"></div>
       <div class="result-grid">
         <div class="result-item"><span>得分</span><b id="over-score">0</b></div>
         <div class="result-item"><span>距离</span><b id="over-distance">0</b></div>
         <div class="result-item"><span>蜂蜜</span><b id="over-coins">0</b></div>
         <div class="result-item"><span>最高分</span><b id="over-best">0</b></div>
+        <div class="result-item"><span>最长连击</span><b id="over-combo">0</b></div>
+        <div class="result-item"><span>最佳距离</span><b id="over-best-distance">0</b></div>
+      </div>
+
+      <div id="over-challenge" class="over-challenge hidden">
+        <div class="over-challenge-head">
+          <span>本局挑战</span>
+          <b id="over-challenge-state">未完成</b>
+        </div>
+        <div id="over-challenge-name" class="over-challenge-name">-</div>
+        <div id="over-challenge-text" class="over-challenge-text">-</div>
+      </div>
+
+      <div id="over-highlights" class="over-highlights hidden"></div>
+      <div id="over-next" class="over-next hidden">-</div>
+
+      <div id="over-history" class="over-history hidden">
+        <div class="over-history-head">之前几局</div>
+        <div id="over-history-list" class="over-history-list"></div>
       </div>
       <div class="btn-col">
         <button id="btn-restart" class="primary-btn" type="button">再来一局</button>
@@ -218,20 +274,21 @@
 </div>
 
 <!-- 经典脚本按顺序加载：不需要 HTTP 服务器，双击 index.html 就能玩 -->
-<script src="./vendor/three.min.js?v=20261020e"></script>
-<script src="./js/config.js?v=20261020e"></script>
-<script src="./js/Audio.js?v=20261020e"></script>
-<script src="./js/InputSource.js?v=20261020e"></script>
-<script src="./js/Art.js?v=20261020e"></script>
-<script src="./js/World.js?v=20261020e"></script>
-<script src="./js/Particles.js?v=20261020e"></script>
-<script src="./js/Player.js?v=20261020e"></script>
-<script src="./js/Vick.js?v=20261020e"></script>
-<script src="./js/ObstacleManager.js?v=20261020e"></script>
-<script src="./js/FaceCam.js?v=20261020e"></script>
-<script src="./js/Hud.js?v=20261020e"></script>
-<script src="./js/DebugPanel.js?v=20261020e"></script>
-<script src="./js/Game.js?v=20261020e"></script>
-<script src="./js/main.js?v=20261020e"></script>
+<script src="./vendor/three.min.js?v=20261020h"></script>
+<script src="./js/config.js?v=20261020h"></script>
+<script src="./js/Audio.js?v=20261020h"></script>
+<script src="./js/InputSource.js?v=20261020h"></script>
+<script src="./js/Art.js?v=20261020h"></script>
+<script src="./js/World.js?v=20261020h"></script>
+<script src="./js/Particles.js?v=20261020h"></script>
+<script src="./js/Player.js?v=20261020h"></script>
+<script src="./js/Vick.js?v=20261020h"></script>
+<script src="./js/ObstacleManager.js?v=20261020h"></script>
+<script src="./js/FaceCam.js?v=20261020h"></script>
+<script src="./js/Hud.js?v=20261020h"></script>
+<script src="./js/DebugPanel.js?v=20261020h"></script>
+<script src="./js/Calibration.js?v=20261020h"></script>
+<script src="./js/Game.js?v=20261020h"></script>
+<script src="./js/main.js?v=20261020h"></script>
 </body>
 </html>

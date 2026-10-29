@@ -3,6 +3,7 @@
  *
  * 支持的 URL 参数（方便真机联调，不用改代码）：
  *   ?input=keyboard|touch|radar|mock
+ *   ?challenge=honey|dodge|steady|combo|long   调试用：钉死这一局的随机挑战
  *   ?radar=ws://192.168.1.7:8766
  *   ?char=xiong2|xiong1   直接指定角色（熊二 / 熊大）
  *   ?debug=1        直接打开雷达调试面板
@@ -51,8 +52,18 @@
     global.RRGame = game;              // 方便在浏览器控制台里调试
 
     // ---------- URL 参数 ----------
+    // 雷达地址三处优先级：?radar= > localStorage（radar-connect.html 联调台记下的）> config.js 默认值。
+    // 用 URL 参数指定过一次，也会被记下来，下次主菜单点「雷达」直接用同一台机器。
     var radarUrl = queryParam('radar');
-    if (radarUrl) RR.CFG.RADAR.defaultUrl = radarUrl;
+    if (radarUrl) {
+      RR.CFG.RADAR.defaultUrl = radarUrl;
+      try { localStorage.setItem(RR.CFG.STORAGE_KEY_RADAR_URL, radarUrl); } catch (e) { /* 忽略 */ }
+    } else {
+      try {
+        var savedRadar = localStorage.getItem(RR.CFG.STORAGE_KEY_RADAR_URL);
+        if (savedRadar) RR.CFG.RADAR.defaultUrl = savedRadar;
+      } catch (e) { /* 忽略 */ }
+    }
 
     // 离线回放：?input=replay&replay=<js路径>&series=<站点>&replayk=<阈值>&replayspeed=<倍速>
     var rpUrl = queryParam('replay');
@@ -82,13 +93,112 @@
     var hp = queryParam('hp');                   // 联调：临时加命，方便长时间观察
     if (hp) { RR.CFG.HP.start = Number(hp); RR.CFG.HP.max = Math.max(RR.CFG.HP.max, Number(hp)); }
 
+    // ---------- 雷达开局校准（新手教程，js/Calibration.js） ----------
+    // 现场测出方向符号 + 静息基线，修正后续所有帧的 x（x' = (x - x0) * sign）。
+    // 装配全在这里，Game.js / InputSource.js 都不用改。
+    var wizard = null;
+    var wrappedSrc = null;
+    var autoAsked = false;
+
+    function currentSource() {
+      return (game.input && game.input.current) ? game.input.current : null;
+    }
+
+    function calibSaved() {
+      return RR.Calibration ? RR.Calibration.load() : null;
+    }
+
+    function updateCalibNote() {
+      var el = $('calib-status');
+      if (!el) return;
+      var cal = calibSaved();
+      if (cal && RR.Calibration.isUsable(cal)) {
+        el.textContent = '已校准 · ' + RR.Calibration.describe(cal);
+        el.className = 'calib-status is-ok';
+      } else {
+        el.textContent = '未校准：选雷达后会自动引导';
+        el.className = 'calib-status';
+      }
+    }
+
+    function ensureWizard() {
+      if (wizard) return wizard;
+      wizard = new RR.CalibrationWizard({
+        onDone: function (cal) {
+          var s = currentSource();
+          if (s && s.id === 'radar' && cal && RR.Calibration.isUsable(cal)) {
+            RR.Calibration.install(s, cal);
+          }
+          updateCalibNote();
+        },
+        onClose: function () { updateCalibNote(); }
+      });
+      return wizard;
+    }
+
+    /** 切换输入源后：装校准 + 转发事件 + 首启自动引导 */
+    function syncCalibration() {
+      if (!RR.Calibration || !RR.CalibrationWizard) return;
+      updateCalibNote();
+      var src = currentSource();
+      if (!src) return;
+
+      if (src !== wrappedSrc) {                       // 事件转发只挂一次
+        wrappedSrc = src;
+        var prev = src.onEvent;
+        src.onEvent = function (type) {
+          if (wizard && wizard.isOpen) wizard.notifyEvent(type);
+          if (prev) prev.call(this, type);
+        };
+      }
+
+      if (src.id !== 'radar') return;                 // 只有真实雷达需要校准
+      var cal = calibSaved();
+      if (cal && RR.Calibration.isUsable(cal)) {
+        RR.Calibration.install(src, cal);
+        return;
+      }
+      var cfg = (RR.CFG.RADAR && RR.CFG.RADAR.calib) || {};
+      if (cfg.autoOpen !== false && !autoAsked) {      // 每次打开页面最多自动弹一次
+        autoAsked = true;
+        setTimeout(function () {
+          if (!calibSaved()) ensureWizard().open(currentSource());
+        }, 600);
+      }
+    }
+
+    function openCalibration() {
+      if (!RR.Calibration || !RR.CalibrationWizard) return;
+      if (!currentSource() || currentSource().id !== 'radar') game.setInputSource('radar');
+      var src = currentSource();
+      if (!src || src.id !== 'radar') return;
+      ensureWizard().open(src);
+    }
+
+    // 向导自己每帧驱动，不依赖游戏循环 —— 在开始界面里也能校准
+    var calibLast = 0;
+    function driveWizard(ts) {
+      requestAnimationFrame(driveWizard);
+      var now = ts || (global.performance ? global.performance.now() : Date.now());
+      var dt = calibLast ? (now - calibLast) / 1000 : 1 / 60;
+      calibLast = now;
+      if (!(dt > 0) || dt > 0.5) dt = 1 / 60;
+      if (wizard && wizard.isOpen) wizard.update(dt);
+    }
+
     var initialInput = queryParam('input') || game.savedInputId;
     game.setInputSource(initialInput);
+    syncCalibration();
+    requestAnimationFrame(driveWizard);
 
     if (queryParam('debug') === '1') game.debug.setVisible(true);
 
     var startAt = Number(queryParam('startat'));
     if (isFinite(startAt) && startAt > 0) game.startAt = startAt;
+
+    // 调试用（?challenge=<id>）：跳过随机，直接钉死这一局的挑战
+    var forcedChallenge = queryParam('challenge');
+    if (forcedChallenge) game._forcedChallenge = forcedChallenge;
 
     // ---------- 按钮绑定 ----------
     bind('btn-start', function () { requestFullscreenIfMobile(); game.start(); });
@@ -104,6 +214,9 @@
 
     bind('btn-debug', function () { game.debug.toggle(); });
     bind('debug-close', function () { game.debug.setVisible(false); });
+
+    // 雷达校准（新手教程）入口
+    bind('btn-calib', function () { openCalibration(); });
 
     // ---------- 音频 ----------
     // 音效和背景音乐都是 WebAudio 现场合成的（js/Audio.js），工程里没有任何
@@ -136,6 +249,7 @@
         var id = btn.getAttribute('data-input');
         if (!id) return;
         game.setInputSource(id);
+        syncCalibration();
       });
     }
 

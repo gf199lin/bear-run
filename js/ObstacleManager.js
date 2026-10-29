@@ -42,6 +42,8 @@
       this.items.length = 0;
 
       this.distance = 0;
+      this.speed = CFG.SPEED.start;   // gap 需要用当前速度换算（见 get gap）
+      this.mercyMetersLeft = 0;       // 掉血后的喘息里程（grantMercy 会点亮它）
       this.moverPhase = 0;
       this.meterSinceHeal = 0;
       this.meterSinceBoost = 0;
@@ -58,9 +60,21 @@
       this.spawnCursor = this.gap * 0.6;
     }
 
+    /**
+     * 两行之间隔多少米 = 当前速度 x 当前"时间间隔"。
+     * 时间间隔随里程从 timeGapStart 收到 timeGapMin，所以随着速度上升，
+     * 米数反而越拉越开，但真正决定难度的"反应时间"在稳步变短。
+     */
     get gap() {
       var t = Math.min(1, this.distance / CFG.SPAWN.rampMeters);
-      return CFG.SPAWN.startGap + (CFG.SPAWN.minGap - CFG.SPAWN.startGap) * t;
+      var tg = CFG.SPAWN.timeGapStart + (CFG.SPAWN.timeGapMin - CFG.SPAWN.timeGapStart) * t;
+      var v = this.speed || CFG.SPEED.start;
+      return Math.max(CFG.SPAWN.minGap, v * tg);
+    }
+
+    /** 掉血后给一段喘息：这段时间内不生成双障碍 / combo，节奏能重新找回来 */
+    grantMercy() {
+      this.mercyMetersLeft = CFG.SPAWN.mercyMeters;
     }
 
     get stage() {
@@ -85,11 +99,15 @@
 
     update(dt, speed, distance) {
       this.distance = distance;
+      this.speed = speed;
       this.moverPhase += dt * 1.75;
 
       var delta = speed * dt;
       this.meterSinceHeal += delta;
       this.meterSinceBoost += delta;
+      if (this.mercyMetersLeft > 0) {
+        this.mercyMetersLeft = Math.max(0, this.mercyMetersLeft - delta);
+      }
 
       var i, it;
       for (i = this.items.length - 1; i >= 0; i--) {
@@ -122,7 +140,7 @@
       var guard = 0;
       while (this.spawnCursor <= 0 && guard++ < 8) {
         this._spawnRow(-CFG.WORLD.visibleLength);
-        this.spawnCursor += this.gap * A.rand(0.86, 1.18);
+        this.spawnCursor += this.gap * A.rand(CFG.SPAWN.jitter[0], CFG.SPAWN.jitter[1]);
       }
     }
 
@@ -133,8 +151,13 @@
       var lanes = [0, 1, 2];
       var spawns = [];
 
+      // 掉血后的喘息段：这一行最多只堵一条道，让玩家把节奏找回来
+      var mercy = this.mercyMetersLeft > 0;
+      var comboChance = mercy ? 0 : (this.stage.comboChance || 0);
+      var doubleChance = mercy ? 0 : (this.stage.doubleChance || 0);
+
       // combo：两条道堵死，只留一条
-      if (kinds.indexOf('combo') >= 0 && Math.random() < 0.2) {
+      if (kinds.indexOf('combo') >= 0 && Math.random() < comboChance) {
         var free = A.pick(lanes);
         for (var l = 0; l < 3; l++) {
           if (l !== free) spawns.push({ lane: l, kind: 'block', lanes: [l] });
@@ -161,7 +184,7 @@
           if (covered.indexOf(lanes[r]) < 0) rest.push(lanes[r]);
         }
         // 第一件是滚轮箱时只剩一条道 -- 再堵就是三线全封的死路，必须收手
-        if (rest.length >= 2 && Math.random() < 0.24) {
+        if (rest.length >= 2 && Math.random() < doubleChance) {
           var lane2 = A.pick(rest);
           // 滚轮箱一个人就要占两条道，而此刻只剩两条 -- 它一进来就把活路吃光，
           // 所以第二件只从"占一条道"的障碍里挑（combo 会退化成 block）
@@ -312,59 +335,85 @@
     // ==================== 碰撞 ====================
 
     checkCollisions(player) {
-      var result = { hit: false, obstacle: null, coins: 0, heal: 0, boost: false };
+      var result = { hit: false, obstacle: null, coins: 0, heal: 0, boost: false,
+                     nearMiss: 0, nearMissBest: 0 };
       var laneTol = CFG.LANE_TOLERANCE;
       var playerReach = 0.45;
+      var margin = CFG.NEAR_MISS.margin;
+      var xMargin = CFG.NEAR_MISS.xMargin;
 
       for (var i = this.items.length - 1; i >= 0; i--) {
         var it = this.items[i];
         if (it.collected || it.resolved) continue;
 
-        if (Math.abs(it.x - player.x) > laneTol) continue;
+        var dx = Math.abs(it.x - player.x);
+        var inLane = dx <= laneTol;
 
         // 扫掠检测：高速低帧率下也不能穿透
         var reach = it.halfDepth + playerReach;
         var prevZ = (it.prevZ === undefined) ? it.z : it.prevZ;
-        if (!(prevZ <= reach && it.z >= -reach)) continue;
+        var inSweep = (prevZ <= reach && it.z >= -reach);
 
-        if (it.kind === 'coin') {
+        // ---- 拾取物：必须正好落在车道上 ----
+        if (it.kind === 'coin' || it.kind === 'heal' || it.kind === 'boost') {
+          if (!inLane || !inSweep) continue;
+
           it.collected = true;
-          result.coins++;
+          if (it.kind === 'coin') result.coins++;
+          else if (it.kind === 'heal') result.heal++;
+          else result.boost = true;
+
           this._releaseItem(it);
           this.items.splice(i, 1);
           continue;
         }
 
-        if (it.kind === 'heal') {
-          it.collected = true;
-          result.heal++;
-          this._releaseItem(it);
-          this.items.splice(i, 1);
-          continue;
-        }
-
-        if (it.kind === 'boost') {
-          it.collected = true;
-          result.boost = true;
-          this._releaseItem(it);
-          this.items.splice(i, 1);
-          continue;
-        }
-
-        // ---- 障碍判定 ----
+        // ---- 障碍：撞上 ----
+        // 判定口径与旧版逐字一致，只是把两个前置条件换成了 inLane / inSweep。
         var blocked = false;
-        if (it.solid) {
-          blocked = true;
-        } else if (it.clearHeight !== undefined) {
-          blocked = player.bottom < it.clearHeight;      // 矮栏：跳得不够高就撞
-        } else if (it.gapBottom !== undefined) {
-          blocked = player.top > it.gapBottom;           // 悬吊物：没蹲下去就撞
+        if (inLane && inSweep) {
+          if (it.solid) {
+            blocked = true;
+          } else if (it.clearHeight !== undefined) {
+            blocked = player.bottom < it.clearHeight;      // 矮栏：跳得不够高就撞
+          } else if (it.gapBottom !== undefined) {
+            blocked = player.top > it.gapBottom;           // 悬吊物：没蹲下去就撞
+          }
         }
 
         if (blocked) {
           it.resolved = true;
           result.hit = true;
           result.obstacle = it;
+          continue;
+        }
+
+        // ---- 障碍：擦过去（险躲）----
+        // 只认"障碍中心穿过玩家所在平面"的那一帧（prevZ < 0 <= z）：
+        // 同一件障碍最多记一次，也不会和扫掠窗口里的多帧判定互相干扰。
+        // 记账用独立标志 nearMissed —— resolved 的含义（"撞上了"）一点都不动。
+        if (it.nearMissed || !(prevZ < 0 && it.z >= 0)) continue;
+
+        var left;
+        if (it.solid) {
+          // 实心堆：只能换道绕，所以看"横向让出了多少"（还在道上就是撞，走不到这里）
+          if (dx > laneTol + xMargin) continue;
+          left = dx - laneTol;
+        } else if (it.clearHeight !== undefined) {
+          // 矮栏：看"脚底离栏顶还剩多少"
+          if (!inLane) continue;
+          left = player.bottom - it.clearHeight;
+        } else {
+          // 悬吊物：蹲下后余量恒为 0.46 米，收不进 margin，不参与险躲
+          continue;
+        }
+
+        it.nearMissed = true;
+        if (left >= 0 && left <= (it.solid ? xMargin : margin)) {
+          result.nearMiss++;
+          if (result.nearMissBest === 0 || left < result.nearMissBest) {
+            result.nearMissBest = left;
+          }
         }
       }
 
