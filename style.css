@@ -1047,54 +1047,6 @@ html, body {
 .calib-status { font-size: 12px; color: var(--ink-dim); }
 .calib-status.is-ok { color: var(--moss); }
 
-/* ================= 主页 · 雷达排障入口（数据体检 / 联调台） ================= */
-
-.radar-tools {
-  margin-top: 12px;
-  padding-top: 11px;
-  border-top: 1px dashed rgba(247, 197, 49, 0.22);
-}
-
-.radar-tools-label {
-  margin-bottom: 7px;
-  font-size: 10.5px;
-  letter-spacing: 2px;
-  color: var(--ink-dim);
-}
-
-.radar-tools-row { display: flex; gap: 8px; flex-wrap: wrap; }
-
-.tool-btn {
-  flex: 1 1 118px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px 11px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--ink);
-  text-decoration: none;
-  text-align: left;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.tool-btn:hover {
-  background: rgba(247, 197, 49, 0.12);
-  border-color: rgba(247, 197, 49, 0.45);
-}
-
-.tool-btn b { font-size: 12.5px; font-weight: 700; }
-.tool-btn span { font-size: 10px; line-height: 1.45; color: var(--ink-dim); }
-.radar-tools-hint { margin-top: 7px; font-size: 10.5px; line-height: 1.5; color: var(--ink-dim); }
-
-@media (max-width: 900px) and (max-height: 500px) {
-  .radar-tools { margin-top: 8px; padding-top: 8px; }
-  .radar-tools-hint { display: none; }
-  .tool-btn { flex: 1 1 90px; padding: 6px 9px; }
-  .tool-btn span { display: none; }
-}
-
 .calib-overlay {
   position: absolute;
   inset: 0;
@@ -1136,79 +1088,6 @@ html, body {
 .calib-msg.calib-ok { color: var(--moss); }
 .calib-msg.calib-warn { color: var(--boost); }
 .calib-msg.calib-error { color: var(--blood); }
-
-/* ---- 雷达连接：单台 / 双雷达（一台管左右、一台管上下） ---- */
-
-.calib-link {
-  margin-top: 12px;
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.3);
-  text-align: left;
-}
-
-.calib-link-dual {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--ink);
-  cursor: pointer;
-  user-select: none;
-}
-
-.calib-link-dual input {
-  width: 15px;
-  height: 15px;
-  margin: 0;
-  accent-color: var(--gold);
-  cursor: pointer;
-}
-
-.calib-link-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.calib-link-row.calib-hidden { display: none; }
-
-.calib-link-tag {
-  flex: 0 0 auto;
-  width: 30px;
-  font-size: 12px;
-  color: var(--ink-dim);
-}
-
-.calib-link-row input[type="text"] {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 7px 9px;
-  border: 1px solid var(--panel-line);
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.35);
-  color: var(--ink);
-  font: 12px/1.4 Consolas, "Courier New", monospace;
-}
-
-.calib-link-row input[type="text"]:focus {
-  outline: none;
-  border-color: var(--gold);
-}
-
-.calib-link-foot {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 10px;
-  flex-wrap: wrap;
-}
-
-.calib-link-state { font-size: 12px; color: var(--ink-dim); }
-.calib-link-state.is-ok { color: var(--moss); }
-.calib-link-state.is-bad { color: var(--blood); }
 
 .calib-live {
   margin-top: 10px;
