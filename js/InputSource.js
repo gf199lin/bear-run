@@ -371,6 +371,278 @@
     getStatusText() { return this.statusText; }
   }
 
+  // ==================== 双雷达（一路管左右、一路管上下） ====================
+  // 两台雷达同时接入：LR 只负责 x（换道），UD 只负责 jump / crouch / height（跳 / 滑铲）。
+  //
+  // 关键做法是「按角色裁剪帧」而不是「按事件过滤」：
+  //   每台雷达各跑一个独立的 RadarDecoder，但在进解码器之前把不属于它的维度清零
+  //   —— LR 帧的 jump/crouch/height 一律置 0，UD 帧的 x 一律置 0。
+  // 这样两台雷达可以直接发同一套完整帧格式（数据侧不用为「我是哪一路」改协议），
+  // 游戏侧也不依赖上游字段守规矩：LR 永远产生不出 jump，UD 永远换不了道。
+  //
+  // 两路连接、重连、掉线检测完全独立：一台掉线时另一台照常出动作，
+  // 状态栏会写清楚哪一路断了，而不是整个雷达源判死。
+
+  /** 把不属于本通道的维度清零（原地不改原帧，复制一份） */
+  function pickRoleFrame(frame, role) {
+    if (!frame || typeof frame !== 'object') return null;
+    var out = {}, k;
+    for (k in frame) {
+      if (Object.prototype.hasOwnProperty.call(frame, k)) out[k] = frame[k];
+    }
+    if (role === 'lr') {
+      out.height = 0;
+      out.jump = 0;
+      out.crouch = 0;
+    } else {
+      out.x = 0;
+    }
+    return out;
+  }
+
+  /** 双雷达里的一路连接：自己连、自己重连、自己解码 */
+  class RadarChannel {
+    constructor(role, url, owner) {
+      this.role = role;                 // 'lr' = 左右, 'ud' = 上下
+      this.url = url;
+      this.owner = owner;
+      this.ws = null;
+      this.decoder = new RadarDecoder();
+      this.connected = false;
+      this.statusText = '未连接';
+      this.closedByUser = false;
+      this.retryTimer = null;
+      this.lastRaw = null;
+      this.latency = null;
+      this.frames = 0;
+    }
+
+    get label() { return this.role === 'lr' ? '左右雷达' : '上下雷达'; }
+
+    attach() {
+      this.closedByUser = false;
+      this._connect();
+    }
+
+    detach() {
+      this.closedByUser = true;
+      if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; }
+      if (this.ws) {
+        try { this.ws.close(); } catch (e) { /* 忽略 */ }
+        this.ws = null;
+      }
+      this.connected = false;
+      this.statusText = '已断开';
+    }
+
+    _connect() {
+      var self = this;
+      if (typeof WebSocket === 'undefined') {
+        this.statusText = '当前环境不支持 WebSocket';
+        return;
+      }
+      this.statusText = '连接中…';
+      try {
+        this.ws = new WebSocket(this.url);
+      } catch (e) {
+        this.statusText = '地址无效';
+        this._scheduleRetry();
+        return;
+      }
+
+      this.ws.onopen = function () {
+        self.connected = true;
+        self.statusText = '已连接';
+      };
+
+      this.ws.onmessage = function (evt) {
+        var payload;
+        try { payload = JSON.parse(evt.data); } catch (e) { return; }
+        if (Array.isArray(payload)) {
+          for (var i = 0; i < payload.length; i++) self._dispatch(payload[i]);
+        } else {
+          self._dispatch(payload);
+        }
+      };
+
+      this.ws.onerror = function () { self.statusText = '连接错误'; };
+
+      this.ws.onclose = function () {
+        self.connected = false;
+        self.statusText = '已断开';
+        self.ws = null;
+        self._scheduleRetry();
+      };
+    }
+
+    _scheduleRetry() {
+      var self = this;
+      if (this.closedByUser || this.retryTimer) return;
+      this.retryTimer = setTimeout(function () {
+        self.retryTimer = null;
+        if (!self.closedByUser) self._connect();
+      }, 2000);
+    }
+
+    /**
+     * 帧的总入口。
+     * 左右通道必须先经过 owner._handleFrame：校准（Calibration.install）就是装饰这一层，
+     * 学到的 x0 / sign 才会作用到横向读数上；上下通道不经过校准，直接进自己的解码器。
+     */
+    _dispatch(frame) {
+      if (this.role === 'lr' && this.owner && typeof this.owner._handleFrame === 'function') {
+        this.owner._handleFrame(frame);
+      } else {
+        this.ingest(frame);
+      }
+    }
+
+    /** 收到一帧：按角色裁剪 -> 解码 -> 交给双雷达聚合 */
+    ingest(frame) {
+      if (!frame || typeof frame !== 'object') return;
+
+      var now = performance.now();
+      var f = pickRoleFrame(frame, this.role);
+
+      if (f.ts) {
+        var ts = num(f.ts, 0);
+        if (ts > 1e12) this.latency = Date.now() - ts;
+      }
+
+      this.frames++;
+      var events = this.decoder.push(f, now);
+
+      // 存裁剪后的帧：调试面板看到的是"这一路真正喂给解码器的值"
+      f.channel = this.role;
+      this.lastRaw = f;
+
+      if (this.owner) this.owner._onChannelFrame(this, events);
+    }
+
+    update() {
+      if (this.connected && this.decoder.lastFrameAt) {
+        var silent = performance.now() - this.decoder.lastFrameAt;
+        if (silent > R.staleMs) {
+          this.connected = false;
+          this.statusText = '掉线';
+        }
+      }
+    }
+
+    get frameRate() {
+      var avg = this.decoder.averageInterval;
+      return avg > 0 ? 1000 / avg : 0;
+    }
+  }
+
+  class DualRadarInputSource extends BaseInputSource {
+    constructor(lrUrl, udUrl) {
+      super('radar', '双雷达');
+      this.lrUrl = lrUrl || R.defaultUrl;
+      this.udUrl = udUrl || '';
+      this.lr = new RadarChannel('lr', this.lrUrl, this);
+      this.ud = new RadarChannel('ud', this.udUrl, this);
+      this.url = this.lrUrl;                       // 兼容旧代码读 src.url
+      this.urlText = '左右 ' + this.lrUrl + ' · 上下 ' + this.udUrl;
+      this.hint = this.urlText;
+      this.statusText = '连接中…';
+      this.connected = false;
+      this.lastRaw = null;                         // 合并帧（供校准 / 调试面板）
+      this.lastLane = 1;
+      this.frameRate = 0;
+      this.latency = null;
+    }
+
+    attach() { this.lr.attach(); this.ud.attach(); }
+
+    detach() {
+      this.lr.detach();
+      this.ud.detach();
+      this.lastRaw = null;
+      this.connected = false;
+    }
+
+    /**
+     * 校准（Calibration.install）装饰的入口。
+     * 只把帧转给左右通道 => 校准学到的 x0/sign 只作用在横向上，
+     * 上下通道不受影响（它的 x 本来就会被清零）。
+     */
+    _handleFrame(frame) { this.lr.ingest(frame); }
+
+    /** 一路解出了事件：只放行本路负责的动作，再重建合并帧 */
+    _onChannelFrame(channel, events) {
+      var allow = channel.role === 'lr'
+        ? { left: 1, right: 1 }
+        : { jump: 1, slide: 1 };
+      for (var i = 0; i < events.length; i++) {
+        if (allow[events[i]]) this.emit(events[i]);
+      }
+      this._rebuildMerged();
+    }
+
+    /**
+     * 合并帧：x 取左右雷达，height/jump/crouch 取上下雷达。
+     * 这是「玩家实际生效的输入」——调试面板与校准向导都读它。
+     * 引用要稳定（每次收帧才换新对象），否则校准的新鲜度判断会一直当成新帧。
+     */
+    _rebuildMerged() {
+      var lr = this.lr.lastRaw, ud = this.ud.lastRaw;
+      if (!lr && !ud) return;
+
+      var out = {
+        ts: Date.now(),
+        // 左右雷达还没来过帧时给 NaN：解码器里会当成 0（不换道），
+        // 而校准向导的 _validX 会判成"无效" —— 不会把"没数据"学成基线 0。
+        x: lr ? num(lr.x, 0) : NaN,
+        height: ud ? num(ud.height, 0) : 0,
+        jump: ud ? num(ud.jump, 0) : 0,
+        crouch: ud ? num(ud.crouch, 0) : 0,
+        confidence: lr ? num(lr.confidence, 1) : (ud ? num(ud.confidence, 1) : 1),
+        source: 'dual',
+        lr: lr,
+        ud: ud
+      };
+      if (lr && lr.calibrated) {
+        out.calibrated = true;
+        out.rawX = lr.rawX;
+      }
+      this.lastRaw = out;
+    }
+
+    update() {
+      this.lr.update();
+      this.ud.update();
+
+      // connected 只跟左右通道走：校准向导与"雷达掉线"提示都以横向可用性为准，
+      // 上下通道的健康状况单独用 udOnline / statusText 暴露。
+      // 两路都断才真的没输入，此时 connected=false 同时满足旧逻辑。
+      var lrOk = this.lr.connected;
+      var udOk = this.ud.connected;
+      this.connected = lrOk;
+      this._bothOnline = lrOk && udOk;
+      this.statusText = '左右 ' + (lrOk ? '已连接' : this.lr.statusText)
+        + ' · 上下 ' + (udOk ? '已连接' : this.ud.statusText);
+
+      var a = this.lr.frameRate, b = this.ud.frameRate;
+      this.frameRate = (a > 0 && b > 0) ? Math.min(a, b) : (a || b);
+
+      if (this.lr.latency !== null && this.ud.latency !== null) {
+        this.latency = Math.max(this.lr.latency, this.ud.latency);
+      } else {
+        this.latency = this.lr.latency !== null ? this.lr.latency : this.ud.latency;
+      }
+
+      this.lastLane = this.lr.decoder.lane;
+    }
+
+    getStatusText() { return this.statusText; }
+
+    /** 两路是否都在线（界面提示用；游戏逻辑不依赖它） */
+    get bothOnline() { return !!this._bothOnline; }
+    get lrOnline() { return this.lr.connected; }
+    get udOnline() { return this.ud.connected; }
+  }
+
   // ==================== 雷达模拟器（假数据源） ====================
   // 在没有硬件的情况下，用一个"虚拟人体"产生完全相同的帧格式，
   // 走完全相同的解码路径 —— 用来验证雷达链路和调阈值。
@@ -816,7 +1088,14 @@
 
       var src;
       if (id === 'touch') src = new TouchInputSource(this.canvas);
-      else if (id === 'radar') src = new RadarInputSource(this.radarUrl || R.defaultUrl);
+      else if (id === 'radar') {
+        // 双雷达：config 里 dual 打开且给了上下雷达地址才启用；否则退回原来的单雷达
+        if (R.dual && R.udUrl) {
+          src = new DualRadarInputSource(this.radarUrl || R.lrUrl || R.defaultUrl, R.udUrl);
+        } else {
+          src = new RadarInputSource(this.radarUrl || R.lrUrl || R.defaultUrl);
+        }
+      }
       else if (id === 'mock') src = new MockRadarInputSource(this.getThreats);
       else if (id === 'replay') {
         src = new ReplayRadarInputSource({
@@ -855,6 +1134,8 @@
   RR.TouchInputSource = TouchInputSource;
   RR.RadarDecoder = RadarDecoder;
   RR.RadarInputSource = RadarInputSource;
+  RR.RadarChannel = RadarChannel;
+  RR.DualRadarInputSource = DualRadarInputSource;
   RR.MockRadarInputSource = MockRadarInputSource;
   RR.ReplayRadarInputSource = ReplayRadarInputSource;
   RR.InputManager = InputManager;
