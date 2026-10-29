@@ -23,3 +23,21 @@ desktop.ini
 # ---- 临时文件与日志 ----
 *.log
 tmp/
+
+# ---- 依赖库（体积大、可由 package.json 还原）----
+node_modules/
+
+# ---- 构建产物与打包件（只保留源码，不提交压缩包）----
+*.zip
+outputs/
+dist/
+
+# ---- 本地工具与会话数据 ----
+uploads/
+.deepworks/
+.opencode/
+
+# ---- Python 编译缓存（tools/ 下脚本运行时生成）----
+__pycache__/
+*.pyc
+*.pyo
