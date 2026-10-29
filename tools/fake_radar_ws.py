@@ -132,7 +132,23 @@ def drain(conn):
         pass
 
 
-def serve_client(conn, addr, default_profile, live):
+def apply_channels(x, jump, crouch, height, conf, channels):
+    """按分工裁剪这一路要发的维度。
+
+    lr = 只发横向（模拟「管左右」的那台）：jump/crouch/height 一律 0
+    ud = 只发上下（模拟「管上下」的那台）：x 固定 0
+    both = 全字段（单雷达 / 想验证"两台都发全字段也不会串台"时用）
+
+    游戏侧本来就会按通道裁剪，这里只是让假雷达更像真分工现场。
+    """
+    if channels == 'lr':
+        return x, 0.0, 0.0, 0.0, conf
+    if channels == 'ud':
+        return 0.0, jump, crouch, height, conf
+    return x, jump, crouch, height, conf
+
+
+def serve_client(conn, addr, default_profile, live, channels='both'):
     profile = default_profile
     try:
         conn.settimeout(10)
@@ -163,6 +179,8 @@ def serve_client(conn, addr, default_profile, live):
             if gap > 0:
                 time.sleep(gap)
             x, jump, crouch, height, conf = frame_values(profile, i * DT)
+            x, jump, crouch, height, conf = apply_channels(
+                x, jump, crouch, height, conf, channels)
             send_text(conn, json.dumps({
                 'ts': int(time.time() * 1000),
                 'x': round(x, 4),
@@ -170,7 +188,8 @@ def serve_client(conn, addr, default_profile, live):
                 'jump': jump,
                 'crouch': crouch,
                 'confidence': conf,
-                'raw': {'src': 'fake_radar', 'profile': profile, 'frame': i},
+                'raw': {'src': 'fake_radar', 'profile': profile,
+                        'channels': channels, 'frame': i},
             }, ensure_ascii=False))
             i += 1
     except Exception:
@@ -196,38 +215,77 @@ def local_ip():
         return None
 
 
+def start_server(host, port, profile, channels, live):
+    """在一个后台线程里 accept 连接；返回监听 socket（失败返回 None）。"""
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        srv.bind((host, port))
+    except OSError as e:
+        print('绑定 %s:%d 失败：%s' % (host, port, e), flush=True)
+        print('端口被占用？换一个：python fake_radar_ws.py --port 8767', flush=True)
+        return None
+    srv.listen(8)
+
+    def loop():
+        while True:
+            try:
+                conn, addr = srv.accept()
+            except Exception:
+                return
+            threading.Thread(target=serve_client,
+                             args=(conn, addr, profile, live, channels),
+                             daemon=True).start()
+
+    threading.Thread(target=loop, daemon=True).start()
+    return srv
+
+
 def main():
     ap = argparse.ArgumentParser(description='零依赖假雷达（WebSocket 推 JSON 帧）')
     ap.add_argument('--host', default='0.0.0.0', help='监听地址，默认 0.0.0.0（局域网可访问）')
     ap.add_argument('--port', type=int, default=8766, help='监听端口，默认 8766')
     ap.add_argument('--profile', default='good', choices=PROFILES, help='数据档位，默认 good')
+    ap.add_argument('--channels', default='both', choices=('both', 'lr', 'ud'),
+                    help='分工：both=全字段（默认）；lr=只发横向；ud=只发上下')
+    ap.add_argument('--port2', type=int, default=None,
+                    help='再加一路：同一进程里用 --channels2 的分工监听第二个端口'
+                         '（例：--port 8766 --channels lr --port2 8767）')
+    ap.add_argument('--channels2', default='ud', choices=('both', 'lr', 'ud'),
+                    help='第二路的分工，默认 ud（配合 --port2）')
     args = ap.parse_args()
 
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-        srv.bind((args.host, args.port))
-    except OSError as e:
-        print('绑定 %s:%d 失败：%s' % (args.host, args.port, e), flush=True)
-        print('端口被占用？换一个：python fake_radar_ws.py --port 8767', flush=True)
+    live = {'n': 0, 'lock': threading.Lock()}
+    srv = start_server(args.host, args.port, args.profile, args.channels, live)
+    if srv is None:
         return 1
-    srv.listen(8)
+
     ip = local_ip()
     print('=' * 62, flush=True)
-    print(' 假雷达已启动  ws://%s:%d    档位 %s' % (args.host, args.port, args.profile), flush=True)
+    print(' 假雷达已启动  ws://%s:%d    档位 %s    分工 %s'
+          % (args.host, args.port, args.profile, args.channels), flush=True)
     print(' 本机联调台就填：  ws://127.0.0.1:%d' % args.port, flush=True)
     if ip:
         print(' 别的电脑连它：    ws://%s:%d' % (ip, args.port), flush=True)
+
+    if args.port2:
+        srv2 = start_server(args.host, args.port2, args.profile, args.channels2, live)
+        if srv2 is None:
+            return 1
+        print(' 第二路（双雷达）：ws://127.0.0.1:%d    分工 %s'
+              % (args.port2, args.channels2), flush=True)
+
     print(' 切档不用重启，地址后加路径即可，例如 ws://127.0.0.1:%d/noisy' % args.port, flush=True)
     print(' 档位：' + ' / '.join(PROFILES), flush=True)
+    if args.port2:
+        print(' 双雷达进游戏：index.html?input=radar&radar=ws://127.0.0.1:%d'
+              '&radar2=ws://127.0.0.1:%d' % (args.port, args.port2), flush=True)
     print(' 停止：Ctrl+C', flush=True)
     print('=' * 62, flush=True)
-    live = {'n': 0, 'lock': threading.Lock()}
+
     try:
         while True:
-            conn, addr = srv.accept()
-            threading.Thread(target=serve_client, args=(conn, addr, args.profile, live),
-                             daemon=True).start()
+            time.sleep(1)
     except KeyboardInterrupt:
         print('\n已停止', flush=True)
     return 0

@@ -1089,6 +1089,79 @@ html, body {
 .calib-msg.calib-warn { color: var(--boost); }
 .calib-msg.calib-error { color: var(--blood); }
 
+/* ---- 雷达连接：单台 / 双雷达（一台管左右、一台管上下） ---- */
+
+.calib-link {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  text-align: left;
+}
+
+.calib-link-dual {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+
+.calib-link-dual input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--gold);
+  cursor: pointer;
+}
+
+.calib-link-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.calib-link-row.calib-hidden { display: none; }
+
+.calib-link-tag {
+  flex: 0 0 auto;
+  width: 30px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.calib-link-row input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--panel-line);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--ink);
+  font: 12px/1.4 Consolas, "Courier New", monospace;
+}
+
+.calib-link-row input[type="text"]:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+.calib-link-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.calib-link-state { font-size: 12px; color: var(--ink-dim); }
+.calib-link-state.is-ok { color: var(--moss); }
+.calib-link-state.is-bad { color: var(--blood); }
+
 .calib-live {
   margin-top: 10px;
   padding: 7px 10px;

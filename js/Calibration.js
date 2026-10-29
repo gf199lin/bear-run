@@ -290,6 +290,8 @@
       config = config || {};
       this.onDone = config.onDone || function () { };
       this.onClose = config.onClose || function () { };
+      // 面板里改完雷达地址后，交给宿主去重建数据源（见 main.js 的装配）
+      this.onReconnect = config.onReconnect || null;
       this.container = config.container || global.document && global.document.body;
 
       this.src = null;
@@ -383,6 +385,7 @@
       this._rawCrouchRose = false;
       this.message = '';
       this.messageKind = '';
+      this._syncLinkInputs();
       this._enterStep();
       this.el.classList.remove('hidden');
       this._syncUI();
@@ -595,6 +598,13 @@
         this._nextStep();
         return;
       }
+      // 双雷达：上下通道没连上时直接说明，别让玩家对着"跳一下…"干等
+      if (this.src && this.src.udOnline === false) {
+        this.message = '上下雷达没连上（' + (this.src.udUrl || '地址未配置') +
+          '），跳跃信号来不了。修好地址后再跳，或按空格用键盘完成。';
+        this.messageKind = 'warn';
+        return;
+      }
       if (this.upVerdict === 'noisy' || this.probeVerdict === 'noisy') {
         this.jumpOk = false;
         this.crouchOk = false;
@@ -651,6 +661,13 @@
         this.message = '用键盘记录了下蹲（雷达不给下蹲信号）。';
         this.messageKind = 'warn';
         this._nextStep();
+        return;
+      }
+      // 双雷达：上下通道没连上时直接说明
+      if (this.src && this.src.udOnline === false) {
+        this.message = '上下雷达没连上（' + (this.src.udUrl || '地址未配置') +
+          '），下蹲信号来不了。修好地址后再蹲，或按 ↓ 用键盘完成。';
+        this.messageKind = 'warn';
         return;
       }
       if (this.upVerdict === 'noisy' || this.probeVerdict === 'noisy') {
@@ -933,6 +950,9 @@
 
     _onKeyDown(e) {
       if (!this.open_) return;
+      // 地址输入框里打字时不要抢方向键/空格（否则会被当成"用键盘校准"）
+      var t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       var k = e.key;
       if (KEY_LEFT[k]) { this.keys.left = true; e.preventDefault(); }
       else if (KEY_RIGHT[k]) { this.keys.right = true; e.preventDefault(); }
@@ -958,6 +978,25 @@
       wrap.innerHTML = [
         '<div class="calib-card">',
         '  <div class="calib-title">雷达动作确认</div>',
+        // ---- 雷达连接：双雷达就在这里填两路地址，不用先开联调台 ----
+        '  <div class="calib-link">',
+        '    <label class="calib-link-dual">',
+        '      <input type="checkbox" class="calib-dual">',
+        '      <span>两台雷达：一台管左右，一台管上下</span>',
+        '    </label>',
+        '    <div class="calib-link-row">',
+        '      <span class="calib-link-tag">左右</span>',
+        '      <input type="text" class="calib-url-lr" spellcheck="false" autocomplete="off" placeholder="ws://192.168.1.7:8766">',
+        '    </div>',
+        '    <div class="calib-link-row calib-ud-row">',
+        '      <span class="calib-link-tag">上下</span>',
+        '      <input type="text" class="calib-url-ud" spellcheck="false" autocomplete="off" placeholder="ws://192.168.1.7:8767">',
+        '    </div>',
+        '    <div class="calib-link-foot">',
+        '      <button type="button" class="calib-btn calib-connect">连接 / 重连</button>',
+        '      <span class="calib-link-state"></span>',
+        '    </div>',
+        '  </div>',
         '  <div class="calib-step"></div>',
         '  <div class="calib-text"></div>',
         '  <div class="calib-msg"></div>',
@@ -977,7 +1016,12 @@
         text: wrap.querySelector('.calib-text'),
         msg: wrap.querySelector('.calib-msg'),
         live: wrap.querySelector('.calib-live'),
-        dots: wrap.querySelector('.calib-dots')
+        dots: wrap.querySelector('.calib-dots'),
+        dual: wrap.querySelector('.calib-dual'),
+        urlLr: wrap.querySelector('.calib-url-lr'),
+        urlUd: wrap.querySelector('.calib-url-ud'),
+        udRow: wrap.querySelector('.calib-ud-row'),
+        linkState: wrap.querySelector('.calib-link-state')
       };
 
       var self = this;
@@ -987,6 +1031,16 @@
       });
       wrap.querySelector('.calib-skip').addEventListener('click', function () { self.skip(); });
       wrap.querySelector('.calib-close').addEventListener('click', function () { self.close(); });
+      wrap.querySelector('.calib-connect').addEventListener('click', function () {
+        self._connectFromPanel();
+      });
+      this.f.dual.addEventListener('change', function () { self._syncLinkVisibility(); });
+      this.f.urlLr.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') self._connectFromPanel();
+      });
+      this.f.urlUd.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') self._connectFromPanel();
+      });
 
       for (var i = 0; i < STEPS.length; i++) {
         var d = global.document.createElement('span');
@@ -995,6 +1049,98 @@
       }
 
       if (this.container) this.container.appendChild(wrap);
+    }
+
+    // ---------- 雷达连接（一台 / 两台） ----------
+
+    /** 打开时把当前数据源的地址回填到输入框 */
+    _syncLinkInputs() {
+      if (!this.f) return;
+      var R = (RR.CFG && RR.CFG.RADAR) || {};
+      var src = this.src;
+      var lr = (src && src.lrUrl) || (src && src.url) || R.lrUrl || R.defaultUrl || '';
+      var ud = (src && src.udUrl) || R.udUrl || '';
+      var dual = !!(src && src.udUrl) || !!(R.dual && R.udUrl);
+
+      this.f.urlLr.value = lr;
+      this.f.urlUd.value = ud;
+      this.f.dual.checked = dual;
+      this._syncLinkVisibility();
+    }
+
+    _syncLinkVisibility() {
+      if (!this.f) return;
+      var on = this.f.dual.checked;
+      this.f.udRow.classList.toggle('calib-hidden', !on);
+      // 勾上但还没填：默认猜「同一台主机的下一个端口」，现场少想一件事
+      if (on && !this.f.urlUd.value.trim()) {
+        var m = /^(wss?:\/\/[^\/:]+):(\d+)/.exec(this.f.urlLr.value.trim());
+        if (m) this.f.urlUd.value = m[1] + ':' + (Number(m[2]) + 1);
+      }
+    }
+
+    _linkWarn(text) {
+      this.message = text;
+      this.messageKind = 'error';
+      if (this.f && this.f.linkState) {
+        this.f.linkState.textContent = text;
+        this.f.linkState.className = 'calib-link-state is-bad';
+      }
+    }
+
+    /** 点「连接 / 重连」：校验后交给宿主重建数据源（换地址必须重新 new 一次） */
+    _connectFromPanel() {
+      if (!this.f) return;
+      var lr = this.f.urlLr.value.trim();
+      var dual = this.f.dual.checked;
+      var ud = this.f.urlUd.value.trim();
+
+      if (!lr) return this._linkWarn('先填左右雷达地址（ws:// 开头）');
+      if (!/^wss?:\/\//i.test(lr)) return this._linkWarn('左右地址要以 ws:// 或 wss:// 开头');
+      if (dual) {
+        if (!ud) return this._linkWarn('勾了两台雷达，还得填上下雷达地址');
+        if (!/^wss?:\/\//i.test(ud)) return this._linkWarn('上下地址要以 ws:// 或 wss:// 开头');
+      }
+      if (typeof this.onReconnect !== 'function') {
+        return this._linkWarn('这个页面不支持重连，请刷新后重试');
+      }
+
+      this.message = dual
+        ? '正在连两台雷达：左右 ' + lr + ' · 上下 ' + ud
+        : '正在连雷达 ' + lr;
+      this.messageKind = '';
+      if (this.f.linkState) {
+        this.f.linkState.textContent = '正在连接…';
+        this.f.linkState.className = 'calib-link-state';
+      }
+      this.onReconnect({ lrUrl: lr, udUrl: dual ? ud : '', dual: dual });
+    }
+
+    /** 每帧刷新两路的连接状态（掉线要当场看见，而不是等超时） */
+    _syncLinkState() {
+      if (!this.f || !this.f.linkState) return;
+      var src = this.src;
+      var el = this.f.linkState;
+
+      if (!src) {
+        el.textContent = '未连接';
+        el.className = 'calib-link-state is-bad';
+        return;
+      }
+      if (src.id !== 'radar') {
+        el.textContent = '当前是「' + (src.label || src.id) + '」输入，不是雷达';
+        el.className = 'calib-link-state';
+        return;
+      }
+      if (src.udUrl) {
+        var ok = src.lrOnline && src.udOnline;
+        el.textContent = '左右 ' + (src.lrOnline ? '已连接' : src.lr.statusText) +
+          ' · 上下 ' + (src.udOnline ? '已连接' : src.ud.statusText);
+        el.className = 'calib-link-state' + (ok ? ' is-ok' : ' is-bad');
+        return;
+      }
+      el.textContent = src.connected ? '已连接（单台）' : ('未连接：' + (src.statusText || '—'));
+      el.className = 'calib-link-state' + (src.connected ? ' is-ok' : ' is-bad');
     }
 
     // ---------- 刷新界面 ----------
@@ -1027,6 +1173,8 @@
         dots[i].classList.toggle('calib-dot-done', i < this.stepIndex);
         dots[i].classList.toggle('calib-dot-now', i === this.stepIndex);
       }
+
+      this._syncLinkState();
     }
   }
 
