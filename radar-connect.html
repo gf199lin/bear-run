@@ -107,14 +107,13 @@
   <!-- ============ 1. 连接 ============ -->
   <div class="card">
     <h2>1. 连接雷达 <em>（浏览器要求页面不能在 https 下连 ws://）</em></h2>
-
     <div class="row">
-      <span class="hint" style="margin:0;min-width:30px">左右</span>
       <input id="url" type="text" spellcheck="false" placeholder="ws://192.168.1.7:8766">
       <button id="btn-connect" class="primary" type="button">连接</button>
       <button id="btn-disconnect" class="ghost" type="button" disabled>断开</button>
+      <button id="btn-play" class="primary" type="button" disabled>进入游戏（带校准）</button>
     </div>
-    <div class="row" style="margin-top:6px">
+    <div class="row" style="margin-top:8px">
       <span class="hint" style="margin:0">常用：</span>
       <button class="chipbtn" type="button" data-fill="ws://127.0.0.1:8766">本机 8766</button>
       <button class="chipbtn" type="button" data-fill="ws://192.168.1.7:8766">192.168.1.7:8766</button>
@@ -122,37 +121,12 @@
       <button class="chipbtn" type="button" id="btn-clear-url">清掉记忆的地址</button>
     </div>
     <div class="status"><span id="dot" class="dot"></span><span id="status">未连接</span></div>
-
-    <!-- 第二台雷达：一台管左右，一台管上下 -->
-    <label class="hint" style="margin:10px 0 0;display:flex;align-items:center;gap:7px;cursor:pointer">
-      <input id="dual" type="checkbox"> 再加一台雷达：第一台管左右，第二台管上下
-    </label>
-
-    <div id="dual-block" style="display:none">
-      <div class="row" style="margin-top:8px">
-        <span class="hint" style="margin:0;min-width:30px">上下</span>
-        <input id="url2" type="text" spellcheck="false" placeholder="ws://192.168.1.7:8767">
-        <button id="btn-connect2" class="primary" type="button">连接</button>
-        <button id="btn-disconnect2" class="ghost" type="button" disabled>断开</button>
-      </div>
-      <div class="row" style="margin-top:6px">
-        <button class="chipbtn" type="button" data-fill2="ws://127.0.0.1:8767">本机 8767</button>
-        <button class="chipbtn" type="button" id="btn-fill-host2">当前主机名:8767</button>
-      </div>
-      <div class="status"><span id="dot2" class="dot"></span><span id="status2">上下雷达未连接</span></div>
-    </div>
-
     <div class="hint" id="url-memory"></div>
-    <div class="row" style="margin-top:10px">
-      <button id="btn-play" class="primary" type="button" disabled>进入游戏（带校准）</button>
-      <span class="hint" style="margin:0" id="play-note"></span>
-    </div>
   </div>
 
   <!-- ============ 2. 实时数据 ============ -->
   <div class="card">
     <h2>2. 实时数值 <em>（这里显示的 x 是上游原始值；校准后游戏用的是下面那行）</em></h2>
-    <div class="hint" id="src-note">单雷达：所有指标都来自这一路。</div>
     <div class="grid">
       <div class="metric"><b>横向 x <span id="lane" class="lane C">中间</span></b>
         <i id="v-x">—</i><small id="v-x-cal">未校准</small></div>
@@ -164,22 +138,9 @@
       <div class="metric"><b>端到端延迟</b><i id="v-lat">—</i><small id="v-lat-note">依赖 ts 字段</small></div>
       <div class="metric"><b>丢帧 / 断流</b><i id="v-gap">0</i><small id="v-last">还没收到帧</small></div>
     </div>
-
-    <!-- 第二路（上下雷达）自己的链路指标 -->
-    <div class="grid" id="grid2" style="display:none">
-      <div class="metric"><b>上下 · jump</b><i id="v2-jump">—</i><small id="v2-jump-th">阈值 —</small></div>
-      <div class="metric"><b>上下 · crouch</b><i id="v2-crouch">—</i><small id="v2-crouch-th">阈值 —</small></div>
-      <div class="metric"><b>上下 · height</b><i id="v2-height">—</i><small>当前未参与判定</small></div>
-      <div class="metric"><b>上下 · confidence</b><i id="v2-conf">—</i><small id="v2-conf-th">阈值 —</small></div>
-      <div class="metric"><b>上下 · 帧率 / 帧数</b><i id="v2-rate">—</i><small id="v2-frames">0 帧</small></div>
-      <div class="metric"><b>上下 · 延迟</b><i id="v2-lat">—</i><small id="v2-last">还没收到帧</small></div>
-    </div>
-
     <canvas id="wave" width="1200" height="220"></canvas>
-    <div class="hint">
-      蓝线 = 左右雷达 x（−1 左 … +1 右）；橙线 = 上下雷达 jump（0~1）；紫虚线 = 上下雷达 crouch。
-      黄虚线是 <code>enterThreshold</code> 车道线。某条线贴在水平线上不动 = 那一路没采到人 / 数值恒定。
-    </div>
+    <div class="hint">蓝线=上游原始 x（−1 左 … +1 右），黄虚线=<code>enterThreshold</code> 车道线；
+      曲线贴在一条水平线上不动 = 雷达没采到人 / x 恒定。</div>
   </div>
 
   <!-- ============ 3. 现场自检 ============ -->
@@ -273,73 +234,24 @@ raw         原始数据（可选），调试面板会展示</pre>
   var CFG = (window.RR && RR.CFG) || {};
   var RADAR = CFG.RADAR || {};
   var KEY = CFG.STORAGE_KEY_RADAR_URL || 'bear-run:radar:url';
-  var KEY2 = CFG.STORAGE_KEY_RADAR_URL_UD || 'bear-run:radar:url2';
-  var KEYD = CFG.STORAGE_KEY_RADAR_DUAL || 'bear-run:radar:dual';
   function $(id) { return document.getElementById(id); }
 
   // ---------------- 地址记忆 ----------------
   function memGet() { try { return localStorage.getItem(KEY) || ''; } catch (e) { return ''; } }
   function memSet(v) { try { localStorage.setItem(KEY, v); } catch (e) { /* file:// 下可能受限 */ } }
   function memClear() { try { localStorage.removeItem(KEY); } catch (e) { /* 忽略 */ } }
-  function memGet2() { try { return localStorage.getItem(KEY2) || ''; } catch (e) { return ''; } }
-  function memSet2(v) { try { localStorage.setItem(KEY2, v); } catch (e) { /* 忽略 */ } }
-  function memDualSet(on) {
-    try { localStorage.setItem(KEYD, on ? '1' : '0'); } catch (e) { /* 忽略 */ }
-  }
 
   function initUrl() {
     var q = new RegExp('[?&]radar=([^&]*)').exec(location.search);
     var u = (q && decodeURIComponent(q[1])) || memGet() || RADAR.defaultUrl || 'ws://127.0.0.1:8766';
     $('url').value = u;
-
-    // 第二路（上下雷达）：URL 参数 > 记住的地址；?radar2=off 可强制回到单雷达
-    var q2 = new RegExp('[?&]radar2=([^&]*)').exec(location.search);
-    var raw2 = q2 ? decodeURIComponent(q2[1]) : '';
-    var q2off = (raw2 === 'off' || raw2 === '0');
-    var u2 = q2off ? '' : (raw2 || memGet2() || '');
-    $('url2').value = u2;
-    // 默认沿用上次的开关状态（有记住第二路地址才算开过双雷达）
-    try {
-      var saved = localStorage.getItem(KEYD) === '1';
-      $('dual').checked = q2off ? false : (!!u2 && (!!raw2 || saved));
-    } catch (e) {
-      $('dual').checked = q2off ? false : (!!u2 && !!raw2);
-    }
-    syncDualVisibility();
     refreshMemoryNote();
   }
-
-  function syncDualVisibility() {
-    var on = $('dual').checked;
-    $('dual-block').style.display = on ? '' : 'none';
-    $('grid2').style.display = on ? '' : 'none';
-    $('src-note').textContent = on
-      ? '双雷达：x 来自左右雷达；jump / crouch / height 来自上下雷达。下面第二组是上下雷达自己的链路指标。'
-      : '单雷达：所有指标都来自这一路。';
-    updatePlayNote();
-  }
-
-  function updatePlayNote() {
-    var el = $('play-note');
-    if (!el) return;
-    if (!$('dual').checked) { el.textContent = '单雷达模式'; return; }
-    var a = !!ws, b = !!ws2;
-    if (a && b) { el.textContent = '双雷达：左右 + 上下都已连接'; return; }
-    if (!a && !b) { el.textContent = '两路都还没连上'; return; }
-    if (!b) { el.textContent = '注意：上下雷达没连上，进游戏后只有左右（跳 / 蹲会失效）'; return; }
-    el.textContent = '注意：左右雷达没连上';
-  }
-
   function refreshMemoryNote() {
     var m = memGet();
-    var text = m
+    $('url-memory').textContent = m
       ? '游戏会记住这个地址（主菜单点「雷达」就用它）：' + m
       : '还没记住地址：连接成功后会自动记住，游戏主菜单点「雷达」会直接用它。';
-    if ($('dual').checked && memGet2()) {
-      text += '\n上下雷达：' + memGet2() + '（双雷达已记住）';
-    }
-    $('url-memory').textContent = text;
-    $('url-memory').style.whiteSpace = 'pre-line';
   }
 
   // ---------------- 连接 ----------------
@@ -371,43 +283,28 @@ raw         原始数据（可选），调试面板会展示</pre>
     failed = false;
     sock.onopen = function () {
       if (ws !== sock) return;
-      setStatus('左右雷达：已连接 ' + url, 'ok');
-      $('btn-connect').disabled = true;
+      setStatus('已连接 ' + url, 'ok');
       $('btn-disconnect').disabled = false;
       $('btn-play').disabled = false;
       memSet(url);
       refreshMemoryNote();
-      updatePlayNote();
     };
     sock.onmessage = function (evt) { if (ws === sock) onData(evt.data); };
     sock.onerror = function () { if (ws === sock) failed = true; };
     sock.onclose = function (evt) {
       if (ws !== sock) return;
       ws = null;
-      $('btn-connect').disabled = false;
       $('btn-disconnect').disabled = true;
       $('btn-play').disabled = true;
-      updatePlayNote();
       if (evt.wasClean && !failed) { setStatus('已断开 ' + url, ''); return; }
       failStatus(url, evt.code);
     };
-
-    // 双雷达：第二路（上下）单独连，互不影响
-    if ($('dual').checked) {
-      var u2 = $('url2').value.trim();
-      if (u2) connect2();
-      else setStatus2('勾了双雷达，但没填上下雷达地址', 'err');
-    } else {
-      disconnect2(true);
-    }
   }
 
   var failed = false;
 
   // 连接失败时，把「最可能是哪一环」直接写进状态栏，而不是只说"地址/端口/防火墙？"
-  function failStatus(url, code, set, label) {
-    set = set || setStatus;
-    var tag = label ? label + '：' : '';
+  function failStatus(url, code) {
     var host = '';
     try { host = new URL(url).hostname; } catch (e) { host = ''; }
     var local = (host === '' || host === '127.0.0.1' || host === 'localhost' || host === '::1');
@@ -421,125 +318,18 @@ raw         原始数据（可选），调试面板会展示</pre>
     } else {
       why = '确认 ' + host + ' 上的雷达服务在跑，且绑定的是 0.0.0.0';
     }
-    set(tag + '连接失败 ' + url + (code ? '（code=' + code + '）' : '') + ' —— ' + why, 'err');
+    setStatus('连接失败 ' + url + (code ? '（code=' + code + '）' : '') + ' —— ' + why, 'err');
   }
 
-  // 只断左右这一路；上下那一路有自己的按钮，互不牵连
   function disconnect(silent) {
     if (ws) {
       var old = ws;
       ws = null;
       try { old.close(); } catch (e) { /* 忽略 */ }
-      $('btn-connect').disabled = false;
       $('btn-disconnect').disabled = true;
       $('btn-play').disabled = true;
-      if (!silent) setStatus('左右雷达：已断开', '');
-      updatePlayNote();
+      if (!silent) setStatus('已断开', '');
     }
-  }
-
-  // ---------------- 第二路：上下雷达 ----------------
-  // 两路各连各的：左右断开不影响上下，反之亦然。
-  // 游戏的合并规则是「x 只看左右、jump/crouch/height 只看上下」，
-  // 所以这里也按同样的口径显示，联调时看到的就是游戏里真正生效的值。
-  var ws2 = null;
-  var S2 = {
-    frames: 0, lastFrame: null, lastAt: 0,
-    at: [], lat: [], jbuf: [], cbuf: []
-  };
-
-  function setStatus2(text, kind) {
-    $('status2').textContent = text;
-    $('dot2').className = 'dot' + (kind ? ' ' + kind : '');
-  }
-
-  function connect2() {
-    var url = $('url2').value.trim();
-    disconnect2(true);
-    if (!url) { setStatus2('先填上下雷达地址', 'err'); return; }
-    if (!/^wss?:\/\//i.test(url)) { setStatus2('地址要以 ws:// 或 wss:// 开头', 'err'); return; }
-    setStatus2('上下雷达：连接中… ' + url, 'pending');
-    var sock;
-    try { sock = new WebSocket(url); } catch (e) {
-      setStatus2('地址无效：' + e.message, 'err');
-      return;
-    }
-    ws2 = sock;
-    sock.onopen = function () {
-      if (ws2 !== sock) return;
-      setStatus2('上下雷达：已连接 ' + url, 'ok');
-      $('btn-connect2').disabled = true;
-      $('btn-disconnect2').disabled = false;
-      memSet2(url);
-      memDualSet(true);
-      refreshMemoryNote();
-      updatePlayNote();
-    };
-    sock.onmessage = function (evt) { if (ws2 === sock) onData2(evt.data); };
-    sock.onerror = function () { if (ws2 === sock) sock.__failed = true; };
-    sock.onclose = function (evt) {
-      if (ws2 !== sock) return;
-      ws2 = null;
-      $('btn-connect2').disabled = false;
-      $('btn-disconnect2').disabled = true;
-      updatePlayNote();
-      if (evt.wasClean && !sock.__failed) { setStatus2('已断开 ' + url, ''); return; }
-      failStatus(url, evt.code, setStatus2, '上下雷达');
-    };
-  }
-
-  function disconnect2(silent) {
-    if (ws2) {
-      var old = ws2;
-      ws2 = null;
-      try { old.close(); } catch (e) { /* 忽略 */ }
-      $('btn-connect2').disabled = false;
-      $('btn-disconnect2').disabled = true;
-      if (!silent) setStatus2('上下雷达：已断开', '');
-      updatePlayNote();
-    }
-    S2.lastFrame = null;
-    S2.frames = 0;
-    S2.at = [];
-    S2.lat = [];
-    S2.jbuf = [];
-    S2.cbuf = [];
-    S2.lastAt = 0;
-  }
-
-  function onData2(raw) {
-    var payload;
-    try { payload = JSON.parse(raw); } catch (e) {
-      setStatus2('收到非 JSON 数据（' + (typeof raw) + '）', 'err');
-      return;
-    }
-    var list = Array.isArray(payload) ? payload : [payload];
-    for (var i = 0; i < list.length; i++) onFrame2(list[i]);
-  }
-
-  function onFrame2(f) {
-    if (!f || typeof f !== 'object') return;
-    var now = performance.now();
-    if (S2.lastAt) {
-      S2.at.push(now - S2.lastAt);
-      if (S2.at.length > 30) S2.at.shift();
-    }
-    S2.lastAt = now;
-    S2.lastFrame = f;
-    S2.frames++;
-
-    S2.jbuf.push(Math.max(0, Math.min(1, num(f.jump, 0))));
-    if (S2.jbuf.length > 240) S2.jbuf.shift();
-    S2.cbuf.push(Math.max(0, Math.min(1, num(f.crouch, 0))));
-    if (S2.cbuf.length > 240) S2.cbuf.shift();
-
-    var ts = num(f.ts, 0);
-    if (ts > 1e12) S2.lat.push(Math.max(0, Date.now() - ts));
-    if (S2.lat.length > 30) S2.lat.shift();
-
-    // 双雷达时跳/蹲来自这一路 —— 静息误报自检也得看这一路
-    if (S.still) stillTick(f);
-    drawWaveSoon();
   }
 
   function onData(raw) {
@@ -577,9 +367,8 @@ raw         原始数据（可选），调试面板会展示</pre>
     if (ts > 1e12) S.lat.push(Math.max(0, Date.now() - ts));
     if (S.lat.length > 30) S.lat.shift();
 
-    // 双雷达时跳/蹲来自第二路，静息自检只在单雷达模式下看这一路，避免两路重复计数
-    if (S.still && !$('dual').checked) stillTick(f);
-    drawWaveSoon();
+    if (S.still) stillTick(f);
+    drawWave();
   }
 
   // ---------------- 数值渲染（节流到 ~15fps） ----------------
@@ -589,18 +378,10 @@ raw         原始数据（可选），调试面板会展示</pre>
     var now = performance.now();
     if (now - renderAt < 66) return;
     renderAt = now;
-
-    var dual = $('dual').checked;
-    // 第二路的指标先刷新：即使左右那路还没连上，也要能看到上下雷达的心跳
-    if (dual) renderSecond(S2.lastFrame);
-
     var f = S.lastFrame;
     if (!f) return;
-
-    // 双雷达时：x 看左右雷达，jump/crouch/height 看上下雷达（与游戏里的合并规则一致）
-    var up = (dual && S2.lastFrame) ? S2.lastFrame : f;
-    var x = num(f.x, 0), jump = num(up.jump, 0), crouch = num(up.crouch, 0);
-    var height = num(up.height, 0), conf = num(f.confidence, 1);
+    var x = num(f.x, 0), jump = num(f.jump, 0), crouch = num(f.crouch, 0);
+    var height = num(f.height, 0), conf = num(f.confidence, 1);
 
     $('v-x').textContent = x.toFixed(3);
     var enter = num(RADAR.enterThreshold, 0.36), exit = num(RADAR.exitThreshold, 0.22);
@@ -636,114 +417,39 @@ raw         原始数据（可选），调试面板会展示</pre>
     $('v-conf').style.color = conf < minc ? 'var(--blood)' : 'var(--moss)';
     $('v-conf-th').textContent = conf < minc ? '低于 ' + minc + '，这帧会被丢弃' : '可用（阈值 ' + minc + '）';
 
-    var avg = avgOf(S.at);
+    var avg = S.at.length ? S.at.reduce(function (a, b) { return a + b; }, 0) / S.at.length : 0;
     $('v-rate').textContent = avg ? (1000 / avg).toFixed(1) + ' Hz' : '—';
     $('v-frames').textContent = S.frames + ' 帧';
     if (avg) S.expectMs = avg;
-    var lat = S.lat.length ? avgOf(S.lat) : null;
+    var lat = S.lat.length ? S.lat.reduce(function (a, b) { return a + b; }, 0) / S.lat.length : null;
     $('v-lat').textContent = lat === null ? '—' : Math.round(lat) + ' ms';
     $('v-lat-note').textContent = lat === null ? 'ts 缺失或不是毫秒时间戳' : '按帧里的 ts 计算';
     $('v-gap').textContent = S.gaps;
     $('v-last').textContent = '最近一帧 ' + ((performance.now() - S.lastAt) / 1000).toFixed(1) + ' 秒前';
   }
 
-  function avgOf(arr) {
-    if (!arr.length) return 0;
-    return arr.reduce(function (a, b) { return a + b; }, 0) / arr.length;
-  }
-
-  /** 第二路（上下雷达）自己的读数 —— 和第一路分开算，方便定位是哪一台的问题 */
-  function renderSecond(f2) {
-    var avg2 = avgOf(S2.at);
-    $('v2-rate').textContent = avg2 ? (1000 / avg2).toFixed(1) + ' Hz' : '—';
-    $('v2-frames').textContent = S2.frames + ' 帧';
-    var lat2 = S2.lat.length ? avgOf(S2.lat) : null;
-    $('v2-lat').textContent = lat2 === null ? '—' : Math.round(lat2) + ' ms';
-    $('v2-last').textContent = S2.lastAt
-      ? '最近一帧 ' + ((performance.now() - S2.lastAt) / 1000).toFixed(1) + ' 秒前'
-      : '还没收到帧';
-
-    var jth = num(RADAR.jumpThreshold, 0.5);
-    var cth = num(RADAR.crouchThreshold, 0.5);
-    var minc = num(RADAR.minConfidence, 0.3);
-
-    if (!f2) {
-      ['v2-jump', 'v2-crouch', 'v2-height', 'v2-conf'].forEach(function (id) {
-        $(id).textContent = '—';
-        $(id).style.color = '';
-      });
-      $('v2-jump-th').textContent = '等上下雷达数据';
-      $('v2-crouch-th').textContent = '等上下雷达数据';
-      $('v2-conf-th').textContent = '等上下雷达数据';
-      return;
-    }
-
-    var j = num(f2.jump, 0), c = num(f2.crouch, 0);
-    var h = num(f2.height, 0), cf = num(f2.confidence, 1);
-
-    $('v2-jump').textContent = j.toFixed(2);
-    $('v2-jump').style.color = j >= jth ? 'var(--gold)' : '';
-    $('v2-jump-th').textContent = jth >= 2 ? '阈值 ' + jth + '（已停用）'
-      : '阈值 ' + jth + (j >= jth ? ' · 会触发跳' : '');
-
-    $('v2-crouch').textContent = c.toFixed(2);
-    $('v2-crouch').style.color = c >= cth ? 'var(--gold)' : '';
-    $('v2-crouch-th').textContent = cth >= 2 ? '阈值 ' + cth + '（已停用）'
-      : '阈值 ' + cth + (c >= cth ? ' · 会触发蹲' : '');
-
-    $('v2-height').textContent = h.toFixed(2);
-    $('v2-conf').textContent = cf.toFixed(2);
-    $('v2-conf').style.color = cf < minc ? 'var(--blood)' : 'var(--moss)';
-    $('v2-conf-th').textContent = cf < minc ? '低于 ' + minc + '，这帧会被丢弃' : '可用（阈值 ' + minc + '）';
-  }
-
-  // ---------------- 波形：x（左右）+ jump/crouch（上下） ----------------
-  var waveAt = 0;
-  function drawWaveSoon() {
-    var n = performance.now();
-    if (n - waveAt < 40) return;
-    waveAt = n;
-    drawWave();
-  }
-
-  function polyline(g, buf, w, py, style, dash) {
-    if (buf.length < 2) return;
-    g.strokeStyle = style;
-    g.lineWidth = 2;
-    g.setLineDash(dash || []);
-    g.beginPath();
-    for (var i = 0; i < buf.length; i++) {
-      var px = i / (buf.length - 1) * w;
-      if (i === 0) g.moveTo(px, py(buf[i])); else g.lineTo(px, py(buf[i]));
-    }
-    g.stroke();
-    g.setLineDash([]);
-  }
-
+  // ---------------- x 波形 ----------------
   function drawWave() {
     var c = $('wave'), g = c.getContext('2d');
     var w = c.width, h = c.height;
     g.clearRect(0, 0, w, h);
     var enter = num(RADAR.enterThreshold, 0.36);
     function py(v) { return h / 2 - v * (h / 2 - 8); }
-
     g.strokeStyle = 'rgba(246,239,220,.18)';
-    g.lineWidth = 1;
     g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
-
-    g.strokeStyle = 'rgba(247,197,49,.5)';
-    g.setLineDash([6, 6]);
+    g.strokeStyle = 'rgba(247,197,49,.5)'; g.setLineDash([6, 6]);
     [enter, -enter].forEach(function (v) {
       g.beginPath(); g.moveTo(0, py(v)); g.lineTo(w, py(v)); g.stroke();
     });
     g.setLineDash([]);
-
-    // 蓝：左右雷达 x；橙：上下雷达 jump；紫虚线：上下雷达 crouch
-    polyline(g, S.xbuf, w, py, '#7ec8ff');
-    if ($('dual').checked) {
-      polyline(g, S2.jbuf, w, py, '#ffa63d');
-      polyline(g, S2.cbuf, w, py, '#c08bff', [5, 4]);
+    if (S.xbuf.length < 2) return;
+    g.strokeStyle = '#7ec8ff'; g.lineWidth = 2; g.beginPath();
+    for (var i = 0; i < S.xbuf.length; i++) {
+      var px = i / (S.xbuf.length - 1) * w;
+      var v = Math.max(-1, Math.min(1, S.xbuf[i]));
+      if (i === 0) g.moveTo(px, py(v)); else g.lineTo(px, py(v));
     }
+    g.stroke();
   }
 
   // ---------------- 自检① 方向 ----------------
@@ -797,12 +503,7 @@ raw         原始数据（可选），调试面板会展示</pre>
 
   // ---------------- 自检② 静息误报（与向导探针同口径） ----------------
   function startStill() {
-    var dual = $('dual').checked;
-    // 双雷达时跳/蹲来自第二路，这一项必须看第二路；否则会永远"干净"，白测
-    if (dual ? !S2.lastFrame : !S.lastFrame) {
-      alert(dual ? '还没收到上下雷达的帧：先把第二台连上再测' : '还没收到帧，先连接雷达');
-      return;
-    }
+    if (!S.lastFrame) { alert('还没收到帧，先连接雷达'); return; }
     var jth = num(RADAR.jumpThreshold, 0.5); if (jth >= 2) jth = 0.5;
     var cth = num(RADAR.crouchThreshold, 0.5); if (cth >= 2) cth = 0.5;
     S.still = {
@@ -812,9 +513,7 @@ raw         原始数据（可选），调试面板会展示</pre>
     $('btn-still').disabled = true;
     var el0 = $('still-verdict');
     el0.className = 'verdict show warn';
-    el0.textContent = dual
-      ? '自检进行中（看的是上下雷达的 jump / crouch）：站着别动、别跳别蹲。'
-      : '自检进行中：站着别动、别跳别蹲（这期间的动作会被计为"误报"）。';
+    el0.textContent = '自检进行中：站着别动、别跳别蹲（这期间的动作会被计为"误报"）。';
     var iv = setInterval(function () {
       S.still.left -= 0.1;
       if (S.still.left <= 0) { clearInterval(iv); finishStill(); return; }
@@ -889,51 +588,17 @@ raw         原始数据（可选），调试面板会展示</pre>
   $('btn-play').addEventListener('click', function () {
     var url = $('url').value.trim();
     if (!url) return;
-    var q = './index.html?input=radar&radar=' + encodeURIComponent(url);
-    if ($('dual').checked) {
-      var u2 = $('url2').value.trim();
-      if (!u2) { alert('双雷达已勾选：请先填上下雷达地址，或取消勾选。'); return; }
-      memSet2(u2);
-      memDualSet(true);
-      q += '&radar2=' + encodeURIComponent(u2);
-    } else {
-      memDualSet(false);
-    }
     memSet(url);
-    location.href = q;
+    location.href = './index.html?input=radar&radar=' + encodeURIComponent(url);
   });
   Array.prototype.forEach.call(document.querySelectorAll('[data-fill]'), function (b) {
     b.addEventListener('click', function () { $('url').value = b.getAttribute('data-fill'); });
   });
-  Array.prototype.forEach.call(document.querySelectorAll('[data-fill2]'), function (b) {
-    b.addEventListener('click', function () { $('url2').value = b.getAttribute('data-fill2'); });
-  });
   $('btn-fill-host').addEventListener('click', function () {
     $('url').value = 'ws://' + (location.hostname || '127.0.0.1') + ':8766';
   });
-  $('btn-fill-host2').addEventListener('click', function () {
-    $('url2').value = 'ws://' + (location.hostname || '127.0.0.1') + ':8767';
-  });
-  $('dual').addEventListener('change', function () {
-    syncDualVisibility();
-    if (!this.checked) {
-      disconnect2(true);
-      memDualSet(false);
-    } else if (!$('url2').value.trim()) {
-      $('url2').value = 'ws://' + (location.hostname || '127.0.0.1') + ':8767';
-    }
-  });
   $('btn-clear-url').addEventListener('click', function () {
-    memClear();
-    try {
-      localStorage.removeItem(KEY2);
-      localStorage.removeItem(KEYD);
-    } catch (e) { /* 忽略 */ }
-    $('url2').value = '';
-    $('dual').checked = false;
-    syncDualVisibility();
-    refreshMemoryNote();
-    alert('已清掉记住的雷达地址（含双雷达）。');
+    memClear(); refreshMemoryNote(); alert('已清掉记住的雷达地址。');
   });
   $('btn-left').addEventListener('click', function () { sample('left'); });
   $('btn-right').addEventListener('click', function () { sample('right'); });
@@ -949,15 +614,9 @@ raw         原始数据（可选），调试面板会展示</pre>
   });
   $('btn-cal-reload').addEventListener('click', refreshCal);
   $('url').addEventListener('keydown', function (e) { if (e.key === 'Enter') connect(); });
-  $('url2').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') connect2();
-  });
-  $('btn-connect2').addEventListener('click', connect2);
-  $('btn-disconnect2').addEventListener('click', function () { disconnect2(false); });
 
   initUrl();
   refreshCal();
-  updatePlayNote();
   requestAnimationFrame(render);
 })();
 </script>

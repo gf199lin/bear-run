@@ -8,7 +8,7 @@
 <meta name="format-detection" content="telephone=no" />
 <meta name="theme-color" content="#2f6b2a" />
 <title>熊二快跑 · Bear Run</title>
-<link rel="stylesheet" href="./style.css?v=20261021a" />
+<link rel="stylesheet" href="./style.css?v=20261023a" />
 <script>
 /* 启动期错误兜底：任何脚本异常都直接显示在屏幕上，方便现场排查 */
 (function () {
@@ -153,6 +153,7 @@
         <h1 class="menu-title">熊二快跑</h1>
         <div class="menu-title-en">BEAR RUN</div>
         <button id="btn-start" class="primary-btn menu-start" type="button">开始快跑</button>
+        <button id="btn-tutorial" class="ghost-btn menu-tutorial" type="button">新手指引</button>
         <div class="best-line">历史最高：<b id="start-best">0</b></div>
       </section>
 
@@ -270,25 +271,43 @@
     <p>请把手机横过来握持</p>
   </div>
 
+  <!-- ========== 新手引导弹窗（6 步玩法速览） ========== -->
+  <div id="tutorial-overlay" class="tutorial-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
+    <div class="tutorial-box">
+      <div class="tutorial-head">
+        <span id="tutorial-step-no" class="tutorial-step-no">1 / 6</span>
+        <div id="tutorial-dots" class="tutorial-dots" aria-hidden="true"></div>
+      </div>
+      <h2 id="tutorial-title">🐻 欢迎来到狗熊岭</h2>
+      <div id="tutorial-content" class="tutorial-content"></div>
+      <div class="tutorial-btns">
+        <button id="tutorial-skip" class="ghost-btn tutorial-btn" type="button">跳过引导</button>
+        <button id="tutorial-next" class="primary-btn tutorial-btn" type="button">下一步</button>
+      </div>
+      <div class="tutorial-tip">按 → / 回车 下一步 · Esc 跳过</div>
+    </div>
+  </div>
+
   <div id="damage-flash"></div>
 </div>
 
 <!-- 经典脚本按顺序加载：不需要 HTTP 服务器，双击 index.html 就能玩 -->
-<script src="./vendor/three.min.js?v=20261021a"></script>
-<script src="./js/config.js?v=20261021a"></script>
-<script src="./js/Audio.js?v=20261021a"></script>
-<script src="./js/InputSource.js?v=20261021a"></script>
-<script src="./js/Art.js?v=20261021a"></script>
-<script src="./js/World.js?v=20261021a"></script>
-<script src="./js/Particles.js?v=20261021a"></script>
-<script src="./js/Player.js?v=20261021a"></script>
-<script src="./js/Vick.js?v=20261021a"></script>
-<script src="./js/ObstacleManager.js?v=20261021a"></script>
-<script src="./js/FaceCam.js?v=20261021a"></script>
-<script src="./js/Hud.js?v=20261021a"></script>
-<script src="./js/DebugPanel.js?v=20261021a"></script>
-<script src="./js/Calibration.js?v=20261021a"></script>
-<script src="./js/Game.js?v=20261021a"></script>
-<script src="./js/main.js?v=20261021a"></script>
+<script src="./vendor/three.min.js?v=20261023a"></script>
+<script src="./js/config.js?v=20261023a"></script>
+<script src="./js/Audio.js?v=20261023a"></script>
+<script src="./js/InputSource.js?v=20261023a"></script>
+<script src="./js/Art.js?v=20261023a"></script>
+<script src="./js/World.js?v=20261023a"></script>
+<script src="./js/Particles.js?v=20261023a"></script>
+<script src="./js/Player.js?v=20261023a"></script>
+<script src="./js/Vick.js?v=20261023a"></script>
+<script src="./js/ObstacleManager.js?v=20261023a"></script>
+<script src="./js/FaceCam.js?v=20261023a"></script>
+<script src="./js/Hud.js?v=20261023a"></script>
+<script src="./js/DebugPanel.js?v=20261023a"></script>
+<script src="./js/Calibration.js?v=20261023a"></script>
+<script src="./js/Game.js?v=20261023a"></script>
+<script src="./js/Tutorial.js?v=20261023a"></script>
+<script src="./js/main.js?v=20261023a"></script>
 </body>
 </html>

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>POSE TEST</title>
+<style>
+  html, body { margin: 0; background: #0d1a0a; }
+  #stage { position: relative; width: 1280px; height: 560px; margin: 0 auto; }
+  #stage canvas { display: block; }
+  .tag {
+    position: absolute;
+    bottom: 10px;
+    transform: translateX(-50%);
+    text-align: center;
+    color: #f5c332;
+    font: 700 16px/1.35 system-ui, "Microsoft YaHei", sans-serif;
+    text-shadow: 0 2px 8px #000;
+    white-space: nowrap;
+  }
+  .tag small { display: block; font-size: 11px; font-weight: 400; color: #cfe0bf; letter-spacing: 1px; }
+  #status { color: #cfe0bf; font: 12px/1.5 Consolas, monospace; white-space: pre; padding: 8px 16px; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="status"></div>
+<script src="./vendor/three.min.js"></script>
+<script src="./js/config.js"></script>
+<script src="./js/Art.js"></script>
+<script src="./js/Player.js"></script>
+<script>
+/* 内部验收页：把两个角色的"跑动 / 跳跃 / 滑铲"三个姿势并排摆在一起，
+   相机位置和游戏里一致（在熊身后朝 -Z 看）—— 玩家实际能看到的就是这个视角。
+   不参与游戏运行，也不进交付包。 */
+(function () {
+  var CFG = window.RR.CFG;
+  var C = CFG.COLORS;
+  var W = 1280, H = 560;
+
+  var errors = [];
+  window.onerror = function (m, s, l) { errors.push(m + ' @' + l); };
+
+  var renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(1);
+  if (typeof THREE.sRGBEncoding !== 'undefined') renderer.outputEncoding = THREE.sRGBEncoding;
+  document.getElementById('stage').appendChild(renderer.domElement);
+
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(C.fog);
+  scene.fog = new THREE.Fog(C.fog, 70, 205);
+
+  scene.add(new THREE.HemisphereLight(0xd8ecff, 0x8d8459, 0.5));
+  var sun = new THREE.DirectionalLight(C.sun, 0.55);
+  sun.position.set(-6, 10, 6);
+  scene.add(sun);
+  var fill = new THREE.DirectionalLight(0xcfe4ff, 0.12);
+  fill.position.set(7, 6, -5);
+  scene.add(fill);
+  scene.add(new THREE.AmbientLight(0x9a9070, 0.26));
+
+  // 地面（有地面才看得出"趴着"还是"站着"）
+  var ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(60, 60),
+    new THREE.MeshLambertMaterial({ color: 0x2c4a20 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.z = -6;
+  scene.add(ground);
+
+  var poses = [
+    { id: 'xiong2', pose: 'run',   label: '熊二 · 跑动' },
+    { id: 'xiong1', pose: 'run',   label: '熊大 · 跑动' },
+    { id: 'xiong2', pose: 'jump',  label: '熊二 · 跳跃（抱膝前空翻）' },
+    { id: 'xiong1', pose: 'jump',  label: '熊大 · 跳跃（摊手后空翻）' },
+    { id: 'xiong2', pose: 'slide', label: '熊二 · 滑铲（仰面蹬腿）' },
+    { id: 'xiong1', pose: 'slide', label: '熊大 · 滑铲（超人趴滑）' }
+  ];
+  var xs = [-3.35, -1.95, -0.55, 0.85, 2.25, 3.65];
+
+  // 把姿势"跑"到收敛：_animate 里全是 _approach 平滑，多跑几帧就定型了
+  function setPose(p, kind) {
+    if (kind === 'jump') {
+      p.jumping = true;
+      p.jumpTime = p.jumpDuration * 0.32;   // 翻到大约三分之一处，姿势最好认
+      p.vy = 0;
+      p.y = 1.15;
+    } else if (kind === 'slide') {
+      p.sliding = true;
+      p.slideTimer = 9;
+    }
+    for (var f = 0; f < 90; f++) {
+      p.runCycle = kind === 'run' ? 0.78 : 0.9;
+      p._animate(1 / 60, 11);
+    }
+    if (kind === 'jump') p.root.position.y = p.y;
+  }
+
+  var bears = [];
+  var stage = document.getElementById('stage');
+  var tags = [];
+
+  // 相机：默认在 +Z 一侧朝 -Z 看 = 游戏里的真实视角（只能看到熊的背影）。
+  // ?view=side 改成侧面，方便核对"趴着还是躺着""往哪边翻"。
+  var view = (/[?&]view=([a-z]+)/.exec(location.search) || [])[1] || 'back';
+  var cam = new THREE.PerspectiveCamera(36, W / H, 0.1, 300);
+  if (view === 'side') {
+    cam.position.set(9.6, 1.9, 0);
+    cam.lookAt(0, 1.0, 0);
+  } else if (view === 'front') {
+    cam.position.set(0, 1.9, -9.4);
+    cam.lookAt(0, 1.0, 0);
+  } else {
+    cam.position.set(0, 2.15, 8.6);
+    cam.lookAt(0, 0.95, 0);
+  }
+
+  for (var i = 0; i < poses.length; i++) {
+    var spec = CFG.getCharacter(poses[i].id);
+    var p = new RR.Player(scene, poses[i].id);
+    // 侧视时相机在 +X，所有人排成一条沿 Z 的队形才不会互相挡住
+    if (view === 'side') p.root.position.set(0, 0, 4.0 - i * 1.55);
+    else p.root.position.set(xs[i], 0, 0);
+    setPose(p, poses[i].pose);
+    bears.push(p);
+
+    var d = document.createElement('div');
+    d.className = 'tag';
+    d.innerHTML = poses[i].label + '<small>' + spec.name + ' · jump=' + spec.anim.jump +
+      ' slide=' + spec.anim.slide + '</small>';
+    if (view === 'side') {
+      d.style.left = '14px';
+      d.style.transform = 'none';
+      d.style.bottom = (8 + (poses.length - 1 - i) * 36) + 'px';
+    } else {
+      d.style.left = ((xs[i] + 5.4) / 10.8 * 100).toFixed(1) + '%';
+    }
+    stage.appendChild(d);
+    tags.push(d);
+  }
+
+  scene.updateMatrixWorld(true);
+  renderer.render(scene, cam);
+
+  // ---- 自检：把关键数字打出来，方便无头截图时一并核对 ----
+  var lines = [];
+  for (var k = 0; k < bears.length; k++) {
+    var b = bears[k];
+    var box = new THREE.Box3().setFromObject(b.root);
+    lines.push(
+      b.charId + '/' + poses[k].pose +
+      '  headRestY=' + b.headRestY.toFixed(3) +
+      ' eyeAspect=' + b.eyeAspect +
+      ' runSwing=' + b.runSwing +
+      ' ballShape=' + b.ballShape +
+      '  rootY=' + b.root.position.y.toFixed(2) +
+      ' bodyRotX=' + (b.body.rotation.x * 180 / Math.PI).toFixed(0) + 'deg' +
+      ' bodyY=' + b.body.position.y.toFixed(2) +
+      ' bodyZ=' + b.body.position.z.toFixed(2) +
+      ' armL=' + b.armL.rotation.x.toFixed(2) +
+      ' legL=' + b.legL.rotation.x.toFixed(2) +
+      '  visual: bottom=' + box.min.y.toFixed(3) +
+      ' top=' + box.max.y.toFixed(3) +
+      ' h=' + (box.max.y - box.min.y).toFixed(3) +
+      '  判定盒=' + b.bottom.toFixed(2) + '~' + b.top.toFixed(2)
+    );
+  }
+  lines.push('errors=' + (errors.length ? errors.join(' | ') : 'none'));
+
+  var ok = errors.length === 0;
+  document.getElementById('status').textContent = lines.join('\n');
+  document.title = (ok ? 'RESULT=OK' : 'RESULT=THROW') + ' bears=' + bears.length;
+  window.__poseTest = { bears: bears.length, errors: errors, lines: lines };
+})();
+</script>
+</body>
+</html>

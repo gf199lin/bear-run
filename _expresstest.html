@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>EXPRESSION TEST</title>
+<style>
+  html, body { margin: 0; background: #10180d; color: #e8f0dd;
+               font: 13px/1.45 system-ui, "Microsoft YaHei", sans-serif; }
+  h1 { font-size: 15px; margin: 10px 12px 2px; color: #f5c332; }
+  p.hint { margin: 0 12px 10px; font-size: 11px; color: #9fb08c; }
+  #grid { display: grid; grid-template-columns: repeat(7, 128px);
+          gap: 6px; padding: 0 12px 12px; }
+  .cell { text-align: center; }
+  .cell canvas { display: block; width: 128px; height: 128px;
+                 background: #2a3a1c; border-radius: 50%;
+                 box-shadow: 0 0 0 2px #3d5228 inset; }
+  .cap { font-size: 10px; letter-spacing: .5px; margin-top: 3px; color: #cfe0bf; }
+  .sub { font-size: 9px; color: #8b9c78; }
+  #status { padding: 10px 12px 24px; font: 11px/1.5 Consolas, monospace;
+            white-space: pre; color: #b8cfa2; }
+</style>
+</head>
+<body>
+<h1>表情小窗验收 · 角色 × 状态全矩阵</h1>
+<p class="hint">每格 = RR.FaceCam 在固定 t / 不眨眼条件下渲染的一帧。边框是圆形裁切参考，画出圈 = 有内容被裁掉。</p>
+<div id="grid"></div>
+<pre id="status">running…</pre>
+
+<script src="./js/config.js"></script>
+<script src="./js/FaceCam.js"></script>
+<script>
+/* 内部验收页：把 FaceCam 的全部状态 × 两个角色一次性铺开，用来肉眼确认
+   "跑动眨眼 / 滞空瞪眼 / 滑铲眯眼吐舌 / 受击 X 眼 / 死亡蚊香眼 / 拍扁成饼"
+   是不是真的长得不一样、有没有画到框外面去。
+   不参与游戏运行，也不进交付包。 */
+(function () {
+  var CFG = window.RR.CFG;
+  var SIZE = 128;
+
+  var errors = [];
+  window.onerror = function (m, s, l) { errors.push(m + ' @' + l); };
+
+  var STATES = [
+    { id: 'running',  label: '跑动',   note: 'running' },
+    { id: 'airborne', label: '滞空',   note: 'airborne' },
+    { id: 'peek',     label: '回头',   note: 'peek' },
+    { id: 'sliding',  label: '滑铲',   note: 'sliding' },
+    { id: 'hurt',     label: '受击',   note: 'hurt' },
+    { id: 'dead',     label: '死亡',   note: 'dead' },
+    { id: 'smashed',  label: '被拍扁', note: 'smashed' }
+  ];
+  var CHARS = ['xiong2', 'xiong1'];
+
+  var grid = document.getElementById('grid');
+  var cells = [];
+  var lines = [];
+
+  CHARS.forEach(function (cid) {
+    var spec = CFG.getCharacter(cid);
+    STATES.forEach(function (st) {
+      var cell = document.createElement('div');
+      cell.className = 'cell';
+      var cv = document.createElement('canvas');
+      cell.appendChild(cv);
+      var cap = document.createElement('div');
+      cap.className = 'cap';
+      cap.textContent = spec.name + ' · ' + st.label;
+      cell.appendChild(cap);
+      var sub = document.createElement('div');
+      sub.className = 'sub';
+      sub.textContent = st.note;
+      cell.appendChild(sub);
+      grid.appendChild(cell);
+
+      var fc = new RR.FaceCam(cv, SIZE);
+      fc.setCharacter(spec);
+      fc.setState(st.id);
+      fc.blink = 0;
+      fc.blinkTimer = 1e9;                 // 固定住，别让截图撞上闭眼的那一帧
+      for (var i = 0; i < 45; i++) fc.update(1 / 60, 11.5);
+
+      cells.push({ char: cid, state: st.id, fc: fc, cv: cv });
+    });
+  });
+
+  // ---- 逐格自检：量非透明像素的包围盒，判断有没有画到圆形框外 ----
+  function measure(fc, cv) {
+    var c = cv.getContext('2d');
+    var w = cv.width, h = cv.height;
+    var d = c.getImageData(0, 0, w, h).data;
+    var x0 = w, y0 = h, x1 = -1, y1 = -1, opaque = 0;
+    var hash = 0x811c9dc5;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var o = (y * w + x) * 4;
+        if (d[o + 3] > 8) {
+          opaque++;
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+        // FNV-1a：整张图逐字节，用来判断"两格到底是不是同一张脸"
+        hash ^= d[o] + d[o + 1] * 3 + d[o + 2] * 7 + d[o + 3] * 11;
+        hash = (hash * 16777619) >>> 0;
+      }
+    }
+    var k = w / 100;                       // 设计空间 100×100 → 像素
+    var geom = {};
+    if (x1 >= 0) {
+      geom = {
+        l: +(x0 / k).toFixed(1), r: +((w - 1 - x1) / k).toFixed(1),
+        t: +(y0 / k).toFixed(1), b: +((h - 1 - y1) / k).toFixed(1)
+      };
+    }
+    return {
+      ink: +(opaque / (w * h) * 100).toFixed(1),
+      bbox: geom,
+      hash: hash.toString(16),
+      clipped: x1 < 0 || geom.l < -0.5 || geom.t < -0.5 || geom.r < -0.5 || geom.b < -0.5
+    };
+  }
+
+  var clipCount = 0;
+  var sig = {};
+  cells.forEach(function (c) {
+    var m = measure(c.fc, c.cv);
+    if (m.clipped) clipCount++;
+    var key = c.char + '/' + c.state;
+    sig[key] = m.hash;
+    lines.push(
+      pad(key, 18) +
+      ' ink=' + pad(m.ink.toFixed(1), 5) + '%' +
+      '  l/t/r/b=' + pad(m.bbox.l + '/' + m.bbox.t + '/' + m.bbox.r + '/' + m.bbox.b, 20) +
+      ' h=' + m.hash +
+      (m.clipped ? '  <-- 出框!' : '')
+    );
+  });
+
+  // 设计上就一模一样的组合：peek 明确"借用滞空的瞪眼张嘴"，所以这两格允许同图。
+  var SAME_BY_DESIGN = { 'airborne|peek': 1, 'peek|airborne': 1 };
+
+  // 同一状态在两个角色下必须长得不一样（毛色/呆毛/眉形不同），否则 spec 没生效
+  var sameAsOther = [];
+  STATES.forEach(function (st) {
+    if (sig['xiong2/' + st.id] === sig['xiong1/' + st.id]) {
+      sameAsOther.push(st.id);
+    }
+  });
+
+  // 同一角色的 7 个状态必须互不相同，否则说明某个状态分支根本没走到
+  var flat = [];
+  CHARS.forEach(function (cid) {
+    var seen = {};
+    STATES.forEach(function (st) {
+      var v = sig[cid + '/' + st.id];
+      if (seen[v] && !SAME_BY_DESIGN[seen[v] + '|' + st.id]) {
+        flat.push(cid + ': ' + seen[v] + ' ≡ ' + st.id);
+      }
+      seen[v] = st.id;
+    });
+  });
+
+  var ok = errors.length === 0 && clipCount === 0 && sameAsOther.length === 0 && flat.length === 0;
+  lines.push('');
+  lines.push('出框格数         = ' + clipCount + '   (必须 0)');
+  lines.push('两角色同图状态   = ' + (sameAsOther.length ? sameAsOther.join(',') : 'none'));
+  lines.push('状态撞车         = ' + (flat.length ? flat.join(' | ') : 'none'));
+  lines.push('errors           = ' + (errors.length ? errors.join(' | ') : 'none'));
+  lines.push('总计 ' + cells.length + ' 格  RESULT=' + (ok ? 'OK' : 'CHECK'));
+
+  document.getElementById('status').textContent = lines.join('\n');
+  document.title = 'RESULT=' + (ok ? 'OK' : 'CHECK') + ' cells=' + cells.length;
+  window.__exprTest = { cells: cells.length, clipped: clipCount, sameAsOther: sameAsOther, flat: flat, errors: errors };
+
+  function pad(s, n) { s = String(s); while (s.length < n) s += ' '; return s; }
+})();
+</script>
+</body>
+</html>

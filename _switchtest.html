@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>角色切换回归 · 内部测试</title>
+<style>body{margin:0;background:#0d1a0a;color:#f5c332;font:16px/1.6 system-ui}</style>
+</head>
+<body>
+<div id="status">running</div>
+<script src="./vendor/three.min.js"></script>
+<script src="./js/config.js"></script>
+<script src="./js/Art.js"></script>
+<script src="./js/Player.js"></script>
+<script>
+/* 内部回归：模拟"反复换角色"，检查 dispose + 重建不报错、场景里不残留旧模型。
+   不参与游戏运行，也不进交付包。 */
+(function () {
+  var out = [];
+  function log(s) { out.push(s); }
+
+  try {
+    var scene = new THREE.Scene();
+    var baseline = scene.children.length;
+
+    // 连续换 6 次角色（等价于玩家在开始界面来回点）
+    for (var i = 0; i < 6; i++) {
+      var id = (i % 2) ? 'xiong1' : 'xiong2';
+      var p = new RR.Player(scene, id);
+      if (p.charId !== id) log('FAIL 角色 id 不对: ' + p.charId + ' != ' + id);
+      p.dispose();
+    }
+    log('after-switch-scene-children=' + (scene.children.length - baseline));
+
+    // 每种角色各留一只，确认能同时共存且互不干扰
+    var a = new RR.Player(scene, 'xiong2');
+    var b = new RR.Player(scene, 'xiong1');
+    log('coexist-children=' + (scene.children.length - baseline));
+    log('sizes a=' + a.root.children.length + ' b=' + b.root.children.length);
+
+    // 玩法字段必须完全一致（换角色不许动数值）
+    var keys = ['lane', 'x', 'y', 'vy', 'jumping', 'sliding', 'alive'];
+    var diff = [];
+    for (var k = 0; k < keys.length; k++) {
+      if (a[keys[k]] !== b[keys[k]]) diff.push(keys[k]);
+    }
+    log('gameplay-field-diff=' + (diff.length ? diff.join(',') : 'none'));
+    log('bottom/top a=' + a.bottom + '/' + a.top + ' b=' + b.bottom + '/' + b.top);
+    log('RESULT=OK');
+  } catch (e) {
+    log('RESULT=THROW ' + (e && e.message));
+  }
+
+  document.getElementById('status').textContent = out.join(' | ');
+  document.title = out.join(' | ');
+})();
+</script>
+</body>
+</html>
