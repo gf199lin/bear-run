@@ -68,7 +68,10 @@
 
         regionBanner: $('region-banner'),
         faceCam: $('face-cam'),
-        faceCanvas: $('face-canvas')
+        faceCanvas: $('face-canvas'),
+
+        testBadge: $('test-badge'),
+        testHint: $('test-hint')
       };
 
       this._heartEls = [];
@@ -114,10 +117,33 @@
     setCoins(v) { this.el.coins.textContent = String(v); }
     setSpeed(v) { this.el.speed.textContent = v.toFixed(1); }
 
-    setStage(index, label) {
-      if (this._lastStage === index) return;
+    setStage(index, label, force) {
+      if (!force && this._lastStage === index) return;
       this._lastStage = index;
       this.el.stage.textContent = label || ('第 ' + (index + 1) + ' 区');
+    }
+
+    // ---------- 测试模式（雷达联调） ----------
+
+    /** 顶部徽标：进测试局就亮，回主菜单灭 */
+    setTestMode(on) {
+      this._testMode = !!on;
+      if (this.el.testBadge) this.el.testBadge.classList.toggle('hidden', !on);
+      if (!on && this.el.testHint) this.el.testHint.classList.add('hidden');
+    }
+
+    /** 测试局进场提示：说清楚"不会死"，几秒后自动收，不挡视线 */
+    showTestHint() {
+      var el = this.el.testHint;
+      if (!el || !this._testMode) return;
+      el.classList.add('hidden');
+      void el.offsetWidth;              // 重排 -> 重播淡入淡出
+      el.classList.remove('hidden');
+      var self = this;
+      clearTimeout(this._testHintTimer);
+      this._testHintTimer = setTimeout(function () {
+        el.classList.add('hidden');
+      }, 5000);
     }
 
     setInput(name) { this.el.input.textContent = name; }

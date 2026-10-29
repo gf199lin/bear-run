@@ -113,6 +113,20 @@ html, body {
   to   { transform: scale(1.05); box-shadow: 0 0 20px rgba(240, 127, 31, 0.95); }
 }
 
+/* 测试模式徽标：空跑道联调，不掉血也不会结束，常亮不闪（别抢雷达数据的注意力） */
+.test-badge {
+  align-self: flex-start;
+  padding: 3px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 226, 255, 0.55);
+  background: rgba(10, 40, 52, 0.86);
+  color: #a9ecff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  box-shadow: 0 0 14px rgba(72, 196, 232, 0.35);
+}
+
 .stat { display: inline-flex; align-items: baseline; gap: 5px; }
 
 .stat-label {
@@ -705,6 +719,40 @@ html, body {
   14%  { opacity: 1; transform: translate(-50%, 0); }
   76%  { opacity: 1; }
   100% { opacity: 0; }
+}
+
+/* 测试模式进场提示：说清楚"不会死"，5 秒后自己淡出 */
+.test-hint {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--safe-t) + 96px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 22px;
+  border-radius: 12px;
+  background: rgba(8, 30, 40, 0.88);
+  border: 1px solid rgba(120, 226, 255, 0.4);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--ink);
+  z-index: 15;
+  pointer-events: none;
+  animation: fadeInOut 5s ease forwards;
+}
+
+.test-hint-title {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: #a9ecff;
+}
+
+.test-hint-sub {
+  font-size: 11px;
+  color: rgba(240, 246, 232, 0.66);
 }
 
 #damage-flash {
@@ -1604,6 +1652,37 @@ html, body {
   padding: 9px 22px;
   font-size: 13px;
   letter-spacing: 1px;
+}
+
+/* 「新手指引 / 雷达测试」并排 */
+.menu-sub-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.menu-sub-btns .menu-tutorial { margin-top: 0; }
+
+.menu-test {
+  border-color: rgba(120, 226, 255, 0.42);
+  color: #cdeeff;
+}
+
+.menu-test:hover { background: rgba(60, 150, 180, 0.22); }
+
+.menu-hero .test-note {
+  margin-top: 7px;
+  max-width: 430px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(246, 239, 220, 0.6);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+}
+
+/* 横屏手机高度吃紧：这句说明会顶到下面的卡片，直接收起来（按钮本身已经写着"雷达测试"） */
+@media (max-height: 620px) {
+  .menu-hero .test-note { display: none; }
 }
 
 @media (max-width: 560px) {

@@ -9,6 +9,9 @@
  *                   （?radar2=off 可临时关掉双雷达）
  *   ?char=xiong2|xiong1   直接指定角色（熊二 / 熊大）
  *   ?debug=1        直接打开雷达调试面板
+ *   ?test=1         直接进测试模式（空跑道：没有障碍物，熊二一直跑，专供雷达联调）
+ *   ?mode=test      同上（两者等价）
+ *   ?testspeed=<m/s> 测试模式的固定速度（默认 10，见 config.js 的 TEST.speed）
  *   ?startat=<米>   调试用：直接从该里程的难度区开局（验收 4 个区的配色与摆件）
  *   ?input=replay&replay=<js>&series=<站点>&replayk=<阈值>&replayspeed=<倍速>
  *                  离线回放雷达采集数据
@@ -121,6 +124,8 @@
     if (rpAzWin) RR.CFG.RADAR.replayAzWin = Number(rpAzWin);
     var hp = queryParam('hp');                   // 联调：临时加命，方便长时间观察
     if (hp) { RR.CFG.HP.start = Number(hp); RR.CFG.HP.max = Math.max(RR.CFG.HP.max, Number(hp)); }
+    var testSpeed = queryParam('testspeed');     // 测试模式：临时改固定速度（m/s）
+    if (testSpeed) RR.CFG.TEST.speed = Number(testSpeed);
 
     // ---------- 雷达开局校准（新手教程，js/Calibration.js） ----------
     // 现场测出方向符号 + 静息基线，修正后续所有帧的 x（x' = (x - x0) * sign）。
@@ -129,6 +134,7 @@
     var wrappedSrc = null;
     var autoAsked = false;
     var pendingStart = false;      // 校准结束后要不要自动开局
+    var pendingStartTest = false;  // 上面这次开局是不是"测试模式"
 
     function currentSource() {
       return (game.input && game.input.current) ? game.input.current : null;
@@ -163,10 +169,12 @@
         },
         onClose: function () {
           updateCalibNote();
-          // 从「开始快跑」进来的：校准完（或跳过/关闭）就接着开局
+          // 从「开始快跑」/「雷达测试」进来的：校准完（或跳过/关闭）就接着开局
           if (pendingStart) {
+            var asTest = pendingStartTest;
             pendingStart = false;
-            setTimeout(function () { game.start(); }, 120);
+            pendingStartTest = false;
+            setTimeout(function () { game.start(asTest ? { test: true } : undefined); }, 120);
           }
         },
         // 校准面板里填了地址 / 勾了双雷达后走这里：写回配置并重建数据源。
@@ -283,6 +291,7 @@
           !(cal && RR.Calibration.isUsable(cal));
         if (!needCalib) { game.start(); return; }
         pendingStart = true;
+        pendingStartTest = false;
         ensureWizard().open(src);
       };
       if (!RR.Tutorial || tutorialParam === '0') { afterTutorial(); return; }
@@ -292,17 +301,39 @@
       } else afterTutorial();
     }
 
+    /**
+     * 测试模式：没有障碍物、光头强不上场、熊二按固定速度一直跑。
+     * 专给现场联调雷达用 —— 不弹新手教程、不抽挑战、不记纪录、不会死。
+     * 选的是雷达且还没校准，就先走校准，校准结束后自动进测试场。
+     */
+    function startTestMode() {
+      requestFullscreenIfMobile();
+      if (RR.CFG.TEST && RR.CFG.TEST.showDebug) game.debug.setVisible(true);
+
+      var src = currentSource();
+      var cal = calibSaved();
+      var needCalib = src && src.id === 'radar' && RR.Calibration && RR.CalibrationWizard &&
+        !(cal && RR.Calibration.isUsable(cal));
+      if (!needCalib) { game.start({ test: true }); return; }
+
+      closeWizardIfOpen();
+      pendingStart = true;
+      pendingStartTest = true;
+      ensureWizard().open(src);
+    }
+
     // ---------- 按钮绑定 ----------
     bind('btn-start', function () { requestFullscreenIfMobile(); startWithGuides(); });
     bind('btn-tutorial', function () { if (RR.Tutorial) { closeWizardIfOpen(); RR.Tutorial.show(); } });
+    bind('btn-test', function () { startTestMode(); });
     bind('btn-pause', function () {
       if (game.state === 'playing') game.pause();
       else if (game.state === 'paused') game.resume();
     });
     bind('btn-resume', function () { game.resume(); });
-    bind('btn-restart-pause', function () { game.start(); });
+    bind('btn-restart-pause', function () { game.restart(); });
     bind('btn-home-pause', function () { game.toMenu(); });
-    bind('btn-restart', function () { game.start(); });
+    bind('btn-restart', function () { game.restart(); });
     bind('btn-home', function () { game.toMenu(); });
 
     bind('btn-debug', function () { game.debug.toggle(); });
@@ -391,7 +422,12 @@
 
     // 自动化测试用：?autostart=1 直接开局（旧行为，跳过引导）
     // 想连引导一起测：?autostart=1&tutorial=1
-    if (queryParam('autostart') === '1') {
+    // 联调用：?mode=test（或 ?test=1）直接进测试模式，省掉点菜单那一步。
+    // 常和雷达地址一起用：?test=1&input=radar&radar=ws://192.168.1.7:8766
+    var wantTest = queryParam('mode') === 'test' || queryParam('test') === '1';
+    if (wantTest) {
+      setTimeout(function () { startTestMode(); }, 250);
+    } else if (queryParam('autostart') === '1') {
       if (tutorialParam === '1') setTimeout(function () { startWithGuides(); }, 250);
       else setTimeout(function () { game.start(); }, 250);
     }

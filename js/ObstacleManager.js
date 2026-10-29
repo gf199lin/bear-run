@@ -31,10 +31,25 @@
       this.scene = scene;
       this.items = [];
       this.pools = {};
+      // 生成开关：测试模式会关掉它，之后既不出障碍也不出拾取物
+      this.spawning = true;
       this.reset();
     }
 
     // ==================== 生命周期 ====================
+
+    /**
+     * 测试模式用：开 / 关"生成"。
+     * 关掉时顺手清空场上已有对象，保证进去就是一片干净的空地；
+     * 再打开（回主菜单 / 正常开局）时恢复原本的生成逻辑。
+     */
+    setEnabled(on) {
+      this.spawning = !!on;
+      if (!this.spawning) {
+        for (var i = this.items.length - 1; i >= 0; i--) this._releaseItem(this.items[i]);
+        this.items.length = 0;
+      }
+    }
 
     reset(prefill) {
       if (prefill === undefined) prefill = true;
@@ -49,7 +64,7 @@
       this.meterSinceBoost = 0;
       this.lastKind = null;
 
-      if (prefill) {
+      if (prefill && this.spawning) {
         // 预填充前方，避免开局长时间空跑（约 3.5 秒后遇到第一个障碍）
         var z = -32;
         while (z > -CFG.WORLD.visibleLength) {
@@ -135,7 +150,9 @@
         }
       }
 
-      // 生成新的一行
+      // 生成新的一行（测试模式关掉生成：场上永远是空跑道）
+      if (!this.spawning) return;
+
       this.spawnCursor -= delta;
       var guard = 0;
       while (this.spawnCursor <= 0 && guard++ < 8) {
