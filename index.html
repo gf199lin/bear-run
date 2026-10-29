@@ -8,7 +8,7 @@
 <meta name="format-detection" content="telephone=no" />
 <meta name="theme-color" content="#2f6b2a" />
 <title>熊二快跑 · Bear Run</title>
-<link rel="stylesheet" href="./style.css?v=20261021a" />
+<link rel="stylesheet" href="./style.css?v=20261029a" />
 <script>
 /* 启动期错误兜底：任何脚本异常都直接显示在屏幕上，方便现场排查 */
 (function () {
@@ -75,6 +75,7 @@
         <span id="challenge-progress" class="challenge-prog">0 / 0</span>
       </div>
       <span class="challenge-bar"><b id="challenge-bar-fill"></b></span>
+    </div>
     </div>
   </header>
 
@@ -188,13 +189,26 @@
               <button class="chip" type="button" data-input="mock">雷达模拟器</button>
             </div>
             <div id="radar-url-note" class="radar-note"></div>
-            <div class="radar-note" style="margin-top:2px">
-              <a href="./radar-connect.html" target="_blank" style="color:#f7c531">雷达连不上 / 要换地址 → 打开雷达联调台</a>
-            </div>
 
             <div class="calib-menu-row">
               <button id="btn-calib" class="ghost-btn calib-open-btn" type="button">校准雷达动作</button>
               <span id="calib-status" class="calib-status"></span>
+            </div>
+
+            <!-- 雷达排障入口：连不上进联调台，数据不准进体检台 -->
+            <div class="radar-tools">
+              <div class="radar-tools-label">雷达排障</div>
+              <div class="radar-tools-row">
+                <a class="tool-btn" href="./radar-diagnose.html" target="_blank" rel="noopener">
+                  <b>数据体检</b>
+                  <span>帧率 · 噪声 · 方向 · 命中率</span>
+                </a>
+                <a class="tool-btn" href="./radar-connect.html" target="_blank" rel="noopener">
+                  <b>联调台</b>
+                  <span>改地址 · 看实时值</span>
+                </a>
+              </div>
+              <div class="radar-tools-hint">换场地 / 换人 / 挪过板子，先做一次 2.5 分钟体检</div>
             </div>
           </div>
         </div>
