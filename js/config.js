@@ -476,16 +476,6 @@
       staleMs: 500,           // 超时未收到帧 => 判定雷达掉线
       defaultUrl: 'ws://127.0.0.1:8766',
 
-      // ---- 双雷达（两台同时接，按维度分工）----
-      // 只有 dual=true 且 udUrl 有值时才启用；否则仍然是上面的单雷达。
-      //   lrUrl = 管左右的雷达：只取 x  -> 产生 left / right（换道）
-      //   udUrl = 管上下的雷达：只取 jump / crouch / height -> 产生 jump / slide
-      // 两台雷达可以发同一套完整帧格式：游戏侧在进解码器前会按通道裁剪维度，
-      // 所以数据侧不需要为"我是哪一路"改协议，也不会互相抢动作。
-      dual: false,
-      lrUrl: null,            // null = 用 defaultUrl
-      udUrl: null,            // 例：ws://192.168.1.7:8767
-
       // ---- 离线回放（?input=replay）：把真实采集文件解出的帧按原帧率喂进游戏 ----
       replayUrl: './_radarreplay/radar-action-1020.js',
       replaySeries: null,     // null = 用数据里的第一个站点
@@ -575,10 +565,7 @@
     STORAGE_KEY_RECORDS: 'bear-run:records:v1',
     // 雷达地址记忆：由 radar-connect.html（联调台）写入，main.js 在没给 ?radar= 时读它，
     // 这样组员在联调台连过一次以后，主菜单点「雷达」直接就是那台机器。
-    STORAGE_KEY_RADAR_URL: 'bear-run:radar:url',
-    // 双雷达：第二路（上下）地址 + 是否启用。由联调台写入，?radar2= 也会写。
-    STORAGE_KEY_RADAR_URL_UD: 'bear-run:radar:url2',
-    STORAGE_KEY_RADAR_DUAL: 'bear-run:radar:dual'
+    STORAGE_KEY_RADAR_URL: 'bear-run:radar:url'
   };
 
 })(window);
