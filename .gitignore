@@ -23,3 +23,7 @@ desktop.ini
 # ---- 临时文件与日志 ----
 *.log
 tmp/
+
+# ---- Python 缓存（工具脚本运行产物）----
+__pycache__/
+*.pyc
