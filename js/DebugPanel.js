@@ -65,7 +65,11 @@
 
       var fr = info.frame;
       if (fr) {
-        f.x.textContent = num(fr.x, 2);
+        // 同时显示原始读数：现场判断"增益调得合不合适"就看这两个数的差
+        // （x 是校准+增益后的值，解码器真正用的；raw 是雷达直接给的）
+        var rawDiff = (fr.rawX !== undefined && fr.rawX !== null &&
+          Math.abs(Number(fr.rawX) - Number(fr.x)) > 0.005);
+        f.x.textContent = num(fr.x, 2) + (rawDiff ? ' (raw ' + num(fr.rawX, 2) + ')' : '');
         f.height.textContent = num(fr.height, 2);
         f.conf.textContent = num(fr.confidence, 2);
         f.jump.textContent = fr.jump ? 'YES' : 'no';

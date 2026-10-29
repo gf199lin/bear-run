@@ -183,7 +183,8 @@
             var rawX = num(frame.x, 0);
             var out = {}, k;
             for (k in frame) out[k] = frame[k];
-            out.x = (rawX - c.x0) * c.sign;
+            var g = num(c.gain, 1);
+            out.x = (rawX - c.x0) * c.sign * (g > 0 ? g : 1);
             // 保留原始值，便于调试面板/log 查看"雷达原始读数"
             out.rawX = rawX;
             out.calibrated = true;
@@ -208,8 +209,19 @@
       }
       src.__calib.x0 = num(cal.x0, 0);
       src.__calib.sign = cal.sign === -1 ? -1 : 1;
+      // v3：横向增益（一步 = 一格）。旧存档没有 xGain，按 1 处理（不改变原来手感）。
+      src.__calib.gain = num(cal.xGain, 1) || 1;
       // v2：左右没标定成功（lrOk === false）就不改写 x，避免用错的符号把玩家甩反
       src.__calib.enabled = (cal.lrOk === false) ? false : true;
+      // 解码器读的是 CFG.RADAR（热引用），把增益同步过去，改完立即生效。
+      // xGainLock = 本次页面用 ?gain= 手动指定过 —— 此时 URL 优先，不让存档覆盖，
+      // 否则现场刚调好的手感一刷新就被旧存档打回去。
+      var cfg = RR.CFG && RR.CFG.RADAR;
+      if (cfg && cfg.xGainLock) {
+        src.__calib.gain = num(cfg.xGain, 1) || 1;
+      } else if (cfg && isFinite(Number(cal.xGain))) {
+        cfg.xGain = num(cal.xGain, 1);
+      }
       return true;
     },
 
@@ -231,6 +243,9 @@
       else if (cal.lrOk) {
         parts.push('基线 ' + num(cal.x0, 0).toFixed(2));
         parts.push('方向 ' + (cal.sign === 1 ? '正向' : '反向'));
+        if (isFinite(Number(cal.xGain)) && Number(cal.xGain) !== 1) {
+          parts.push('增益 ' + num(cal.xGain, 1).toFixed(2));
+        }
       } else parts.push('左右未标定(键盘)');
       if (!cal.keyboardOnly) {
         parts.push(cal.jumpOk ? ('跳跃 ' + num(cal.jumpTh, 0).toFixed(2)) : '跳跃(键盘)');
@@ -347,12 +362,31 @@
 
     get step() { return STEPS[this.stepIndex]; }
 
+    /**
+     * 校准期间把横向增益临时归 1。
+     *
+     * 为什么：第 2/3 步量的是"玩家走一步 = 多少个归一化单位"。如果上一次存档里的
+     * xGain 还在生效（比如 0.4），同一段位移会被压成 0.4 倍，量出来的 d 偏小，
+     * 新增益就会算错。所以测的时候必须按原始量程来，测完再把学到的增益接回去。
+     */
+    _setLiveGain(g) {
+      var cfg = RR.CFG && RR.CFG.RADAR;
+      // 用 ?gain= 手动指定过：本次页面以 URL 为准，向导也不许改
+      if (cfg && cfg.xGainLock) g = num(cfg.xGain, 1) || 1;
+      if (cfg) cfg.xGain = g;
+      var s = this.src;
+      if (s && s.__calib) s.__calib.gain = g;
+    }
+
     // ---------- 打开 / 关闭 ----------
 
     open(src) {
       if (this.open_) return;
       this.open_ = true;
       this.src = src || null;
+      // 记住进向导前的增益：中途关掉（没测完）要还原，不能把玩家的手感弄丢
+      this.preGain = num((RR.CFG && RR.CFG.RADAR && RR.CFG.RADAR.xGain), 1) || 1;
+      this._setLiveGain(1);
       this.stepIndex = 0;
       this.attempts = 0;
       this.result = null;
@@ -399,6 +433,8 @@
       global.removeEventListener('keydown', this._onKeyDown);
       global.removeEventListener('keyup', this._onKeyUp);
       this.el.classList.add('hidden');
+      // 中途关掉（没产出结果）：把进向导前的增益还原，别让玩家莫名变钝/变灵敏
+      if (!this.result) this._setLiveGain(this.preGain);
       this.src = null;
       this.onClose();
     }
@@ -863,12 +899,28 @@
       else if (cOk) cTh = clamp(cPeak * o.learnMargin, o.thFloor, o.thCeil);
       else cTh = undefined;
 
+      // ---- v3：量程（增益）校准 ----
+      // sideA/sideB 是玩家"向左/向右走一步"时的 x（进向导时增益已归 1，所以是原始量程）。
+      // spread = sideB - sideA ≈ 两步的总跨度，除以 2 就是"一步"对应的归一化位移。
+      // 目标：把这一步映射到 stepTarget(默认 0.55) —— 稳过进道阈值 0.36，又远不到满量程，
+      // 于是手小幅晃不会误触发、真走一步刚好换一格。
+      var stepMeasured = 0, xGain = 1;
+      if (lrOk) {
+        stepMeasured = Math.abs(this._spread()) / 2;
+        if (stepMeasured > 0.02) {
+          xGain = clamp(o.stepTarget / stepMeasured, o.gainMin, o.gainMax);
+          xGain = Math.round(xGain * 100) / 100;
+        }
+      }
+
       var cal = {
         v: VERSION,
         at: Date.now(),
         x0: num(x0, 0),
         sign: sign === -1 ? -1 : 1,
         lrOk: !!lrOk,
+        xGain: xGain,
+        stepMeasured: Math.round(stepMeasured * 1000) / 1000,
         jumpOk: jOk,
         crouchOk: cOk,
         jumpPeak: jPeak,
@@ -935,6 +987,8 @@
       }
       // 让学到的阈值当场生效（inputSource 与 CFG.RADAR 是同一对象）
       Calibration.applyThresholds(this.result);
+      // 横向增益也当场接管（向导期间是 1，这里换成量出来的值）
+      if (isFinite(Number(this.result.xGain))) this._setLiveGain(num(this.result.xGain, 1));
       // 左右和上下都没拿到证据 => 没有可保存的内容（下次还会自动引导）
       var r = this.result;
       if (r.lrOk || r.jumpOk || r.crouchOk || r.keyboardOnly || r.upVerdict === 'noisy') {

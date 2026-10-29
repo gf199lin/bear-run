@@ -194,6 +194,7 @@
       this.lastHeight = 0;
       this.lastConfidence = 1;
       this.lastRaw = null;
+      this.lastLaneAt = 0;
     }
 
     /**
@@ -217,7 +218,12 @@
 
       if (conf < R.minConfidence) return events;   // 可信度不足，本帧丢弃
 
-      var x = clamp(num(frame.x, 0), -1, 1);
+      // 横向增益：雷达量程和游戏车道宽度不一定匹配（手一晃就打满 ±1），
+      // 现场校准学到的 xGain 在这里生效。热读 CFG.RADAR，改参数不用重载页面。
+      var gain = num(R.xGain, 1);
+      var x = num(frame.x, 0);
+      if (gain > 0 && gain !== 1) x = x * gain;
+      x = clamp(x, -1, 1);
       var height = clamp(num(frame.height, 0), 0, 1);
       this.lastX = x;
       this.lastHeight = height;
@@ -233,6 +239,23 @@
       } else {
         if (x <= -R.enterThreshold) lane = 0;
         else if (x <= R.exitThreshold) lane = 1;
+      }
+
+      // ---- 单帧限档 + 换道冷却 ----
+      // 上面的判定只回答"按当前 x 我应该在哪条道"。一次大幅挥手时 x 可能从 -1 直接打到 +1，
+      // 不限制的话下面的 while 会立刻发两次 right/left —— 玩家看到的就是"横跨两个跑道"。
+      // 所以：单帧最多走 maxStep 格；两次换道之间至少隔 laneCooldownMs。
+      var maxStep = Math.max(1, Math.floor(num(R.maxLaneStepPerFrame, 1)));
+      if (lane > this.lane + maxStep) lane = this.lane + maxStep;
+      else if (lane < this.lane - maxStep) lane = this.lane - maxStep;
+
+      if (lane !== this.lane) {
+        var cd = num(R.laneCooldownMs, 0);
+        if (cd > 0 && this.lastLaneAt && now - this.lastLaneAt < cd) {
+          lane = this.lane;          // 冷却中：这一帧先不换，下一帧继续判（不会丢动作）
+        } else {
+          this.lastLaneAt = now;
+        }
       }
 
       while (this.lane !== lane) {
@@ -308,6 +331,7 @@
 
       this.ws.onopen = function () {
         self.connected = true;
+        self.openedAt = performance.now();
         self.statusText = '已连接';
       };
 
@@ -344,6 +368,11 @@
 
     _handleFrame(frame) {
       var now = performance.now();
+      // 数据到达即视为在线：掉线/无数据之后上游恢复推流，不用刷新页面
+      if (!this.connected) {
+        this.connected = true;
+        this.statusText = '已连接';
+      }
       this.lastRaw = frame;
 
       if (frame && frame.ts) {
@@ -361,10 +390,20 @@
     }
 
     update() {
-      // 掉线检测：太久没收到帧
-      if (this.connected && this.decoder.lastFrameAt) {
-        var silent = performance.now() - this.decoder.lastFrameAt;
-        if (silent > R.staleMs) this.connected = false;
+      // 掉线 / 空流检测。
+      // 关键点：ws.onopen 只代表握手成功，不代表有人在推帧。
+      // 之前只在 lastFrameAt 非 0 时才判超时，于是「连上但一帧都没来」会永远显示已连接
+      // —— 直播现场最容易被这个假绿灯骗到。现在用 openedAt 兜底判「无数据」。
+      if (!this.connected) return;
+      var now = performance.now();
+      if (this.decoder.lastFrameAt) {
+        if (now - this.decoder.lastFrameAt > R.staleMs) {
+          this.connected = false;
+          this.statusText = '掉线';
+        }
+      } else if (this.openedAt && now - this.openedAt > R.staleMs * 3) {
+        this.connected = false;
+        this.statusText = '无数据';
       }
     }
 
@@ -412,6 +451,7 @@
       this.statusText = '未连接';
       this.closedByUser = false;
       this.retryTimer = null;
+      this.openedAt = 0;
       this.lastRaw = null;
       this.latency = null;
       this.frames = 0;
@@ -452,6 +492,7 @@
 
       this.ws.onopen = function () {
         self.connected = true;
+        self.openedAt = performance.now();
         self.statusText = '已连接';
       };
 
@@ -501,6 +542,12 @@
     ingest(frame) {
       if (!frame || typeof frame !== 'object') return;
 
+      // 有帧就恢复在线：网络抖动造成的「掉线」不该逼用户刷新页面
+      if (!this.connected) {
+        this.connected = true;
+        this.statusText = '已连接';
+      }
+
       var now = performance.now();
       var f = pickRoleFrame(frame, this.role);
 
@@ -520,12 +567,18 @@
     }
 
     update() {
-      if (this.connected && this.decoder.lastFrameAt) {
-        var silent = performance.now() - this.decoder.lastFrameAt;
-        if (silent > R.staleMs) {
+      // 与单雷达同一条判据：握手成功 ≠ 有数据。
+      // 从没收到过帧时用 openedAt 兜底（3×staleMs），否则会一直显示「已连接」。
+      if (!this.connected) return;
+      var now = performance.now();
+      if (this.decoder.lastFrameAt) {
+        if (now - this.decoder.lastFrameAt > R.staleMs) {
           this.connected = false;
           this.statusText = '掉线';
         }
+      } else if (this.openedAt && now - this.openedAt > R.staleMs * 3) {
+        this.connected = false;
+        this.statusText = '无数据';
       }
     }
 

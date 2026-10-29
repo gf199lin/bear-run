@@ -161,6 +161,35 @@
       } catch (e) { /* 忽略 */ }
     }
 
+    // ---------- 横向手感现场微调（不改文件，刷新即可试） ----------
+    // 现场联调用：?gain=0.6&enter=0.5&exit=0.35&step=1&cooldown=120
+    //   gain     <1 变钝（雷达太灵敏），>1 变灵敏（读数偏小）
+    //   enter    进左右车道的阈值（默认 0.36，调高 = 必须移动更大才换道）
+    //   exit     回中间车道的阈值（默认 0.22，一般设成 enter 的 0.6 倍左右）
+    //   step     单帧最多换几档（默认 1 = 手一晃最多走一格）
+    //   cooldown 两次换道的最小间隔 ms（默认 120）
+    var gainP = queryParam('gain');
+    if (gainP !== null && isFinite(Number(gainP)) && Number(gainP) > 0) {
+      RR.CFG.RADAR.xGain = Number(gainP);
+      RR.CFG.RADAR.xGainLock = true;   // URL 优先：已有校准存档也不会把它覆盖回去
+    }
+    var enterP = queryParam('enter');
+    if (enterP !== null && isFinite(Number(enterP)) && Number(enterP) > 0) {
+      RR.CFG.RADAR.enterThreshold = Number(enterP);
+    }
+    var exitP = queryParam('exit');
+    if (exitP !== null && isFinite(Number(exitP)) && Number(exitP) >= 0) {
+      RR.CFG.RADAR.exitThreshold = Number(exitP);
+    }
+    var stepP = queryParam('step');
+    if (stepP !== null && isFinite(Number(stepP))) {
+      RR.CFG.RADAR.maxLaneStepPerFrame = Math.max(1, Math.floor(Number(stepP)));
+    }
+    var cdP = queryParam('cooldown');
+    if (cdP !== null && isFinite(Number(cdP))) {
+      RR.CFG.RADAR.laneCooldownMs = Math.max(0, Number(cdP));
+    }
+
     // 离线回放：?input=replay&replay=<js路径>&series=<站点>&replayk=<阈值>&replayspeed=<倍速>
     var rpUrl = queryParam('replay');
     if (rpUrl) RR.CFG.RADAR.replayUrl = rpUrl;
