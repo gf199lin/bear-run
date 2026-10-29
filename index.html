@@ -8,7 +8,7 @@
 <meta name="format-detection" content="telephone=no" />
 <meta name="theme-color" content="#2f6b2a" />
 <title>熊二快跑 · Bear Run</title>
-<link rel="stylesheet" href="./style.css?v=20261029c" />
+<link rel="stylesheet" href="./style.css?v=20261029d" />
 <script>
 /* 启动期错误兜底：任何脚本异常都直接显示在屏幕上，方便现场排查 */
 (function () {
@@ -161,6 +161,9 @@
           <button id="btn-test" class="ghost-btn menu-tutorial menu-test" type="button">雷达测试</button>
         </div>
         <div class="best-line">历史最高：<b id="start-best">0</b></div>
+        <div class="acct-line">账号：<b id="acct-name">-</b>
+          <button id="btn-logout" class="ghost-btn acct-btn" type="button">退出</button>
+        </div>
         <div class="test-note">测试模式：没有障碍物，熊二一直跑 —— 专用来对雷达的换道 / 跳 / 蹲</div>
       </section>
 
@@ -318,23 +321,53 @@
   <div id="damage-flash"></div>
 </div>
 
+<!-- ========== 登录 / 注册（本地多账号） ========== -->
+<div id="auth-screen" class="auth-screen" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+  <div class="auth-box">
+    <div class="auth-brand">
+      <div class="auth-badge">狗熊岭 · 体感跑酷</div>
+      <h1 id="auth-title" class="auth-title">登录</h1>
+      <p class="auth-sub">登录后你的最高分 / 纪录会记在<b>这个账号</b>名下</p>
+    </div>
+    <form id="auth-form" class="auth-form" autocomplete="on">
+      <label class="auth-field">
+        <span>用户名</span>
+        <input id="auth-user" type="text" autocomplete="username" maxlength="20" placeholder="2-20 位：中英文 / 数字 / 下划线" />
+      </label>
+      <label class="auth-field">
+        <span>密码</span>
+        <input id="auth-pass" type="password" autocomplete="current-password" maxlength="64" placeholder="至少 4 位" />
+      </label>
+      <label class="auth-field" id="auth-confirm-wrap" style="display:none">
+        <span>确认密码</span>
+        <input id="auth-confirm" type="password" autocomplete="new-password" maxlength="64" placeholder="再输一次密码" />
+      </label>
+      <div id="auth-msg" class="auth-msg" role="alert"></div>
+      <button type="submit" id="auth-submit" class="auth-submit">登录</button>
+      <button type="button" id="auth-toggle" class="auth-toggle">没有账号？去注册</button>
+    </form>
+    <p class="auth-note">账号与纪录只保存在本机浏览器，本地多账号演示用途。</p>
+  </div>
+</div>
+
 <!-- 经典脚本按顺序加载：不需要 HTTP 服务器，双击 index.html 就能玩 -->
-<script src="./vendor/three.min.js?v=20261029c"></script>
-<script src="./js/config.js?v=20261029c"></script>
-<script src="./js/Audio.js?v=20261029c"></script>
-<script src="./js/InputSource.js?v=20261029c"></script>
-<script src="./js/Art.js?v=20261029c"></script>
-<script src="./js/World.js?v=20261029c"></script>
-<script src="./js/Particles.js?v=20261029c"></script>
-<script src="./js/Player.js?v=20261029c"></script>
-<script src="./js/Vick.js?v=20261029c"></script>
-<script src="./js/ObstacleManager.js?v=20261029c"></script>
-<script src="./js/FaceCam.js?v=20261029c"></script>
-<script src="./js/Hud.js?v=20261029c"></script>
-<script src="./js/DebugPanel.js?v=20261029c"></script>
-<script src="./js/Calibration.js?v=20261029c"></script>
-<script src="./js/Tutorial.js?v=20261029c"></script>
-<script src="./js/Game.js?v=20261029c"></script>
-<script src="./js/main.js?v=20261029c"></script>
+<script src="./vendor/three.min.js?v=20261029d"></script>
+<script src="./js/config.js?v=20261029d"></script>
+<script src="./js/auth.js?v=20261029d"></script>
+<script src="./js/Audio.js?v=20261029d"></script>
+<script src="./js/InputSource.js?v=20261029d"></script>
+<script src="./js/Art.js?v=20261029d"></script>
+<script src="./js/World.js?v=20261029d"></script>
+<script src="./js/Particles.js?v=20261029d"></script>
+<script src="./js/Player.js?v=20261029d"></script>
+<script src="./js/Vick.js?v=20261029d"></script>
+<script src="./js/ObstacleManager.js?v=20261029d"></script>
+<script src="./js/FaceCam.js?v=20261029d"></script>
+<script src="./js/Hud.js?v=20261029d"></script>
+<script src="./js/DebugPanel.js?v=20261029d"></script>
+<script src="./js/Calibration.js?v=20261029d"></script>
+<script src="./js/Tutorial.js?v=20261029d"></script>
+<script src="./js/Game.js?v=20261029d"></script>
+<script src="./js/main.js?v=20261029d"></script>
 </body>
 </html>

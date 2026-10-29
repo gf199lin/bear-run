@@ -56,6 +56,70 @@
     var game = new RR.Game(canvas);
     global.RRGame = game;              // 方便在浏览器控制台里调试
 
+    // ---------- 本地账号：登录 / 注册 / 登出 ----------
+    // 登录页是盖在主菜单上的全屏层。未登录时它压住整个游戏；
+    // 登录/注册成功会整页刷新，让存档读取天然跟随当前账号
+    // （Game 里的最高分 / 纪录 / 输入源 / 角色都走 RR.Auth.key() 加账号前缀）。
+    if (RR.Auth) {
+      var authScreenEl = $('auth-screen');
+      var acctNameEl = $('acct-name');
+
+      function syncAcctName() {
+        var u = RR.Auth.current();
+        if (acctNameEl) acctNameEl.textContent = u || '-';
+      }
+
+      if (!RR.Auth.loggedIn()) {
+        // 未登录：保持登录页显示，盖住主菜单
+        if (authScreenEl) authScreenEl.classList.remove('hidden');
+      } else {
+        if (authScreenEl) authScreenEl.classList.add('hidden');
+        syncAcctName();
+      }
+
+      var authForm = $('auth-form');
+      if (authForm) {
+        var isRegister = false;
+        var authUser = $('auth-user');
+        var authPass = $('auth-pass');
+        var authConfirmWrap = $('auth-confirm-wrap');
+        var authConfirm = $('auth-confirm');
+        var authMsg = $('auth-msg');
+        var authSubmit = $('auth-submit');
+        var authToggle = $('auth-toggle');
+
+        function setAuthMode(reg) {
+          isRegister = reg;
+          if (authSubmit) authSubmit.textContent = reg ? '注册账号' : '登 录';
+          if (authConfirmWrap) authConfirmWrap.style.display = reg ? '' : 'none';
+          if (authToggle) authToggle.textContent = reg ? '已有账号？去登录' : '没有账号？去注册';
+          if (authMsg) authMsg.textContent = '';
+        }
+        if (authToggle) authToggle.addEventListener('click', function () { setAuthMode(!isRegister); });
+
+        authForm.addEventListener('submit', function (e) {
+          e.preventDefault();
+          var u = authUser ? authUser.value.trim() : '';
+          var p = authPass ? authPass.value : '';
+          var c = authConfirm ? authConfirm.value : p;
+          var handle = function (res) {
+            if (res && res.ok) { global.location.reload(); return; }
+            if (authMsg) authMsg.textContent = (res && res.msg) ? res.msg : '操作失败，请重试';
+          };
+          if (isRegister) { if (RR.Auth.register) RR.Auth.register(u, p, c).then(handle); }
+          else if (RR.Auth.login) RR.Auth.login(u, p).then(handle);
+        });
+        setAuthMode(false);
+      }
+
+      // 退出账号：清会话 -> 刷新回到登录页
+      var logoutBtn = $('btn-logout');
+      if (logoutBtn) logoutBtn.addEventListener('click', function () {
+        RR.Auth.logout();
+        global.location.reload();
+      });
+    }
+
     // ---------- URL 参数 ----------
     // 雷达地址三处优先级：?radar= > localStorage（radar-connect.html 联调台记下的）> config.js 默认值。
     // 用 URL 参数指定过一次，也会被记下来，下次主菜单点「雷达」直接用同一台机器。
@@ -424,8 +488,12 @@
     // 想连引导一起测：?autostart=1&tutorial=1
     // 联调用：?mode=test（或 ?test=1）直接进测试模式，省掉点菜单那一步。
     // 常和雷达地址一起用：?test=1&input=radar&radar=ws://192.168.1.7:8766
+    // 还没登录时不自动开局：登录成功会整页刷新，先跑的这局等于白跑。
+    var authLocked = !!(RR.Auth && !RR.Auth.loggedIn());
     var wantTest = queryParam('mode') === 'test' || queryParam('test') === '1';
-    if (wantTest) {
+    if (authLocked) {
+      // 登录层就是这一屏，什么都不用做
+    } else if (wantTest) {
       setTimeout(function () { startTestMode(); }, 250);
     } else if (queryParam('autostart') === '1') {
       if (tutorialParam === '1') setTimeout(function () { startWithGuides(); }, 250);

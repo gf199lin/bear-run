@@ -1698,3 +1698,94 @@ html, body {
   .tutorial-box h2 { margin: 10px 0; font-size: 19px; }
   .tutorial-btns { margin-top: 12px; }
 }
+
+/* ========== 本地账号：登录 / 注册 全屏层 ========== */
+.auth-screen {
+  position: fixed; inset: 0;
+  z-index: 99999;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(120% 100% at 50% 0%, rgba(240, 180, 40, 0.18), transparent 55%),
+    linear-gradient(160deg, #12200f 0%, #1d3a1a 55%, #0f1c0e 100%);
+  padding: 20px;
+  overflow: auto;
+}
+.auth-box {
+  width: 100%; max-width: 380px;
+  background: rgba(18, 32, 15, 0.92);
+  border: 1px solid rgba(247, 197, 49, 0.5);
+  border-radius: 16px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  padding: 26px 26px 20px;
+  text-align: center;
+}
+.auth-brand { margin-bottom: 6px; }
+.auth-badge {
+  display: inline-block; font-size: 12px; letter-spacing: 1px;
+  color: #f7c531; background: rgba(247, 197, 49, 0.12);
+  padding: 4px 12px; border-radius: 999px; margin-bottom: 12px;
+}
+.auth-title { margin: 0 0 4px; font-size: 26px; color: #f7c531; }
+.auth-sub { margin: 0 0 18px; font-size: 13px; color: #cfe6c4; line-height: 1.5; }
+.auth-sub b { color: #f7c531; }
+.auth-form { text-align: left; }
+.auth-field { display: block; margin-bottom: 14px; }
+.auth-field span { display: block; font-size: 12px; color: #a9c99b; margin-bottom: 6px; }
+.auth-field input {
+  width: 100%; box-sizing: border-box;
+  background: #0e1a0c; color: #f2f6ed;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px; padding: 11px 12px; font-size: 15px; outline: none;
+}
+.auth-field input:focus { border-color: #f7c531; }
+.auth-msg { min-height: 18px; margin: 2px 0 8px; font-size: 13px; color: #ffb4b4; }
+.auth-submit {
+  width: 100%; padding: 12px; font-size: 16px; font-weight: 600;
+  color: #3a2a00; background: linear-gradient(180deg, #ffd34d, #f7b733);
+  border: none; border-radius: 11px; cursor: pointer;
+}
+.auth-submit:hover { filter: brightness(1.05); }
+.auth-toggle {
+  width: 100%; margin-top: 10px; padding: 9px;
+  background: transparent; color: #cfe6c4; border: none; cursor: pointer; font-size: 13px;
+}
+.auth-toggle:hover { color: #f7c531; text-decoration: underline; }
+.auth-note { margin: 14px 2px 0; font-size: 11px; color: rgba(207, 230, 196, 0.6); line-height: 1.5; }
+
+/* 主菜单账号条 */
+.acct-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #cfe6c4;
+}
+.acct-line b { color: #f7c531; }
+.acct-btn {
+  width: auto;
+  margin-left: 0;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #f2f6ed;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+}
+.acct-btn:hover { border-color: #f7c531; color: #f7c531; background: transparent; }
+
+/* 横屏手机高度吃紧：登录卡片收紧一点，别把按钮顶出屏幕 */
+@media (max-height: 620px) {
+  .auth-screen { padding: 12px; }
+  .auth-box { padding: 16px 18px 12px; max-width: 340px; }
+  .auth-badge { margin-bottom: 6px; padding: 3px 10px; }
+  .auth-title { font-size: 21px; }
+  .auth-sub { margin-bottom: 10px; font-size: 12px; }
+  .auth-field { margin-bottom: 9px; }
+  .auth-field input { padding: 8px 10px; font-size: 14px; }
+  .auth-note { display: none; }
+}

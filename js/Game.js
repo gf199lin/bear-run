@@ -10,6 +10,27 @@
   var RR = global.RR = global.RR || {};
   var CFG = RR.CFG;
 
+  // ==================== 存档读写 ====================
+  // 登录后所有个人存档（最高分、纪录、输入源、角色）都按账号隔离，
+  // 键名由 RR.Auth.key() 加上账号前缀；没加载 auth.js 或未登录时退回原来的全局键，
+  // 保证"打开就能玩"，不会因为登录模块缺失把存档功能拖挂。
+
+  function storeGet(key) {
+    try {
+      if (RR.Auth) return RR.Auth.get(key);
+      return global.localStorage.getItem(key);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function storeSet(key, val) {
+    try {
+      if (RR.Auth) RR.Auth.set(key, val);
+      else global.localStorage.setItem(key, val);
+    } catch (e) { /* 隐私模式 / 配额满都当没存过 */ }
+  }
+
   /** 播个音效。音频模块没加载或被关掉时静默跳过，绝不影响玩法。 */
   function SFX(name) { if (RR.Audio) RR.Audio.sfx(name); }
 
@@ -168,13 +189,13 @@
       } else {
         this.hud.setRadarNote('键盘：←→ 换道 · ↑/空格 跳 · ↓ 滑铲');
       }
-      try { localStorage.setItem(CFG.STORAGE_KEY_INPUT, id); } catch (e) { /* 忽略 */ }
+      storeSet(CFG.STORAGE_KEY_INPUT, id);
       return src;
     }
 
     get savedInputId() {
       try {
-        var v = localStorage.getItem(CFG.STORAGE_KEY_INPUT);
+        var v = storeGet(CFG.STORAGE_KEY_INPUT);
         if (v === 'keyboard' || v === 'touch' || v === 'radar' || v === 'mock') return v;
       } catch (e) { /* 忽略 */ }
       return this.isCoarse ? 'touch' : 'keyboard';
@@ -184,7 +205,7 @@
 
     get savedCharId() {
       try {
-        var v = localStorage.getItem(CFG.STORAGE_KEY_CHAR);
+        var v = storeGet(CFG.STORAGE_KEY_CHAR);
         var spec = CFG.getCharacter(v);
         if (spec && v === spec.id) return v;
       } catch (e) { /* 忽略 */ }
@@ -221,7 +242,7 @@
         if (this.state !== 'playing' && this.state !== 'dying') this.vick.reset();
       }
 
-      try { localStorage.setItem(CFG.STORAGE_KEY_CHAR, spec.id); } catch (e) { /* 忽略 */ }
+      storeSet(CFG.STORAGE_KEY_CHAR, spec.id);
       this.hud.markCharChoice(spec.id);
       this.hud.setCharNote('当前角色：' + spec.name + ' · ' + spec.tagline);
       // 表情小窗跟着换脸：3D 模型是背对镜头的，这张脸才是玩家看到的"正脸"
@@ -247,6 +268,9 @@
     }
 
     _onKey(e) {
+      // 登录层盖着的时候键盘别去开局 / 暂停（在输入框里敲回车是提交表单，不是开跑）
+      if (RR.Auth && !RR.Auth.loggedIn()) return;
+
       if (e.repeat) { /* 允许长按，但下面几个键忽略重复 */ }
       var k = e.key;
 
@@ -891,7 +915,7 @@
     _loadRecords() {
       var out = this._emptyRecords();
       var raw = null;
-      try { raw = localStorage.getItem(CFG.STORAGE_KEY_RECORDS); } catch (e) { raw = null; }
+      raw = storeGet(CFG.STORAGE_KEY_RECORDS);
       if (!raw) return out;
 
       var d = null;
@@ -930,7 +954,7 @@
     }
 
     _saveRecords(r) {
-      try { localStorage.setItem(CFG.STORAGE_KEY_RECORDS, JSON.stringify(r)); } catch (e) { /* 忽略 */ }
+      storeSet(CFG.STORAGE_KEY_RECORDS, JSON.stringify(r));
     }
 
     /** 把本局写进纪录：刷新各维度最高值 + 历史前插（超长直接截断，只留最近几局） */
@@ -1022,7 +1046,7 @@
 
     _loadBest() {
       try {
-        var v = parseInt(localStorage.getItem(CFG.STORAGE_KEY) || '0', 10);
+        var v = parseInt(storeGet(CFG.STORAGE_KEY) || '0', 10);
         return isFinite(v) && v > 0 ? v : 0;
       } catch (e) {
         return 0;
@@ -1030,7 +1054,7 @@
     }
 
     _saveBest(v) {
-      try { localStorage.setItem(CFG.STORAGE_KEY, String(v)); } catch (e) { /* 忽略 */ }
+      storeSet(CFG.STORAGE_KEY, String(v));
     }
   }
 
