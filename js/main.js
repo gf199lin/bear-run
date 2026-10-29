@@ -5,13 +5,13 @@
  *   ?input=keyboard|touch|radar|mock
  *   ?challenge=honey|dodge|steady|combo|long   调试用：钉死这一局的随机挑战
  *   ?radar=ws://192.168.1.7:8766
- *   ?radar2=ws://192.168.1.7:8767   双雷达：radar 管左右、radar2 管上下
- *                   （?radar2=off 可临时关掉双雷达）
  *   ?char=xiong2|xiong1   直接指定角色（熊二 / 熊大）
  *   ?debug=1        直接打开雷达调试面板
  *   ?startat=<米>   调试用：直接从该里程的难度区开局（验收 4 个区的配色与摆件）
  *   ?input=replay&replay=<js>&series=<站点>&replayk=<阈值>&replayspeed=<倍速>
  *                  离线回放雷达采集数据
+ *   ?tutorial=1     强制先走一遍新手指引（即使已经看过）
+ *   ?tutorial=0     跳过新手指引，直接开局
  */
 (function (global) {
   'use strict';
@@ -64,33 +64,6 @@
       try {
         var savedRadar = localStorage.getItem(RR.CFG.STORAGE_KEY_RADAR_URL);
         if (savedRadar) RR.CFG.RADAR.defaultUrl = savedRadar;
-      } catch (e) { /* 忽略 */ }
-    }
-
-    // ---------- 双雷达：第二路（上下） ----------
-    // ?radar2=<ws地址> 一出现就启用双雷达：?radar=（或记住的地址）管左右，radar2 管上下。
-    // 只用 ?radar2= 时，左右仍然走记忆地址 / config 默认值。
-    // ?radar2=off 用来临时关掉双雷达，不必清 localStorage。
-    var radarUrl2 = queryParam('radar2') || queryParam('radarud');
-    if (radarUrl2 === 'off' || radarUrl2 === '0') {
-      RR.CFG.RADAR.dual = false;
-      RR.CFG.RADAR.udUrl = null;
-      try { localStorage.setItem(RR.CFG.STORAGE_KEY_RADAR_DUAL, '0'); } catch (e) { /* 忽略 */ }
-    } else if (radarUrl2) {
-      RR.CFG.RADAR.dual = true;
-      RR.CFG.RADAR.udUrl = radarUrl2;
-      try {
-        localStorage.setItem(RR.CFG.STORAGE_KEY_RADAR_URL_UD, radarUrl2);
-        localStorage.setItem(RR.CFG.STORAGE_KEY_RADAR_DUAL, '1');
-      } catch (e) { /* 忽略 */ }
-    } else {
-      try {
-        var dualSaved = localStorage.getItem(RR.CFG.STORAGE_KEY_RADAR_DUAL) === '1';
-        var udSaved = localStorage.getItem(RR.CFG.STORAGE_KEY_RADAR_URL_UD);
-        if (dualSaved && udSaved) {
-          RR.CFG.RADAR.dual = true;
-          RR.CFG.RADAR.udUrl = udSaved;
-        }
       } catch (e) { /* 忽略 */ }
     }
 
@@ -168,31 +141,6 @@
             pendingStart = false;
             setTimeout(function () { game.start(); }, 120);
           }
-        },
-        // 校准面板里填了地址 / 勾了双雷达后走这里：写回配置并重建数据源。
-        // 换地址必须重新 new 一次 WebSocket，所以旧 src 直接 detach 掉。
-        onReconnect: function (next) {
-          RR.CFG.RADAR.defaultUrl = next.lrUrl;
-          RR.CFG.RADAR.lrUrl = next.lrUrl;
-          RR.CFG.RADAR.dual = !!next.dual;
-          RR.CFG.RADAR.udUrl = next.dual ? next.udUrl : null;
-          try {
-            localStorage.setItem(RR.CFG.STORAGE_KEY_RADAR_URL, next.lrUrl);
-            if (next.dual) {
-              localStorage.setItem(RR.CFG.STORAGE_KEY_RADAR_URL_UD, next.udUrl);
-              localStorage.setItem(RR.CFG.STORAGE_KEY_RADAR_DUAL, '1');
-            } else {
-              localStorage.setItem(RR.CFG.STORAGE_KEY_RADAR_DUAL, '0');
-            }
-          } catch (e) { /* 忽略 */ }
-
-          game.setInputSource('radar');
-          var src = currentSource();
-          if (!src) return;
-          syncCalibration();
-          // 用新的 src 重走向导（close 会把 src 置空，所以要再 open 一次）
-          wizard.close();
-          wizard.open(src);
         }
       });
       return wizard;
@@ -289,7 +237,8 @@
       if (tutorialParam === '1' || !RR.Tutorial.hasSeen()) {
         closeWizardIfOpen();
         RR.Tutorial.show(afterTutorial);
-      } else afterTutorial();
+      }
+      else afterTutorial();
     }
 
     // ---------- 按钮绑定 ----------
