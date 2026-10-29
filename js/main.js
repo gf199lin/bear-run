@@ -128,6 +128,7 @@
     var wizard = null;
     var wrappedSrc = null;
     var autoAsked = false;
+    var pendingStart = false;      // 校准结束后要不要自动开局
 
     function currentSource() {
       return (game.input && game.input.current) ? game.input.current : null;
@@ -160,7 +161,14 @@
           }
           updateCalibNote();
         },
-        onClose: function () { updateCalibNote(); },
+        onClose: function () {
+          updateCalibNote();
+          // 从「开始快跑」进来的：校准完（或跳过/关闭）就接着开局
+          if (pendingStart) {
+            pendingStart = false;
+            setTimeout(function () { game.start(); }, 120);
+          }
+        },
         // 校准面板里填了地址 / 勾了双雷达后走这里：写回配置并重建数据源。
         // 换地址必须重新 new 一次 WebSocket，所以旧 src 直接 detach 掉。
         onReconnect: function (next) {
@@ -216,7 +224,10 @@
       if (cfg.autoOpen !== false && !autoAsked) {      // 每次打开页面最多自动弹一次
         autoAsked = true;
         setTimeout(function () {
-          if (!calibSaved()) ensureWizard().open(currentSource());
+          if (calibSaved()) return;
+          // 新手指引还没看过：先让玩家学玩法，校准推迟到教程结束后由 startWithGuides 接管
+          if (RR.Tutorial && !RR.Tutorial.hasSeen()) return;
+          ensureWizard().open(currentSource());
         }, 600);
       }
     }
@@ -254,8 +265,36 @@
     var forcedChallenge = queryParam('challenge');
     if (forcedChallenge) game._forcedChallenge = forcedChallenge;
 
+    // ---------- 新手引导（js/Tutorial.js） ----------
+    // 首次点「开始快跑」走 6 步玩法引导 → 雷达未校准则接着校准 → 开局。
+    // 教程已看过、或 ?tutorial=0，则直接进入下一环节。
+    var tutorialParam = queryParam('tutorial');
+
+    /** 教程要盖在最上层，先把可能已经开着的校准向导收起来，避免两层引导抢输入 */
+    function closeWizardIfOpen() {
+      if (wizard && wizard.isOpen) wizard.close();
+    }
+
+    function startWithGuides() {
+      var afterTutorial = function () {
+        var src = currentSource();
+        var cal = calibSaved();
+        var needCalib = src && src.id === 'radar' && RR.Calibration && RR.CalibrationWizard &&
+          !(cal && RR.Calibration.isUsable(cal));
+        if (!needCalib) { game.start(); return; }
+        pendingStart = true;
+        ensureWizard().open(src);
+      };
+      if (!RR.Tutorial || tutorialParam === '0') { afterTutorial(); return; }
+      if (tutorialParam === '1' || !RR.Tutorial.hasSeen()) {
+        closeWizardIfOpen();
+        RR.Tutorial.show(afterTutorial);
+      } else afterTutorial();
+    }
+
     // ---------- 按钮绑定 ----------
-    bind('btn-start', function () { requestFullscreenIfMobile(); game.start(); });
+    bind('btn-start', function () { requestFullscreenIfMobile(); startWithGuides(); });
+    bind('btn-tutorial', function () { if (RR.Tutorial) { closeWizardIfOpen(); RR.Tutorial.show(); } });
     bind('btn-pause', function () {
       if (game.state === 'playing') game.pause();
       else if (game.state === 'paused') game.resume();
@@ -350,9 +389,20 @@
     // ---------- 启动 ----------
     game.run();
 
-    // 自动化测试用：?autostart=1 直接开局
+    // 自动化测试用：?autostart=1 直接开局（旧行为，跳过引导）
+    // 想连引导一起测：?autostart=1&tutorial=1
     if (queryParam('autostart') === '1') {
-      setTimeout(function () { game.start(); }, 250);
+      if (tutorialParam === '1') setTimeout(function () { startWithGuides(); }, 250);
+      else setTimeout(function () { game.start(); }, 250);
+    }
+
+    // 演示 / 验收用：?tutorial=preview[&step=N] 只弹教程，不进游戏
+    if (tutorialParam === 'preview' && RR.Tutorial) {
+      var previewStep = Number(queryParam('step') || 1);
+      setTimeout(function () {
+        RR.Tutorial.show();
+        if (isFinite(previewStep) && previewStep > 1) RR.Tutorial.goto(previewStep - 1);
+      }, 300);
     }
 
     function requestFullscreenIfMobile() {

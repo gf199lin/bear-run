@@ -1479,3 +1479,143 @@ html, body {
 .history-row b { font-size: 14px; color: var(--gold); font-variant-numeric: tabular-nums; }
 .history-row span { color: var(--ink-dim); }
 .history-won { margin-left: auto; font-style: normal; font-size: 11px; color: var(--moss); }
+
+/* ===========================================================
+   新手引导弹窗（js/Tutorial.js）
+   深色面板 + 蜂蜜金描边，和暂停/结算面板保持同一套视觉语言。
+   z-index 高于校准向导（40），保证"先学玩法、再校准设备"。
+   =========================================================== */
+
+.tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--safe-t) + 16px) calc(var(--safe-r) + 16px) calc(var(--safe-b) + 16px) calc(var(--safe-l) + 16px);
+  background: radial-gradient(circle at 50% 38%, rgba(28, 52, 22, 0.9), rgba(5, 10, 4, 0.97));
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.28s ease, visibility 0.28s ease;
+}
+
+.tutorial-overlay.tutorial-show { opacity: 1; visibility: visible; }
+.tutorial-overlay.hidden { display: none !important; }
+
+.tutorial-box {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  max-height: 100%;
+  padding: 20px 26px 16px;
+  overflow-y: auto;
+  border: 1px solid var(--panel-line);
+  border-radius: 20px;
+  background: var(--panel);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.66), inset 0 0 0 1px rgba(247, 197, 49, 0.06);
+  animation: tutorialPop 0.36s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes tutorialPop {
+  from { transform: scale(0.9) translateY(12px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+.tutorial-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tutorial-step-no {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.tutorial-dots { display: flex; gap: 6px; }
+
+.tutorial-dot {
+  width: 22px;
+  height: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.18s ease;
+}
+
+.tutorial-dot.is-done { background: rgba(247, 197, 49, 0.5); }
+.tutorial-dot.is-now { background: var(--gold); transform: scaleY(1.35); }
+
+.tutorial-box h2 {
+  margin: 14px 0 14px;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-align: center;
+  color: var(--gold);
+  text-shadow: 0 2px 0 #8a6110;
+}
+
+.tutorial-content {
+  min-height: 148px;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--ink);
+}
+
+.tutorial-content p { margin: 7px 0; }
+.tutorial-content strong { color: var(--gold); }
+
+.tutorial-btns {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.tutorial-btn {
+  flex: 1;
+  width: auto;
+  padding: 12px 16px;
+  font-size: 16px;
+  letter-spacing: 1px;
+}
+
+.tutorial-tip {
+  margin-top: 10px;
+  font-size: 11px;
+  text-align: center;
+  color: var(--ink-dim);
+  opacity: 0.66;
+}
+
+.menu-tutorial {
+  width: auto;
+  min-width: 150px;
+  margin-top: 12px;
+  padding: 9px 22px;
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+
+@media (max-width: 560px) {
+  .tutorial-box { padding: 16px 18px 14px; }
+  .tutorial-box h2 { font-size: 19px; }
+  .tutorial-content { font-size: 14px; min-height: 168px; }
+  .tutorial-btn { padding: 11px 12px; font-size: 15px; }
+  .tutorial-tip { display: none; }
+}
+
+@media (max-height: 560px) {
+  .tutorial-content { min-height: 0; }
+  .tutorial-box h2 { margin: 10px 0; font-size: 19px; }
+  .tutorial-btns { margin-top: 12px; }
+}
