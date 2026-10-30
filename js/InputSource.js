@@ -396,8 +396,13 @@
       // —— 直播现场最容易被这个假绿灯骗到。现在用 openedAt 兜底判「无数据」。
       if (!this.connected) return;
       var now = performance.now();
+      // 自适应掉线判定：上下雷达实测只有 1.92Hz（521ms/帧），固定 500ms 会让它
+      // 每一帧到达前都被判「掉线」、下一帧又恢复，状态栏反复闪，看起来像「时连时断」。
+      // 取「实测帧间隔 × 3」和 staleMs 的较大者：高帧率雷达仍保持 500ms 的灵敏判定。
+      var avg = this.decoder.averageInterval;
+      var stale = Math.max(R.staleMs, avg > 0 ? avg * 3 : R.staleMs * 3);
       if (this.decoder.lastFrameAt) {
-        if (now - this.decoder.lastFrameAt > R.staleMs) {
+        if (now - this.decoder.lastFrameAt > stale) {
           this.connected = false;
           this.statusText = '掉线';
         }
@@ -571,8 +576,13 @@
       // 从没收到过帧时用 openedAt 兜底（3×staleMs），否则会一直显示「已连接」。
       if (!this.connected) return;
       var now = performance.now();
+      // 自适应掉线判定：上下雷达实测只有 1.92Hz（521ms/帧），固定 500ms 会让它
+      // 每一帧到达前都被判「掉线」、下一帧又恢复，状态栏反复闪，看起来像「时连时断」。
+      // 取「实测帧间隔 × 3」和 staleMs 的较大者：高帧率雷达仍保持 500ms 的灵敏判定。
+      var avg = this.decoder.averageInterval;
+      var stale = Math.max(R.staleMs, avg > 0 ? avg * 3 : R.staleMs * 3);
       if (this.decoder.lastFrameAt) {
-        if (now - this.decoder.lastFrameAt > R.staleMs) {
+        if (now - this.decoder.lastFrameAt > stale) {
           this.connected = false;
           this.statusText = '掉线';
         }

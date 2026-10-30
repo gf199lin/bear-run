@@ -113,6 +113,20 @@ html, body {
   to   { transform: scale(1.05); box-shadow: 0 0 20px rgba(240, 127, 31, 0.95); }
 }
 
+/* 测试模式徽标：空跑道联调，不掉血也不会结束，常亮不闪（别抢雷达数据的注意力） */
+.test-badge {
+  align-self: flex-start;
+  padding: 3px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 226, 255, 0.55);
+  background: rgba(10, 40, 52, 0.86);
+  color: #a9ecff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  box-shadow: 0 0 14px rgba(72, 196, 232, 0.35);
+}
+
 .stat { display: inline-flex; align-items: baseline; gap: 5px; }
 
 .stat-label {
@@ -707,6 +721,40 @@ html, body {
   100% { opacity: 0; }
 }
 
+/* 测试模式进场提示：说清楚"不会死"，5 秒后自己淡出 */
+.test-hint {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--safe-t) + 96px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 22px;
+  border-radius: 12px;
+  background: rgba(8, 30, 40, 0.88);
+  border: 1px solid rgba(120, 226, 255, 0.4);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--ink);
+  z-index: 15;
+  pointer-events: none;
+  animation: fadeInOut 5s ease forwards;
+}
+
+.test-hint-title {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: #a9ecff;
+}
+
+.test-hint-sub {
+  font-size: 11px;
+  color: rgba(240, 246, 232, 0.66);
+}
+
 #damage-flash {
   position: absolute;
   inset: 0;
@@ -1047,6 +1095,54 @@ html, body {
 .calib-status { font-size: 12px; color: var(--ink-dim); }
 .calib-status.is-ok { color: var(--moss); }
 
+/* ================= 主页 · 雷达排障入口（数据体检 / 联调台） ================= */
+
+.radar-tools {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px dashed rgba(247, 197, 49, 0.22);
+}
+
+.radar-tools-label {
+  margin-bottom: 7px;
+  font-size: 10.5px;
+  letter-spacing: 2px;
+  color: var(--ink-dim);
+}
+
+.radar-tools-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.tool-btn {
+  flex: 1 1 118px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  text-decoration: none;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.tool-btn:hover {
+  background: rgba(247, 197, 49, 0.12);
+  border-color: rgba(247, 197, 49, 0.45);
+}
+
+.tool-btn b { font-size: 12.5px; font-weight: 700; }
+.tool-btn span { font-size: 10px; line-height: 1.45; color: var(--ink-dim); }
+.radar-tools-hint { margin-top: 7px; font-size: 10.5px; line-height: 1.5; color: var(--ink-dim); }
+
+@media (max-width: 900px) and (max-height: 500px) {
+  .radar-tools { margin-top: 8px; padding-top: 8px; }
+  .radar-tools-hint { display: none; }
+  .tool-btn { flex: 1 1 90px; padding: 6px 9px; }
+  .tool-btn span { display: none; }
+}
+
 .calib-overlay {
   position: absolute;
   inset: 0;
@@ -1088,6 +1184,79 @@ html, body {
 .calib-msg.calib-ok { color: var(--moss); }
 .calib-msg.calib-warn { color: var(--boost); }
 .calib-msg.calib-error { color: var(--blood); }
+
+/* ---- 雷达连接：单台 / 双雷达（一台管左右、一台管上下） ---- */
+
+.calib-link {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  text-align: left;
+}
+
+.calib-link-dual {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+
+.calib-link-dual input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--gold);
+  cursor: pointer;
+}
+
+.calib-link-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.calib-link-row.calib-hidden { display: none; }
+
+.calib-link-tag {
+  flex: 0 0 auto;
+  width: 30px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.calib-link-row input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--panel-line);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--ink);
+  font: 12px/1.4 Consolas, "Courier New", monospace;
+}
+
+.calib-link-row input[type="text"]:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+.calib-link-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.calib-link-state { font-size: 12px; color: var(--ink-dim); }
+.calib-link-state.is-ok { color: var(--moss); }
+.calib-link-state.is-bad { color: var(--blood); }
 
 .calib-live {
   margin-top: 10px;
@@ -1485,6 +1654,37 @@ html, body {
   letter-spacing: 1px;
 }
 
+/* 「新手指引 / 雷达测试」并排 */
+.menu-sub-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.menu-sub-btns .menu-tutorial { margin-top: 0; }
+
+.menu-test {
+  border-color: rgba(120, 226, 255, 0.42);
+  color: #cdeeff;
+}
+
+.menu-test:hover { background: rgba(60, 150, 180, 0.22); }
+
+.menu-hero .test-note {
+  margin-top: 7px;
+  max-width: 430px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(246, 239, 220, 0.6);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+}
+
+/* 横屏手机高度吃紧：这句说明会顶到下面的卡片，直接收起来（按钮本身已经写着"雷达测试"） */
+@media (max-height: 620px) {
+  .menu-hero .test-note { display: none; }
+}
+
 @media (max-width: 560px) {
   .tutorial-box { padding: 16px 18px 14px; }
   .tutorial-box h2 { font-size: 19px; }
@@ -1551,6 +1751,8 @@ html, body {
 }
 .auth-toggle:hover { color: #f7c531; text-decoration: underline; }
 .auth-note { margin: 14px 2px 0; font-size: 11px; color: rgba(207, 230, 196, 0.6); line-height: 1.5; }
+
+/* 游客模式：和登录表单之间拉一条分隔线，按钮做成分支入口 */
 .auth-divider {
   display: flex; align-items: center; gap: 10px;
   margin: 14px 0 4px; color: rgba(207, 230, 196, 0.5); font-size: 12px;
@@ -1561,16 +1763,49 @@ html, body {
 .auth-guest {
   width: 100%; padding: 11px; font-size: 14px; font-weight: 600;
   color: #eaf2e3; background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 11px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
 }
 .auth-guest:hover { border-color: #cfe6c4; background: rgba(255, 255, 255, 0.1); }
 
 /* 主菜单账号条 */
-.acct-line { margin-top: 14px; font-size: 13px; color: #cfe6c4; }
+.acct-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #cfe6c4;
+}
 .acct-line b { color: #f7c531; }
 .acct-btn {
-  margin-left: 8px; padding: 4px 10px; font-size: 12px;
-  background: transparent; color: #f2f6ed;
-  border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 7px; cursor: pointer;
+  width: auto;
+  margin-left: 0;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #f2f6ed;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  cursor: pointer;
 }
-.acct-btn:hover { border-color: #f7c531; color: #f7c531; }
+.acct-btn:hover { border-color: #f7c531; color: #f7c531; background: transparent; }
+
+/* 横屏手机高度吃紧：登录卡片收紧一点，别把按钮顶出屏幕 */
+@media (max-height: 620px) {
+  .auth-screen { padding: 12px; }
+  .auth-box { padding: 16px 18px 12px; max-width: 340px; }
+  .auth-badge { margin-bottom: 6px; padding: 3px 10px; }
+  .auth-title { font-size: 21px; }
+  .auth-sub { margin-bottom: 10px; font-size: 12px; }
+  .auth-field { margin-bottom: 9px; }
+  .auth-field input { padding: 8px 10px; font-size: 14px; }
+  .auth-note { display: none; }
+  .auth-divider { margin: 9px 0 3px; }
+  .auth-guest { padding: 8px 10px; font-size: 13px; }
+}
