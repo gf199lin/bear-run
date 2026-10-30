@@ -27,3 +27,8 @@ tmp/
 # ---- Python 缓存（工具脚本运行产物）----
 __pycache__/
 *.pyc
+
+# ---- 雷达服务运行时产物（采集数据、推流日志、环境底噪基线）----
+radar-service/captures/
+radar-service/logs/
+radar-service/bg_baseline.json

@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>毫米波雷达 · 实时点云</title>
+<style>
+  :root{
+    --bg:#070a0f; --panel:#0d121b; --line:#1b2534; --dim:#5b6b82;
+    --fg:#e8eef7; --accent:#59f0c8; --warm:#ff6b5a; --cool:#4aa8ff; --static:#c9d6e8;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font:13px/1.5 "Inter","Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  .wrap{display:flex;height:100%;min-height:0}
+  .stage{position:relative;flex:1;min-width:0;display:flex;align-items:center;justify-content:center}
+  canvas#cloud{width:100%;height:100%;display:block}
+  aside{width:308px;flex:none;border-left:1px solid var(--line);background:var(--panel);
+    display:flex;flex-direction:column;overflow:auto}
+  .hd{padding:14px 16px 12px;border-bottom:1px solid var(--line)}
+  .hd h1{margin:0;font-size:14px;letter-spacing:.2px;font-weight:600}
+  .hd p{margin:3px 0 0;color:var(--dim);font-size:11.5px}
+  .badge{display:inline-flex;align-items:center;gap:5px;margin-top:9px;font-size:11px;
+    padding:3px 8px;border:1px solid var(--line);border-radius:99px;color:var(--dim)}
+  .dot{width:6px;height:6px;border-radius:99px;background:var(--accent)}
+  .dot.off{background:#ff9f43}
+  section{padding:12px 16px;border-bottom:1px solid var(--line)}
+  section h2{margin:0 0 9px;font-size:11px;letter-spacing:.9px;text-transform:uppercase;color:var(--dim);font-weight:600}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .kv{background:#0a0f18;border:1px solid var(--line);border-radius:7px;padding:7px 9px}
+  .kv b{display:block;font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+  .kv span{color:var(--dim);font-size:10.5px}
+  canvas#rd{width:100%;height:132px;display:block;background:#080c13;
+    border:1px solid var(--line);border-radius:7px}
+  .legend{display:flex;gap:12px;margin-top:8px;color:var(--dim);font-size:11px;flex-wrap:wrap}
+  .legend i{display:inline-block;width:8px;height:8px;border-radius:99px;margin-right:4px}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  th,td{text-align:left;padding:4px 0;font-size:11.5px;border-bottom:1px solid #131b26}
+  th{color:var(--dim);font-weight:500}
+  td{text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  .foot{padding:11px 16px;color:var(--dim);font-size:10.5px;line-height:1.6}
+  .overlay{position:absolute;left:16px;top:14px;font-size:11.5px;color:var(--dim);
+    background:rgba(7,10,15,.72);border:1px solid var(--line);border-radius:8px;padding:8px 11px}
+  .overlay b{color:var(--fg);font-weight:600}
+  .btns{position:absolute;right:14px;top:14px;display:flex;gap:6px}
+  .btns button{background:rgba(13,18,27,.86);color:var(--dim);border:1px solid var(--line);
+    border-radius:7px;padding:5px 10px;font-size:11.5px;cursor:pointer;font-family:inherit}
+  .btns button.on{color:var(--accent);border-color:#1f5a4c}
+  .run{display:flex;gap:6px;margin-top:10px}
+  .run button{flex:1;background:#101825;color:var(--fg);border:1px solid var(--line);
+    border-radius:7px;padding:6px 0;font-size:12px;cursor:pointer;font-family:inherit;
+    transition:border-color .15s,color .15s,background .15s}
+  .run button:hover:enabled{border-color:#2b3b52}
+  .run button.go{background:var(--accent);border-color:var(--accent);color:#06120f;font-weight:600}
+  .run button.stop{color:var(--warm);border-color:#4a2622}
+  .run button:disabled{opacity:.38;cursor:default}
+  .hint{margin-top:9px;color:var(--dim);font-size:10.5px;line-height:1.55}
+  .hint.warn{color:#ffb45a}
+  .banner{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);
+    max-width:min(840px,88%);display:none;padding:10px 14px;border-radius:9px;
+    font-size:12px;line-height:1.6;text-align:left;
+    background:rgba(28,16,12,.94);border:1px solid #5a3325;color:#ffce9a;
+    box-shadow:0 6px 22px rgba(0,0,0,.45)}
+  .banner.show{display:block}
+  .banner b{color:#fff}
+  .banner code{background:rgba(255,255,255,.08);border-radius:4px;padding:0 4px;
+    font-size:11.5px;color:#fff}
+  .diagline{margin-top:8px;color:var(--dim);font-size:10.5px;line-height:1.55;
+    word-break:break-all}
+  .diagline b{color:var(--fg);font-weight:600}
+  .evline{margin-top:2px}
+  .evline em{font-style:normal;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="stage">
+    <canvas id="cloud"></canvas>
+    <div class="overlay" id="hud">等待数据…<br><b>—</b></div>
+    <div class="btns">
+      <button id="z1" class="on">5.5 m</button>
+      <button id="z2">3 m</button>
+      <button id="hold">拖影</button>
+      <button id="mirror" title="切换点云的左右画法。雷达视角 = 画雷达看到的（人向自己的左侧移动，点云在屏幕上向右跑）。人视角(镜像) = 画人自己看到的（人向自己的左侧移动，点云在屏幕上向左跑，与人的体感一致）。只影响显示，不影响识别结果。">视角: 雷达</button>
+    </div>
+    <div class="banner" id="banner"></div>
+  </div>
+  <aside>
+    <div class="hd">
+      <h1>毫米波雷达 · 实时点云</h1>
+      <p id="hwinfo">ICL1122 / DEV202H · 1T2R · 24 GHz · 64 chirp × 8 距离单元</p>
+      <div class="badge"><span class="dot" id="live"></span><span id="srctxt">连接中</span></div>
+      <div class="run">
+        <button id="b_start" class="go">开始</button>
+        <button id="b_stop" class="stop">结束</button>
+        <button id="b_reset">重置</button>
+      </div>
+      <div class="run" id="switchrow" style="display:none">
+        <button id="b_switch" title="一键在 真雷达 / 回放 / 合成 之间切换（快捷键 F2）">切换数据源</button>
+      </div>
+      <div class="hint" id="heat">—</div>
+      <div class="diagline" id="diag">链路诊断：—</div>
+    </div>
+    <section>
+      <h2>实时指标</h2>
+      <div class="grid">
+        <div class="kv"><b id="k_fps">—</b><span>帧率 fps</span></div>
+        <div class="kv"><b id="k_pts">—</b><span>点数</span></div>
+        <div class="kv"><b id="k_n">—</b><span>累计帧</span></div>
+        <div class="kv"><b id="k_bad">—</b><span>误帧 / 丢字节</span></div>
+      </div>
+    </section>
+    <section>
+      <h2>采集会话</h2>
+      <div class="grid">
+        <div class="kv"><b id="c_state">—</b><span>状态</span></div>
+        <div class="kv"><b id="c_t">—</b><span>本次计时 s</span></div>
+        <div class="kv"><b id="c_total">—</b><span>累计采集 s</span></div>
+        <div class="kv"><b id="c_sess">—</b><span>会话 / 自愈</span></div>
+      </div>
+    </section>
+    <section>
+      <h2>环境底噪（背景基线）</h2>
+      <div class="run">
+        <button id="b_bgcalib"
+                title="人离开波束后采一段空场，逐距离门统计环境自身的占用率 B_j。需先点「开始」">环境底噪校准</button>
+        <button id="b_bgcancel">取消</button>
+      </div>
+      <div class="hint" id="bg_note">—</div>
+      <div class="legend" id="bg_state">尚未读取状态</div>
+      <div class="legend" id="bg_diag">—</div>
+      <div class="legend" style="color:#6b7688">
+        ⚠ 与「校准」（F3：人站在雷达前定左右灵敏度）<b>不是一回事</b>。<br>
+        采集期间必须<b>无人在波束内</b>：基线若被污染，后续减底噪会变差，
+        且<b>不会自动报警</b>。<br>
+        本功能只落盘基线 + 显示诊断数字，<b>不改变识别行为</b>（默认不接入选门）。
+      </div>
+    </section>
+    <section>
+      <h2>近距动作（约 1~1.5 m）</h2>
+      <div class="grid">
+        <div class="kv"><b id="a_lane">—</b><span>动作状态</span></div>
+        <div class="kv"><b id="a_v">—</b><span>横向速度 m/s</span></div>
+        <div class="kv"><b id="a_px">—</b><span>横向质心 m</span></div>
+        <div class="kv"><b id="a_n">—</b><span>带内点数</span></div>
+      </div>
+      <div class="legend" id="a_ev">暂无事件</div>
+    </section>
+    <section>
+      <h2>距离-多普勒图</h2>
+      <canvas id="rd"></canvas>
+      <div class="legend">
+        <span>竖轴 多普勒 −1.53…+1.53 m/s</span><span>横轴 8 距离单元 (0.68 m/格)</span>
+      </div>
+    </section>
+    <section>
+      <h2>最近目标</h2>
+      <table>
+        <thead><tr><th>距离 m</th><th>方位 °</th><th>速度 m/s</th><th>强度</th></tr></thead>
+        <tbody id="tb"><tr><td colspan="4" style="text-align:center;color:#3b4759">暂无</td></tr></tbody>
+      </table>
+    </section>
+    <section>
+      <h2>解析参数</h2>
+      <table id="cfg"></table>
+    </section>
+    <div class="foot">
+      颜色 = 径向速度：<span style="color:var(--warm)">红</span> 靠近，
+      <span style="color:var(--cool)">蓝</span> 远离，<span style="color:var(--static)">灰</span> 静止。<br>
+      点大小 ∝ 回波强度。垂直俯仰角不可用（硬件限制），故为水平面投影。
+    </div>
+  </aside>
+</div>
+<script>
+(function(){
+  const cv = document.getElementById('cloud'), ctx = cv.getContext('2d');
+  const rd = document.getElementById('rd'), rc = rd.getContext('2d');
+  let W=0,H=0,DPR=Math.min(devicePixelRatio||1,2);
+  function resize(){
+    const r = cv.getBoundingClientRect();
+    cv.width = Math.round(r.width*DPR); cv.height = Math.round(r.height*DPR);
+    W = cv.width; H = cv.height;
+    const rr = rd.getBoundingClientRect();
+    rd.width = Math.round(rr.width*DPR); rd.height = Math.round(rr.height*DPR);
+  }
+  window.addEventListener('resize', resize);
+
+  let span = 5.5, trail = true, cfg = null, live = false;
+  // 视角（只影响**绘制层**的左右，不碰 angle_sign、不碰识别结果）：
+  //   false = 雷达视角：画雷达坐标系（+x 画在屏幕右）。人向自己的左侧移动 ⇒
+  //           雷达 x 增大 ⇒ 点云在屏幕上向右跑（webcam 式的镜像感）。
+  //   true  = 人视角(镜像)：把 +x 画在屏幕左，于是「人向左移动 ⇒ 点云向左跑」，
+  //           与玩家体感一致。这是给现场演示用的观感修正。
+  // 依据：本安装几何下实测「人向自己的左侧移动 ⇒ dev>0（雷达 x 增大）」
+  //   （见 radar_actions.py 的 XBASE_* 注释与 docs/progress-radar-pointcloud.md §7.40）。
+  //   若日后翻转 angle_sign 或换装法，需重新标定该对应关系。
+  let mirror = false;
+  // 采集会话控制
+  let ctlState = null;        // 服务端 /control 状态对象
+  let diag = null;            // 串口链路诊断（服务端下发：端口/枚举结果/失败原因）
+  let bnText = null;          // 顶部横幅当前文本（避免每帧重写 DOM）
+  let diagShown = null;       // 链路诊断行当前文本（同上）
+  let lastCtl = 0;            // 最近一次控制心跳（performance.now）
+  let serverOnline = false;   // 服务端在线（有控制心跳）
+  let paused = false;         // 在线但采集已停止
+  let wasActive = false;
+  let act = null, evLog = [];
+  let hotkey = null;          // 服务端下发的热切换状态（未启用热切换时为 null）
+  const hist = [];
+  let lastMsg = 0, msgCount = 0, tPrev = performance.now(), fpsShown = 0;
+
+  const MAXR = 5.45, ANGM = 45;
+
+  function geom(){
+    const m = 40*DPR;
+    const k = Math.min((H*0.5-m)/span, (W*0.5-m)/(span*Math.tan(ANGM*Math.PI/180)));
+    return {cx: W/2, cy: H - m, k: k};
+  }
+  // 绘制层唯一的 x→屏幕 转换点。镜像只改这里（场景本身左右对称，故不需改其它）。
+  function toScreen(x,y,g){ const xx = mirror ? -x : x; return [g.cx + xx*g.k, g.cy - y*g.k]; }
+
+  function draw(){
+    const g = geom();
+    ctx.clearRect(0,0,W,H);
+    // FOV wedge
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(g.cx,g.cy);
+    ctx.arc(g.cx,g.cy, span*g.k*(1/Math.cos(0)), -Math.PI/2-ANGM*Math.PI/180, -Math.PI/2+ANGM*Math.PI/180);
+    ctx.closePath();
+    ctx.fillStyle='rgba(89,240,200,.028)'; ctx.fill();
+    ctx.strokeStyle='rgba(89,240,200,.20)'; ctx.lineWidth=1*DPR; ctx.stroke();
+    // 距离环
+    ctx.font = (10*DPR)+'px Inter, sans-serif';
+    for(let r=1;r<=Math.ceil(span);r++){
+      if(r>span) break;
+      ctx.beginPath(); ctx.arc(g.cx,g.cy,r*g.k, -Math.PI, 0);
+      ctx.strokeStyle='rgba(27,37,52,.95)'; ctx.stroke();
+      ctx.fillStyle='#3d4a5d';
+      ctx.fillText(r+' m', g.cx+4*DPR, g.cy-r*g.k-3*DPR);
+    }
+    // 距离单元分隔（真实分辨率 0.68 m）
+    ctx.setLineDash([3*DPR,4*DPR]);
+    for(let i=1;i<8;i++){
+      const r = i*0.6813;
+      if(r>span) break;
+      ctx.beginPath(); ctx.arc(g.cx,g.cy,r*g.k,-Math.PI,0);
+      ctx.strokeStyle='rgba(27,37,52,.75)'; ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    // 动作识别距离带（约 1~1.5 m 目标所在，cfg.band）
+    if(cfg && cfg.band && cfg.band[1] > 0){
+      const r0 = cfg.band[0]*g.k, r1 = Math.min(cfg.band[1], span)*g.k;
+      if(r1 > r0){
+        ctx.beginPath();
+        ctx.arc(g.cx,g.cy,r1,-Math.PI,0);
+        ctx.arc(g.cx,g.cy,r0,-Math.PI,0,true);
+        ctx.closePath();
+        ctx.fillStyle='rgba(89,240,200,.06)'; ctx.fill();
+        ctx.strokeStyle='rgba(89,240,200,.22)'; ctx.lineWidth=1*DPR; ctx.stroke();
+      }
+    }
+    // 中轴 + 阵元
+    ctx.beginPath(); ctx.moveTo(g.cx,g.cy); ctx.lineTo(g.cx, g.cy-span*g.k);
+    ctx.strokeStyle='rgba(27,37,52,.9)'; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(g.cx,g.cy); ctx.lineTo(g.cx,g.cy);
+    ctx.strokeStyle='#59f0c8'; ctx.lineWidth=2*DPR; ctx.stroke();
+    ctx.fillStyle='#59f0c8';
+    ctx.beginPath(); ctx.arc(g.cx,g.cy,3.2*DPR,0,7); ctx.fill();
+    ctx.fillStyle='#5b6b82';
+    ctx.fillText('传感器', g.cx+8*DPR, g.cy+14*DPR);
+
+    // 常驻视角标注：避免演示时把「镜像显示」误判成链路出问题。
+    // 镜像时同时镜像角度刻度文字，否则屏幕位置与数字会互相矛盾。
+    ctx.save();
+    ctx.textAlign = 'left';
+    ctx.font = (10*DPR)+'px Inter, sans-serif';
+    ctx.fillStyle = mirror ? '#f0c859' : '#5b6b82';
+    ctx.fillText(mirror ? '视角: 人视角(镜像) — 横轴左右已翻转（不影响识别）'
+                        : '视角: 雷达视角', 10*DPR, 16*DPR);
+    ctx.restore();
+
+    // 拖影
+    const frames = trail ? hist.slice(-9) : hist.slice(-1);
+    frames.forEach((f, fi) => {
+      const a = trail ? 0.10 + 0.90*((fi+1)/frames.length) : 1;
+      const rScale = trail ? 0.55 + 0.45*((fi+1)/frames.length) : 1;
+      (f||[]).forEach(p => {
+        const [sx,sy] = toScreen(p[0],p[1],g);
+        const col = Math.abs(p[3]) < 0.06 ? [201,214,232] : (p[3] < 0 ? [255,107,90] : [74,168,255]);
+        const rad = (2.1 + 5.4*Math.sqrt(Math.max(p[4],0)))*DPR*rScale;
+        const gr = ctx.createRadialGradient(sx,sy,0,sx,sy,rad*3.1);
+        gr.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},${0.96*a})`);
+        gr.addColorStop(0.35, `rgba(${col[0]},${col[1]},${col[2]},${0.30*a})`);
+        gr.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = gr;
+        ctx.beginPath(); ctx.arc(sx,sy,rad*3.1,0,7); ctx.fill();
+        ctx.fillStyle = `rgba(255,255,255,${0.85*a})`;
+        ctx.beginPath(); ctx.arc(sx,sy,Math.max(1.1*DPR,rad*0.55),0,7); ctx.fill();
+      });
+    });
+  }
+
+  function drawRD(arr){
+    const w = rd.width, h = rd.height;
+    // 距离-多普勒图的行=chirp(多普勒)、列=距离单元，随板型变化
+    // （1T2R 64×8；2T4R/DEV113P 64×32），必须从 cfg 取而不是写死。
+    const R = (cfg && cfg.chirps) || 64, C = (cfg && cfg.bins) || 8;
+    const cw = w/C, ch = h/R;
+    rc.clearRect(0,0,w,h);
+    if(!arr || !arr.length){ return; }
+    // 容错：万一 cfg 与数据长度不一致，按实际数组长度反推列数
+    const CC = (arr.length % R === 0) ? Math.round(arr.length/R) : C;
+    const cw2 = w/CC;
+    for(let d=0; d<R; d++){
+      for(let b=0; b<CC; b++){
+        const v = arr[d*CC+b]/99;
+        if(v<=0.02) continue;
+        // 冷→暖 调色
+        const r = Math.round(20 + 235*Math.pow(v,1.5));
+        const gg = Math.round(30 + 200*Math.max(0,1-Math.abs(v-0.55)*2.1));
+        const bl = Math.round(60 + 160*Math.max(0,1-v*2.0));
+        rc.fillStyle = `rgb(${r},${gg},${bl})`;
+        rc.fillRect(b*cw2, h-(d+1)*ch, cw2+0.6*DPR, ch+0.6*DPR);
+      }
+    }
+    rc.strokeStyle='rgba(255,255,255,.16)';
+    rc.beginPath(); rc.moveTo(0,h/2); rc.lineTo(w,h/2); rc.stroke();
+    rc.fillStyle='rgba(232,238,247,.5)';
+    rc.font=(9*DPR)+'px Inter, sans-serif';
+    // 速度轴标注跟随实际板型（1T2R ±1.53 m/s；2T4R ≈±0.37 m/s）
+    const vm = (cfg && cfg.v_max) ? cfg.v_max.toFixed(2) : '1.53';
+    rc.fillText('+'+vm,3*DPR,h/2-3*DPR);
+    rc.fillText('−'+vm,3*DPR,h-3*DPR);
+    if(cfg && !cfg.range_res_verified){
+      rc.fillStyle='rgba(255,196,120,.85)';
+      rc.fillText('距离轴未标定',3*DPR,h-24*DPR);
+    }
+  }
+
+  var lastM = null;
+  const LANE_TXT = {LEFT:'向左移动', RIGHT:'向右移动', CENTER:'静止 / 未判定'};
+  const EV_TXT = {
+    LANE_LEFT:'左移', LANE_RIGHT:'右移', JUMP:'跳（候选·未验证）',
+    DUCK:'蹲（候选·未验证）', TARGET_LOST:'目标丢失', TARGET_BACK:'目标恢复',
+    BAND_READY:'已自动选带（信息）'
+  };
+
+  function pushAct(){
+    if(!act) return;
+    const f = act.features || {};
+    const el = document.getElementById('a_lane');
+    el.textContent = act.target ? (LANE_TXT[act.lane] || act.lane || '—') : '无目标';
+    el.style.color = !act.target ? 'var(--dim)'
+      : (act.lane === 'CENTER' ? 'var(--fg)' : 'var(--accent)');
+    document.getElementById('a_v').textContent =
+      (f.v_lat === undefined || f.v_lat === null) ? '—' : f.v_lat.toFixed(2);
+    document.getElementById('a_px').textContent =
+      (f.px === undefined || f.px === null) ? '—' : f.px.toFixed(2);
+    document.getElementById('a_n').textContent = (f.n === undefined ? '—' : f.n);
+    document.getElementById('a_ev').className = 'legend';
+    document.getElementById('a_ev').innerHTML = evLog.length ? evLog.map(e =>
+      `<span class="evline">${EV_TXT[e.name]||e.name}` +
+      `<em>${e.seq !== undefined ? ' #'+e.seq : ''}</em></span>`).join('<span>·</span>')
+      : '暂无事件';
+  }
+
+  function renderFrame(m){
+    lastMsg = performance.now(); msgCount++;
+    lastM = m;
+    cfg = m.cfg || cfg;
+    if(m.src_diag) diag = m.src_diag;
+    if(m.act){ act = m.act; }
+    if(m.events && m.events.length){
+      evLog = m.events.concat(evLog).slice(0,6);
+    }
+    pushAct();
+    hist.push(m.pts || []);
+    if(hist.length>12) hist.shift();
+    document.getElementById('k_pts').textContent = m.points;
+    document.getElementById('k_n').textContent = m.n;
+    document.getElementById('k_bad').textContent = (m.bad||0)+' / '+(m.skipped||0);
+    document.getElementById('hud').innerHTML =
+      `帧 <b>#${m.n}</b> · 点 <b>${m.points}</b> · 源 <b>${m.src}</b><br>`+
+      `噪声底 <b>${m.noise}</b> · 跨度 <b>${span} m</b> · 链路 <b>${m.connected===false?'断开':'正常'}</b>`+
+      ` · 重连 <b>${m.reconnects||0}</b> · 丢弃帧 <b>${m.dropped||0}</b>`;
+    const tb = document.getElementById('tb');
+    const pts = (m.pts||[]).slice(0,7);
+    tb.innerHTML = pts.length ? pts.map(p =>
+      `<tr><td>${p[1].toFixed(2)}</td><td>${p[2] >= 0 ? '+' : ''}${p[2].toFixed(1)}</td>`+
+      `<td>${p[3] >= 0 ? '+' : ''}${p[3].toFixed(2)}</td><td>${(p[4]*100).toFixed(0)}%</td></tr>`
+    ).join('') : '<tr><td colspan="4" style="text-align:center;color:#3b4759">暂无</td></tr>';
+    drawRD(m.rd);
+  }
+
+  function pushCfg(){
+    if(!cfg) return;
+    const rows = [
+      ['板型', (cfg.board_label||cfg.board||'—')+(cfg.board?' ('+cfg.board+')':'')],
+      ['距离分辨率', cfg.range_res+' m'+(cfg.range_res_verified===false?'（未标定）':'')],
+      ['最大距离', cfg.max_range+' m'+(cfg.range_res_verified===false?'（未标定）':'')],
+      ['速度量程', '±'+cfg.v_max+' m/s'],
+      ['速度分辨率', cfg.v_res+' m/s'],
+      ['chirp × 距离单元', cfg.chirps+' × '+cfg.bins],
+      ['静态杂波抑制', cfg.clutter?'开':'关'],
+    ];
+    document.getElementById('cfg').innerHTML = rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('');
+    // 顶栏副标题随板型走，避免 2T4R 插着却显示「1T2R · 8 距离单元」
+    const hw = document.getElementById('hwinfo');
+    if(hw){
+      const name = (cfg.board_label||'').trim() || '毫米波雷达';
+      const freq = (cfg.range_res_verified===false) ? '' : '24 GHz · ';
+      hw.textContent = name + ' · ' + freq + cfg.chirps + ' chirp × ' + cfg.bins + ' 距离单元';
+    }
+  }
+
+  // ---------------------------------------------------------------- 采集控制
+  // ---- 链路诊断：把「无数据」翻译成「哪一环断了、怎么修」 ----
+  function diagText(){
+    if(!diag) return '服务未上报串口状态';
+    if(diag.connected === false){
+      if(!diag.port){
+        if(diag.port_reason === 'ambiguous')
+          return '系统有多个串口，认不出雷达 —— 请指定串口后重启服务';
+        return '未检测到雷达串口 —— 请插好 USB，并确认已装 CP210x 驱动';
+      }
+      return '串口 ' + diag.port + ' 打不开：'
+        + (diag.last_error_hint || diag.last_error || '原因未知');
+    }
+    return '串口 ' + (diag.port || '?') + ' 已连接，等待数据…';
+  }
+
+  function diagPorts(){
+    if(!diag || !diag.ports || !diag.ports.length) return '无';
+    return diag.ports.map(p => p.desc ? (p.device + ' [' + p.desc + ']') : p.device).join('、');
+  }
+
+  function setBanner(html){
+    if(html === bnText) return;
+    bnText = html;
+    const el = document.getElementById('banner');
+    if(!html){ el.className = 'banner'; el.innerHTML = ''; }
+    else { el.className = 'banner show'; el.innerHTML = html; }
+  }
+
+  function pushDiag(){
+    const el = document.getElementById('diag');
+    let html;
+    if(!diag){
+      html = '链路诊断：<b>服务未上报</b>（未启动，或当前是回放/演示源）';
+    }else{
+      let s = '链路诊断：';
+      if(diag.connected) s += '<b>已连接 ' + (diag.port || '') + '</b>';
+      else s += '<b>' + (diag.port ? ('串口 ' + diag.port + ' 未打开')
+                                   : '未检测到雷达串口') + '</b>';
+      s += ' · 系统串口: ' + diagPorts();
+      if(diag.last_error) s += ' · ' + (diag.last_error_hint || diag.last_error);
+      html = s;
+    }
+    if(html === diagShown) return;      // 内容没变就不动 DOM
+    diagShown = html;
+    el.innerHTML = html;
+  }
+
+  function syncSwitchButton(){
+    const row = document.getElementById('switchrow');
+    const bs = document.getElementById('b_switch');
+    if(!row || !bs) return;
+    if(hotkey && hotkey.enabled){
+      row.style.display = '';
+      const cur = hotkey.mode || '?', nxt = hotkey.next || '?';
+      bs.textContent = '切换数据源 → ' + nxt + '（' + (hotkey.key||'F2') + '）';
+      bs.title = '当前 ' + cur + '，按 ' + (hotkey.key||'F2') + ' 或点此切到 ' + nxt
+               + '；循环 ' + (hotkey.modes||[]).join(' → ');
+    }else{
+      row.style.display = 'none';
+    }
+  }
+
+  function applyControl(m){
+    lastCtl = performance.now();
+    serverOnline = true;
+    if(m.src_diag) diag = m.src_diag;
+    if(m.hotkey) hotkey = m.hotkey;
+    const was = wasActive;
+    ctlState = m;
+    wasActive = !!m.active;
+
+    const st = document.getElementById('c_state');
+    st.textContent = m.active ? '采集中' : '已停止';
+    st.style.color = m.active ? 'var(--accent)' : 'var(--warm)';
+    document.getElementById('c_t').textContent = (m.elapsed||0).toFixed(1);
+    document.getElementById('c_total').textContent = (m.active_seconds||0).toFixed(1);
+    document.getElementById('c_sess').textContent = (m.sessions||0)+' / '+(m.restarts||0);
+
+    const note = document.getElementById('heat');
+    if(m.active){
+      note.className = 'hint warn';
+      note.textContent = '采集进行中：雷达持续发射、芯片会发热，不用时请点「结束」暂停。';
+    }else{
+      note.className = 'hint';
+      note.textContent = m.heat_note || '已停止（主机侧已释放串口）。';
+    }
+    document.getElementById('b_start').disabled = !!m.active;
+    document.getElementById('b_stop').disabled = !m.active;
+    if(was && !m.active) hist.length = 0;   // 刚停止 → 清屏，避免看着像还在采集
+    syncSwitchButton();
+    if(m.bgcalib) renderBg(m.bgcalib);
+  }
+
+  // ---- 环境底噪校准（背景基线）----------------------------------------------
+  // 用词纪律：这里绝不用「校准」二字指代 F3（那是「人在场」定左右灵敏度）。
+  // D 只作为诊断数字显示，**不设红/黄/绿语义**——离线实测噪声本底最大 14.6%
+  // 已高于真·0.15 m 场景变化的中位 11%，两个分布严重重叠，任何语义阈值都会被
+  // 噪声跨过（用户裁定，见 docs/ai-decision-log.md #38）。
+  let bgDiagShown = null;
+  function renderBg(bg){
+    const st = document.getElementById('bg_state');
+    const dg = document.getElementById('bg_diag');
+    const nt = document.getElementById('bg_note');
+    const b1 = document.getElementById('b_bgcalib');
+    const b2 = document.getElementById('b_bgcancel');
+    if(!st || !dg || !nt || !b1 || !b2) return;
+    if(!bg){ st.textContent = '未校准（服务端未上报状态）'; return; }
+    const phase = bg.phase || 'idle', running = !!bg.running;
+    b2.disabled = !running;
+    b1.disabled = running || !(ctlState && ctlState.active);
+
+    if(running){
+      const left = (bg.left_s === null || bg.left_s === undefined)
+                 ? null : Math.round(bg.left_s);
+      st.textContent = '校准中… ' + (bg.frames|0) + '/' + (bg.want|0) + ' 帧'
+        + (left === null ? '' : '，约剩 ' + left + ' s')
+        + ((bg.dropped|0) ? '（已丢弃头部 ' + (bg.dropped|0) + ' 帧）' : '');
+      nt.className = 'hint warn';
+      nt.textContent = '请保持空场：人不要站在雷达前方。';
+    }else if(phase === 'failed'){
+      st.textContent = '校准失败：' + (bg.msg || '未知原因');
+      nt.className = 'hint warn';
+      nt.textContent = '先点「开始」确认数据在流，再重试。';
+    }else if((bg.result && bg.result.b_j) || bg.baseline_b_j){
+      const r = bg.result || {};
+      st.textContent = '已有基线 ' + (r.created_at || bg.baseline_created_at || '—')
+        + (r.frames ? ('（' + r.frames + ' 帧）') : '');
+      nt.className = 'hint';
+      nt.textContent = '落盘：' + ((bg.path || '—').split(/[\\\/]/).pop());
+    }else{
+      st.textContent = '尚无基线';
+      nt.className = 'hint';
+      nt.textContent = '点「环境底噪校准」采一段空场（默认约 24 s）。';
+    }
+
+    const lines = (bg.result && bg.result.diag) || bg.baseline_diag || [];
+    const html = lines.length ? lines.join('<br>') : '—';
+    if(html !== bgDiagShown){ bgDiagShown = html; dg.innerHTML = html; }
+  }
+
+  async function ctlPost(action){
+    const note = document.getElementById('heat');
+    try{
+      const r = await fetch('/control', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({action: action})
+      });
+      const j = await r.json();
+      if(j && j.active !== undefined) applyControl(j);
+      if(j && j.bgcalib) renderBg(j.bgcalib);
+      if(j && j.ok === false){ note.className = 'hint warn'; note.textContent = j.msg || '操作被拒绝'; }
+      if(action === 'switch' && j && j.ok && j.source_mode){
+        note.className = 'hint';
+        note.textContent = '已切换数据源 → ' + j.source_mode
+          + '（' + Math.round(j.switch_ms||0) + ' ms）';
+      }
+      if(action === 'reset'){ hist.length = 0; evLog = []; act = null; pushAct(); }
+    }catch(e){
+      note.className = 'hint warn';
+      note.textContent = '控制请求失败：' + e + '（服务端未运行？）';
+    }
+  }
+
+  document.getElementById('b_start').onclick = () => ctlPost('start');
+  document.getElementById('b_stop').onclick  = () => ctlPost('stop');
+  document.getElementById('b_reset').onclick = () => ctlPost('reset');
+  document.getElementById('b_switch').onclick = () => ctlPost('switch');
+  document.getElementById('b_bgcalib').onclick  = () => ctlPost('bgcalib');
+  document.getElementById('b_bgcancel').onclick = () => ctlPost('bgcalib-cancel');
+  renderBg(null);   // 初始态：等服务端第一条控制心跳来填
+
+  // 页面热键：现场演示前台是浏览器，焦点在页面上时也能一键切换（AGENTS.md 硬约束 2）。
+  // 控制台窗口有焦点时由 server.py 的 msvcrt 热键兜底，两条通道互不依赖。
+  window.addEventListener('keydown', e => {
+    if(!(hotkey && hotkey.enabled)) return;
+    const t = e.target;
+    if(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'
+             || t.tagName === 'SELECT' || t.isContentEditable)) return;
+    if(e.key === (hotkey.key || 'F2')){
+      e.preventDefault();
+      ctlPost('switch');
+    }
+  });
+  syncSwitchButton();
+
+  function loop(){
+    const now = performance.now();
+    if(now - tPrev > 600){
+      fpsShown = msgCount*1000/(now-tPrev); msgCount = 0; tPrev = now;
+      document.getElementById('k_fps').textContent = fpsShown.toFixed(2);
+      const on = now - lastMsg < 1600;
+      serverOnline = (now - lastCtl) < 3500;   // 有 1 Hz 控制心跳即视为在线
+      paused = !!(serverOnline && ctlState && !ctlState.active);
+      document.getElementById('live').className = 'dot' + ((on || paused) ? '' : ' off');
+      let txt;
+      if(on){
+        txt = '实时数据流' + (lastM && lastM.connected===false ? ' · 链路断开重连中' : '')
+            + (lastM && lastM.reconnects ? ' · 已重连 ' + lastM.reconnects + ' 次' : '');
+        setBanner('');
+      }else if(paused){
+        txt = '已停止（点「开始」恢复采集）';
+        setBanner('');
+      }else if(serverOnline){
+        txt = '服务在线 · ' + diagText();
+        setBanner('<b>服务在运行，但暂时没有数据。</b>'
+          + '（' + diagText() + '）<br>'
+          + '修好后不用重启服务：插上雷达 / 关掉占用串口的程序后，本页会自己接上。');
+      }else{
+        txt = '未连接点云服务';
+        setBanner('<b>还没有连上本地点云服务。</b><br>'
+          + '请双击 <code>雷达实时点云-一键启动.cmd</code>'
+          + '（或 <code>radar-pointcloud\\start_viewer.cmd</code>）启动服务，再刷新本页。<br>'
+          + '下面的画面是内置演示动画，<b>不是你的雷达数据</b>。');
+      }
+      document.getElementById('srctxt').textContent = txt;
+      pushDiag();
+      live = on;
+      if(paused){
+        if(hist.length) hist.length = 0;
+        document.getElementById('hud').innerHTML =
+          '采集已停止<br><b>点「开始」恢复采集（上方按钮）</b>';
+      }
+      pushCfg();
+    }
+    if(!live && !paused){ greyed = true; }
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // 无服务端时：内置演示，保证页面单独打开也能看懂
+  let greyed=false, demoPhase=0;
+  setInterval(()=>{
+    if(serverOnline) return;      // 服务端在线（哪怕已停止）就不放演示动画
+    demoPhase += 0.05;
+    const pts=[];
+    for(let i=0;i<7;i++){
+      const a = Math.radians(-32 + 64*Math.abs(Math.sin(demoPhase*0.7)) + 4*Math.sin(demoPhase*3+i));
+      const r = 2.2 + 1.5*Math.abs(Math.sin(demoPhase*0.45+i*0.5));
+      pts.push([r*Math.sin(a), r*Math.cos(a), a*180/Math.PI, 0.6*Math.cos(demoPhase+i), 0.3+0.6*Math.abs(Math.sin(i+demoPhase))]);
+    }
+    hist.push(pts); if(hist.length>12) hist.shift();
+    document.getElementById('k_fps').textContent='—'; document.getElementById('k_pts').textContent=pts.length;
+    document.getElementById('k_n').textContent='—'; document.getElementById('k_bad').textContent='— / —';
+    document.getElementById('hud').innerHTML = '演示动画（不是雷达数据）<br><b>双击「雷达实时点云-一键启动」连接真实雷达</b>';
+    if(!cfg) cfg = {range_res:0.6813,max_range:5.45,v_max:1.535,v_res:0.048,chirps:64,bins:8,clutter:true,board:'1t2r',board_label:'DEV202H (ICL1122) 1T2R',range_res_verified:true};
+    pushCfg(); draw();
+  }, 120);
+
+  function connect(){
+    const es = new EventSource('/stream');
+    es.onmessage = e => {
+      const m = JSON.parse(e.data);
+      if(m.type === 'hello'){
+        cfg = m.cfg || cfg;
+        if(m.control && m.control.active !== undefined) applyControl(m.control);
+        pushCfg();
+      }else if(m.type === 'control'){
+        applyControl(m);
+      }else{
+        renderFrame(m);
+      }
+    };
+    es.onerror = () => { es.close(); setTimeout(connect, 1500); };
+  }
+  document.getElementById('z1').onclick = function(){ span=5.5; this.classList.add('on'); document.getElementById('z2').classList.remove('on'); };
+  document.getElementById('z2').onclick = function(){ span=3.0; this.classList.add('on'); document.getElementById('z1').classList.remove('on'); };
+  document.getElementById('hold').onclick = function(){ trail=!trail; this.classList.toggle('on',trail); };
+  document.getElementById('hold').classList.add('on');
+  // 视角开关：只翻转绘制层（见 toScreen / 文件头说明）。用快捷键 M 也可切换，
+  // 现场演示时不必对准按钮。
+  const mirrorBtn = document.getElementById('mirror');
+  function setMirror(v){
+    mirror = !!v;
+    mirrorBtn.classList.toggle('on', mirror);
+    mirrorBtn.textContent = mirror ? '视角: 人视角(镜像)' : '视角: 雷达';
+  }
+  mirrorBtn.onclick = function(){ setMirror(!mirror); };
+  window.addEventListener('keydown', function(ev){
+    if(ev.key === 'm' || ev.key === 'M'){ setMirror(!mirror); }
+  });
+
+  pushDiag(); resize(); loop(); connect();
+})();
+</script>
+</body>
+</html>
