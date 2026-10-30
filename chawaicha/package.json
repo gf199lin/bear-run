@@ -1,0 +1,12 @@
+{
+  "name": "radar-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DEV113P 雷达串口 → WebSocket 桥接助手(路线B)",
+  "main": "bridge.js",
+  "scripts": { "start": "node bridge.js" },
+  "dependencies": {
+    "serialport": "^13.0.0",
+    "ws": "^8.18.0"
+  }
+}
