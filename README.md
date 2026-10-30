@@ -621,14 +621,17 @@ python tools/radar_bridge.py --from udp --udp-port 8889 --parse json --port 8767
 
 ## 十三、团队分工
 
-按仓库提交记录整理（如组内还有其他成员，请补充后提交 PR）：
+四人各承担 **25%**，合计 100%。详细职责、验收口径与贡献记录见
+[`docs/team-contribution.md`](docs/team-contribution.md)。
 
-| GitHub | 负责模块 | 代表提交 / Issue |
-|---|---|---|
-| [@gf199lin](https://github.com/gf199lin) | 游戏引擎、雷达接入、整合与发布 | `e1fca3a`、`bcae2fd` |
-| [@hwx-666](https://github.com/hwx-666) | 登录 / 游客模式、UI | `036cb83`、`1f88ea4` |
+| 成员 | 占比 | 负责模块 | 主要交付物 |
+|---|---|---|---|
+| [@gf199lin](https://github.com/gf199lin) | 25% | 游戏引擎、雷达接入、整合与发布 | 可运行游戏、`v1.0.0-mvp`、Release |
+| [@hwx-666](https://github.com/hwx-666) | 25% | 账号体系、主菜单与 UI | 登录/游客模式、HUD、结算页 |
+| [@jqz070803](https://github.com/jqz070803) | 25% | 雷达数据采集与校准 | 校准向导、校准参数记录、数据评估 |
+| [@chawaicha](https://github.com/chawaicha) | 25% | 测试、文档与演示 | 验收用例、缺陷记录、演示材料 |
 
-> 真实姓名与其他成员请在此表追加；每位成员至少用自己的账号提交一次，贡献才可追溯。
+> 贡献以 GitHub 记录为准：本人 commit、Issue 评论、PR 中的 `@mention`，三者缺一不可。
 
 协作方式：功能改动走 `feature/*` 分支 → Pull Request → Squash merge；任务与验收标准在 Issue 中登记。
 
