@@ -623,10 +623,12 @@ python tools/radar_bridge.py --from udp --udp-port 8889 --parse json --port 8767
 
 按仓库提交记录整理（如组内还有其他成员，请补充后提交 PR）：
 
-| 成员 | GitHub | 负责模块 | 代表提交 / Issue |
-|---|---|---|---|
-| 林同学 | [@gf199lin](https://github.com/gf199lin) | 游戏引擎、雷达接入、整合与发布 | `e1fca3a`、`bcae2fd` |
-| 黄同学 | [@hwx-666](https://github.com/hwx-666) | 登录 / 游客模式、UI | `036cb83`、`1f88ea4` |
+| GitHub | 负责模块 | 代表提交 / Issue |
+|---|---|---|
+| [@gf199lin](https://github.com/gf199lin) | 游戏引擎、雷达接入、整合与发布 | `e1fca3a`、`bcae2fd` |
+| [@hwx-666](https://github.com/hwx-666) | 登录 / 游客模式、UI | `036cb83`、`1f88ea4` |
+
+> 真实姓名与其他成员请在此表追加；每位成员至少用自己的账号提交一次，贡献才可追溯。
 
 协作方式：功能改动走 `feature/*` 分支 → Pull Request → Squash merge；任务与验收标准在 Issue 中登记。
 
