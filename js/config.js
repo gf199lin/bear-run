@@ -495,6 +495,12 @@
       // 两次换道之间的最小间隔(ms)。防止同一串高频帧在几毫秒内连跳两格。
       laneCooldownMs: 120,
 
+      // ---- 跳/蹲总开关 ----
+      // true  = 强制开启雷达跳/蹲：开局校准即使探针判"静站误报多"，也只降级提示，
+      //         绝不把阈值写成 2（2 会让 0~1 的 jump/crouch 字段永远达不到，等于停用）。
+      //         历史存档里已被写成 2 的，装载时自动修复回下面的出厂阈值。
+      // false = 恢复 v2 行为，允许校准自动停用雷达跳/蹲（回退键盘）。
+      forceJC: true,
       jumpThreshold: 0.5,
       crouchThreshold: 0.5,
       minConfidence: 0.3,
@@ -510,6 +516,20 @@
       dual: false,
       lrUrl: null,            // null = 用 defaultUrl
       udUrl: null,            // 例：ws://192.168.1.7:8767
+
+      // ---- 后台判定（游戏只收结果，方案 B）----
+      // 'client'  = 老路径：游戏自己把连续帧判成动作（RadarDecoder）
+      // 'backend' = 新路径：左右 / 上下两个 bridge 进程各自判定完，只把
+      //             {type:'action', action:'left|right|jump|slide'} 发给游戏；
+      //             游戏侧不再做任何阈值判定（RadarActionInputSource）。
+      // 开启：?judge=backend（推荐，跟着 URL 走，不污染本地存档）
+      // 后台链路：bridge --role lr --judge → 9001
+      //           bridge --role ud --judge → 9002
+      //           radar_hub.py             → 8766（游戏连这个）
+      judge: 'client',
+      actionUrl: null,        // null = 用 defaultUrl（指到 radar_hub.py 的端口）
+      actionDedupMs: 70,      // 同一动作在此窗口内重复到达只执行一次（防上游重发）
+      actionStaleMs: 1200,    // 多久没收到帧算后台掉线（判定在后台，判定窗口放宽）
 
       // ---- 离线回放（?input=replay）：把真实采集文件解出的帧按原帧率喂进游戏 ----
       replayUrl: './_radarreplay/radar-action-1020.js',

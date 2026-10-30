@@ -204,6 +204,40 @@ def serve_client(conn, addr, default_profile, live, channels='both'):
         print('  [%s] %s 断开' % (time.strftime('%H:%M:%S'), addr[0]), flush=True)
 
 
+def udp_loop(profile, channels, target):
+    """按 20Hz 往 target(host:port) 发 JSON 行 —— 用来喂 radar_bridge.py --from udp。
+
+    真实雷达走 UDP 时也是这个形状：一行一个 JSON，字段名 x/height/jump/crouch/confidence。
+    """
+    host, _, port = target.rpartition(':')
+    if not host:
+        host, port = target, '8888'
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    t0 = time.time()
+    i = 0
+    print('  [UDP] 每帧发往 %s:%s（分工 %s）' % (host, port, channels), flush=True)
+    while True:
+        due = t0 + i * DT
+        gap = due - time.time()
+        if gap > 0:
+            time.sleep(gap)
+        x, jump, crouch, height, conf = frame_values(profile, i * DT)
+        x, jump, crouch, height, conf = apply_channels(x, jump, crouch, height, conf, channels)
+        payload = json.dumps({
+            'ts': int(time.time() * 1000),
+            'x': round(x, 4),
+            'height': height,
+            'jump': jump,
+            'crouch': crouch,
+            'confidence': conf,
+        })
+        try:
+            sock.sendto(payload.encode('utf-8'), (host, int(port)))
+        except Exception:
+            pass
+        i += 1
+
+
 def local_ip():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -253,6 +287,11 @@ def main():
                          '（例：--port 8766 --channels lr --port2 8767）')
     ap.add_argument('--channels2', default='ud', choices=('both', 'lr', 'ud'),
                     help='第二路的分工，默认 ud（配合 --port2）')
+    ap.add_argument('--udp-out', default='',
+                    help='额外把每帧以 UDP 发到这个地址（喂 radar_bridge.py --from udp），'
+                         '例：--udp-out 127.0.0.1:8888 --udp-channels lr')
+    ap.add_argument('--udp-channels', default='both', choices=('both', 'lr', 'ud'),
+                    help='UDP 那一路的分工，默认 both')
     args = ap.parse_args()
 
     live = {'n': 0, 'lock': threading.Lock()}
@@ -274,6 +313,11 @@ def main():
             return 1
         print(' 第二路（双雷达）：ws://127.0.0.1:%d    分工 %s'
               % (args.port2, args.channels2), flush=True)
+
+    if args.udp_out:
+        threading.Thread(target=udp_loop,
+                         args=(args.profile, args.udp_channels, args.udp_out),
+                         daemon=True).start()
 
     print(' 切档不用重启，地址后加路径即可，例如 ws://127.0.0.1:%d/noisy' % args.port, flush=True)
     print(' 档位：' + ' / '.join(PROFILES), flush=True)

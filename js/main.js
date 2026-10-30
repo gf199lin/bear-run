@@ -7,6 +7,8 @@
  *   ?radar=ws://192.168.1.7:8766
  *   ?radar2=ws://192.168.1.7:8767   双雷达：radar 管左右、radar2 管上下
  *                   （?radar2=off 可临时关掉双雷达）
+ *   ?judge=backend  后台判定模式：判定在 bridge --judge 里完成，游戏只收 action 结果
+ *                   （配套 radar_hub.py；此模式下 ?radar2= 无效）
  *   ?char=xiong2|xiong1   直接指定角色（熊二 / 熊大）
  *   ?debug=1        直接打开雷达调试面板
  *   ?test=1         直接进测试模式（空跑道：没有障碍物，熊二一直跑，专供雷达联调）
@@ -170,6 +172,18 @@
       } catch (e) { /* 忽略 */ }
     }
 
+    // ---------- 后台判定模式（方案 B） ----------
+    // ?judge=backend（也认 ?judge=1 / on）：判定在后台两个 bridge 进程里完成，
+    // 游戏只消费 {type:'action'} 结果，前端不做任何阈值判定。
+    // 这条路径下地址指向 radar_hub.py（默认 8766），?radar2= 不再有意义。
+    var judgeP = queryParam('judge');
+    if (judgeP === 'backend' || judgeP === '1' || judgeP === 'on') {
+      RR.CFG.RADAR.judge = 'backend';
+      RR.CFG.RADAR.dual = false;
+    } else if (judgeP === 'client' || judgeP === '0' || judgeP === 'off') {
+      RR.CFG.RADAR.judge = 'client';
+    }
+
     // ---------- 横向手感现场微调（不改文件，刷新即可试） ----------
     // 现场联调用：?gain=0.6&enter=0.5&exit=0.35&step=1&cooldown=120
     //   gain     <1 变钝（雷达太灵敏），>1 变灵敏（读数偏小）
@@ -325,6 +339,8 @@
       }
 
       if (src.id !== 'radar') return;                 // 只有真实雷达需要校准
+      // 后台判定模式下阈值不在前端：校准向导没有意义，也不该弹出来打断现场
+      if (src.supportsCalibration === false) return;
       var cal = calibSaved();
       if (cal && RR.Calibration.isUsable(cal)) {
         RR.Calibration.install(src, cal);
@@ -347,6 +363,14 @@
       if (!currentSource() || currentSource().id !== 'radar') game.setInputSource('radar');
       var src = currentSource();
       if (!src || src.id !== 'radar') return;
+      if (src.supportsCalibration === false) {
+        // 后台判定模式：阈值在 bridge 进程里，前端改不了也不该改
+        alert('当前是后台判定模式（?judge=backend）。\n\n'
+          + '阈值在后台两个 bridge 进程里，前端不做校准。\n'
+          + '要调手感请改启动参数：--enter-th / --exit-th / --x-gain / '
+          + '--judge-jump-th / --judge-crouch-th / --jump-gap-ms。');
+        return;
+      }
       ensureWizard().open(src);
     }
 
@@ -389,7 +413,8 @@
       var afterTutorial = function () {
         var src = currentSource();
         var cal = calibSaved();
-        var needCalib = src && src.id === 'radar' && RR.Calibration && RR.CalibrationWizard &&
+        var needCalib = src && src.id === 'radar' && src.supportsCalibration !== false &&
+          RR.Calibration && RR.CalibrationWizard &&
           !(cal && RR.Calibration.isUsable(cal));
         if (!needCalib) { game.start(); return; }
         pendingStart = true;
@@ -414,7 +439,8 @@
 
       var src = currentSource();
       var cal = calibSaved();
-      var needCalib = src && src.id === 'radar' && RR.Calibration && RR.CalibrationWizard &&
+      var needCalib = src && src.id === 'radar' && src.supportsCalibration !== false &&
+        RR.Calibration && RR.CalibrationWizard &&
         !(cal && RR.Calibration.isUsable(cal));
       if (!needCalib) { game.start({ test: true }); return; }
 

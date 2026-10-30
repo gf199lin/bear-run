@@ -706,6 +706,206 @@
     get udOnline() { return this.ud.connected; }
   }
 
+  // ==================== 后台判定结果（游戏只收 action） ====================
+  // 方案 B：判定（阈值 / 车道迟滞 / 换道冷却 / 上升沿 / 防抖）全部在后台
+  // radar_bridge.py --judge 里完成。本类**不做任何判定**，只做三件事：
+  //   1. 连上 radar_hub.py，把 {type:'action'} 转成游戏事件
+  //   2. 把 {type:'state'} 存进 lastRaw，供调试面板显示 x / 高度 / 在线状态
+  //   3. 掉线检测 + 重连 + 重复动作去重
+  //
+  // 关键约定：收到没有 action 字段的旧式连续帧时，只更新面板，**绝不**自己判动作。
+  // 这样「游戏只接受结果」在代码层面是可验证的 —— 前端没有第二个判定点。
+
+  var ACTION_NAMES = { left: 1, right: 1, jump: 1, slide: 1 };
+
+  class RadarActionInputSource extends BaseInputSource {
+    constructor(url) {
+      super('radar', '雷达（后台判定）');
+      this.url = url || R.actionUrl || R.defaultUrl;
+      this.ws = null;
+      this.connected = false;
+      this.closedByUser = false;
+      this.retryTimer = null;
+      this.statusText = '未连接';
+      this.hint = this.url;
+      this.supportsCalibration = false;     // 阈值在后台，前端校准没有意义
+      this.lastFrameAt = 0;
+      this.lastActionAt = 0;
+      this.lastSeq = null;
+      this._dedup = {};
+      this._frameTimes = [];
+      this.frameRate = 0;
+      this.latency = null;
+      this.lastRaw = null;
+      this.lrOk = null;                     // 来自后台 state 帧
+      this.udOk = null;
+      this.actionCounts = { left: 0, right: 0, jump: 0, slide: 0 };
+      this.unjudgedFrames = 0;              // 收到却没有 action 的帧（上游没开 --judge）
+    }
+
+    attach() {
+      this.closedByUser = false;
+      this._connect();
+    }
+
+    detach() {
+      this.closedByUser = true;
+      if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; }
+      if (this.ws) {
+        try { this.ws.close(); } catch (e) { /* 忽略 */ }
+        this.ws = null;
+      }
+      this.connected = false;
+      this.statusText = '已断开';
+    }
+
+    _connect() {
+      var self = this;
+      if (typeof WebSocket === 'undefined') {
+        this.statusText = '当前环境不支持 WebSocket';
+        return;
+      }
+      this.statusText = '连接中…';
+      try {
+        this.ws = new WebSocket(this.url);
+      } catch (e) {
+        this.statusText = '地址无效';
+        this._scheduleRetry();
+        return;
+      }
+
+      this.ws.onopen = function () {
+        self.connected = true;
+        self.openedAt = performance.now();
+        self.statusText = '已连接';
+      };
+
+      this.ws.onmessage = function (evt) {
+        var payload;
+        try { payload = JSON.parse(evt.data); } catch (e) { return; }
+        if (Array.isArray(payload)) {
+          for (var i = 0; i < payload.length; i++) self._ingest(payload[i]);
+        } else {
+          self._ingest(payload);
+        }
+      };
+
+      this.ws.onerror = function () { self.statusText = '连接错误'; };
+
+      this.ws.onclose = function () {
+        self.connected = false;
+        self.statusText = '已断开';
+        self.ws = null;
+        self._scheduleRetry();
+      };
+    }
+
+    _scheduleRetry() {
+      var self = this;
+      if (this.closedByUser || this.retryTimer) return;
+      this.retryTimer = setTimeout(function () {
+        self.retryTimer = null;
+        if (!self.closedByUser) self._connect();
+      }, 2000);
+    }
+
+    /** 单帧总入口：只认 type，不认识就当状态显示 */
+    _ingest(obj) {
+      if (!obj || typeof obj !== 'object') return;
+
+      var now = performance.now();
+      if (!this.connected) {
+        this.connected = true;
+        this.statusText = '已连接';
+      }
+      this.lastFrameAt = now;
+      this._tickRate(now);
+
+      if (obj.ts) {
+        var ts = num(obj.ts, 0);
+        if (ts > 1e12) this.latency = Date.now() - ts;
+      }
+
+      if (obj.type === 'state') {
+        this.lastRaw = obj;
+        this.lrOk = obj.lr_ok === undefined ? this.lrOk : !!obj.lr_ok;
+        this.udOk = obj.ud_ok === undefined ? this.udOk : !!obj.ud_ok;
+        if (obj.lane !== undefined) this.lastLane = obj.lane;
+        return;
+      }
+
+      var act = obj.action;
+      if (!act) {
+        // 上游还在发连续帧（bridge 没开 --judge）：只显示，不判定。
+        this.unjudgedFrames++;
+        this.lastRaw = obj;
+        if (this.unjudgedFrames === 30) {
+          this.statusText = '上游未开 --judge（收不到动作）';
+        }
+        return;
+      }
+      if (!ACTION_NAMES[act]) return;
+      if (!this._accept(act, obj, now)) return;
+
+      this.actionCounts[act]++;
+      this.lastActionAt = now;
+      if (obj.lane !== undefined) this.lastLane = obj.lane;
+      this.emit(act);
+    }
+
+    /** 去重：后台 seq 相同直接丢；同一动作在 actionDedupMs 内重复也丢 */
+    _accept(act, obj, now) {
+      var seq = obj.seq;
+      if (seq !== undefined && seq !== null) {
+        if (seq === this.lastSeq) return false;
+        this.lastSeq = seq;
+      }
+      var ms = num(R.actionDedupMs, 70);
+      if (ms > 0) {
+        var last = this._dedup[act] || 0;
+        if (now - last < ms) return false;
+        this._dedup[act] = now;
+      }
+      return true;
+    }
+
+    _tickRate(now) {
+      this._frameTimes.push(now);
+      while (this._frameTimes.length > 25) this._frameTimes.shift();
+      if (this._frameTimes.length > 2) {
+        var span = this._frameTimes[this._frameTimes.length - 1] - this._frameTimes[0];
+        if (span > 0) this.frameRate = (this._frameTimes.length - 1) * 1000 / span;
+      }
+    }
+
+    update() {
+      if (!this.connected) return;
+      var now = performance.now();
+      var stale = num(R.actionStaleMs, 1200);
+      if (this.lastFrameAt && now - this.lastFrameAt > stale) {
+        this.connected = false;
+        this.statusText = '后台没数据';
+      }
+    }
+
+    /** 兼容 Calibration.install / 外部手工喂帧：只记录，不产生任何动作 */
+    _handleFrame(frame) {
+      if (frame && typeof frame === 'object') this.lastRaw = frame;
+    }
+
+    getStatusText() {
+      var extra = '';
+      if (this.lrOk === false) extra += ' · 左右断';
+      if (this.udOk === false) extra += ' · 上下断';
+      return this.statusText + extra;
+    }
+
+    /** 与双雷达源保持同名字段，避免面板/向导读不到时崩 */
+    get bothOnline() { return this.lrOk !== false && this.udOk !== false; }
+    get lrOnline() { return this.lrOk !== false; }
+    get udOnline() { return this.udOk !== false; }
+  }
+
   // ==================== 雷达模拟器（假数据源） ====================
   // 在没有硬件的情况下，用一个"虚拟人体"产生完全相同的帧格式，
   // 走完全相同的解码路径 —— 用来验证雷达链路和调阈值。
@@ -1152,8 +1352,12 @@
       var src;
       if (id === 'touch') src = new TouchInputSource(this.canvas);
       else if (id === 'radar') {
+        // 后台判定模式（方案 B）：判定全在两个 bridge 进程里，游戏只收 action 结果
+        if (R.judge === 'backend') {
+          src = new RadarActionInputSource(this.radarUrl || R.actionUrl || R.defaultUrl);
+        }
         // 双雷达：config 里 dual 打开且给了上下雷达地址才启用；否则退回原来的单雷达
-        if (R.dual && R.udUrl) {
+        else if (R.dual && R.udUrl) {
           src = new DualRadarInputSource(this.radarUrl || R.lrUrl || R.defaultUrl, R.udUrl);
         } else {
           src = new RadarInputSource(this.radarUrl || R.lrUrl || R.defaultUrl);
@@ -1199,6 +1403,7 @@
   RR.RadarInputSource = RadarInputSource;
   RR.RadarChannel = RadarChannel;
   RR.DualRadarInputSource = DualRadarInputSource;
+  RR.RadarActionInputSource = RadarActionInputSource;
   RR.MockRadarInputSource = MockRadarInputSource;
   RR.ReplayRadarInputSource = ReplayRadarInputSource;
   RR.InputManager = InputManager;
