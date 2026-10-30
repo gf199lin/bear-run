@@ -10,27 +10,6 @@
   var RR = global.RR = global.RR || {};
   var CFG = RR.CFG;
 
-  // ==================== 存档读写 ====================
-  // 登录后所有个人存档（最高分、纪录、输入源、角色）都按账号隔离，
-  // 键名由 RR.Auth.key() 加上账号前缀；没加载 auth.js 或未登录时退回原来的全局键，
-  // 保证"打开就能玩"，不会因为登录模块缺失把存档功能拖挂。
-
-  function storeGet(key) {
-    try {
-      if (RR.Auth) return RR.Auth.get(key);
-      return global.localStorage.getItem(key);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function storeSet(key, val) {
-    try {
-      if (RR.Auth) RR.Auth.set(key, val);
-      else global.localStorage.setItem(key, val);
-    } catch (e) { /* 隐私模式 / 配额满都当没存过 */ }
-  }
-
   /** 播个音效。音频模块没加载或被关掉时静默跳过，绝不影响玩法。 */
   function SFX(name) { if (RR.Audio) RR.Audio.sfx(name); }
 
@@ -116,7 +95,6 @@
       this.best = this._loadBest();
       this.inputId = 'keyboard';
       this.startAt = 0;                        // ?startat=<米>：调试用，直接从某区域开局
-      this.testMode = false;                   // 测试模式：无空障碍 / 不会死 / 固定速度
 
       this.lastFrame = 0;
       this.fps = 0;
@@ -177,11 +155,7 @@
       this.hud.setInput(src.label);
       this.hud.markInputChoice(src.id);
       if (src.id === 'radar') {
-        if (src.urlText) {
-          this.hud.setRadarNote('双雷达（左右 + 上下）：' + src.urlText);
-        } else {
-          this.hud.setRadarNote('雷达地址：' + (src.url || CFG.RADAR.defaultUrl));
-        }
+        this.hud.setRadarNote('雷达地址：' + (src.url || CFG.RADAR.defaultUrl));
       } else if (src.id === 'mock') {
         this.hud.setRadarNote('模拟器：虚拟人体以 30Hz 产出雷达帧，走与真雷达完全相同的解码链路。');
       } else if (src.id === 'touch') {
@@ -189,13 +163,13 @@
       } else {
         this.hud.setRadarNote('键盘：←→ 换道 · ↑/空格 跳 · ↓ 滑铲');
       }
-      storeSet(CFG.STORAGE_KEY_INPUT, id);
+      try { RR.Auth.set(CFG.STORAGE_KEY_INPUT, id); } catch (e) { /* 忽略 */ }
       return src;
     }
 
     get savedInputId() {
       try {
-        var v = storeGet(CFG.STORAGE_KEY_INPUT);
+        var v = RR.Auth.get(CFG.STORAGE_KEY_INPUT);
         if (v === 'keyboard' || v === 'touch' || v === 'radar' || v === 'mock') return v;
       } catch (e) { /* 忽略 */ }
       return this.isCoarse ? 'touch' : 'keyboard';
@@ -205,7 +179,7 @@
 
     get savedCharId() {
       try {
-        var v = storeGet(CFG.STORAGE_KEY_CHAR);
+        var v = RR.Auth.get(CFG.STORAGE_KEY_CHAR);
         var spec = CFG.getCharacter(v);
         if (spec && v === spec.id) return v;
       } catch (e) { /* 忽略 */ }
@@ -242,7 +216,7 @@
         if (this.state !== 'playing' && this.state !== 'dying') this.vick.reset();
       }
 
-      storeSet(CFG.STORAGE_KEY_CHAR, spec.id);
+      try { RR.Auth.set(CFG.STORAGE_KEY_CHAR, spec.id); } catch (e) { /* 忽略 */ }
       this.hud.markCharChoice(spec.id);
       this.hud.setCharNote('当前角色：' + spec.name + ' · ' + spec.tagline);
       // 表情小窗跟着换脸：3D 模型是背对镜头的，这张脸才是玩家看到的"正脸"
@@ -268,9 +242,6 @@
     }
 
     _onKey(e) {
-      // 登录层盖着的时候键盘别去开局 / 暂停（在输入框里敲回车是提交表单，不是开跑）
-      if (RR.Auth && !RR.Auth.loggedIn()) return;
-
       if (e.repeat) { /* 允许长按，但下面几个键忽略重复 */ }
       var k = e.key;
 
@@ -295,16 +266,12 @@
 
     // ==================== 状态切换 ====================
 
-    start(opts) {
-      var test = !!(opts && opts.test);
-      this.testMode = test;
-
+    start() {
       this.hp = CFG.HP.start;
       this.distance = 0;
       this.score = 0;
       this.coins = 0;
-      // 测试模式用固定速度：不随里程爬升，动作节奏与雷达帧率好对齐
-      this.speed = test ? CFG.TEST.speed : CFG.SPEED.start;
+      this.speed = CFG.SPEED.start;
       this.boostTimer = 0;
       this.combo = 0;
       this.comboTimer = 0;
@@ -313,31 +280,25 @@
 
       // 调试用（?startat=<米>）：直接从指定区域的里程开局，
       // 好一次性验收 4 个区的配色 / 雾 / 专属摆件，不用真跑 800 米。
-      if (this.startAt > 0 && !test) this.distance = this.startAt;
+      if (this.startAt > 0) this.distance = this.startAt;
 
       // 随机挑战：抽一条 + 进度清零（要在第一次 _updateHud 之前定下来）
-      // 测试局不抽挑战，HUD 也不显示进度条
-      this.challenge = test ? null : this._pickChallenge();
+      this.challenge = this._pickChallenge();
       this.challengeDone = false;
       this.cleanMeters = 0;
 
       this.player.reset();
-      // 测试模式：关掉障碍 / 拾取物生成，进去就是一条干净的空跑道
-      this.obstacles.setEnabled(!test);
-      this.obstacles.reset(!test);
+      this.obstacles.reset(true);
       this.world.updateStagePalette(0);
 
       // 开局本来就在第 1 区，别一进来就弹"进入新区域"（等真的跑进下一区再弹）；
       // 跳区开局时反而要弹，好确认横幅 + 换天气是一起发生的。
-      this._lastStageBanner = (this.startAt > 0 && !test) ? -1 : 0;
+      this._lastStageBanner = this.startAt > 0 ? -1 : 0;
 
-      // 光头强：像《地铁跑酷》的警察一样，开局就咬在熊二屁股后面追。
-      // 测试模式不让他上场 —— 没有障碍就不会掉血，他也不会来处决。
+      // 光头强：像《地铁跑酷》的警察一样，开局就咬在熊二屁股后面追
       this.vick.reset();
-      if (!test) {
-        this.vick.beginChase();
-        SFX('chase');
-      }
+      this.vick.beginChase();
+      SFX('chase');
       this.world.setCine(0);
       this.deathTimer = 0;
       this.hud.hideVickShout();
@@ -349,8 +310,7 @@
       this.hud.setSpeed(this.speed);
       this.hud.setBest(this.best);
       this.hud.setBoost(false);
-      this.hud.setStage(0, test ? '测试模式' : CFG.DIFFICULTY[0].name, true);
-      this.hud.setTestMode(test);
+      this.hud.setStage(0, CFG.DIFFICULTY[0].name);
       this.hud.hideAllOverlays();
       this.hud.hideCombo();
       this.hud.setChallenge(this.challenge, 0);
@@ -361,19 +321,12 @@
       this.lastFrame = 0;
 
       if (this.inputId === 'touch') this.hud.showTouchHint();
-      if (test) this.hud.showTestHint();
-      if (this.debug.visible) this.debug.logEvent(test ? 'START TEST' : 'START');
+      if (this.debug.visible) this.debug.logEvent('START');
 
       // 音乐在这一刻起。start() 必然发生在玩家点击/按键之后，
       // 所以这里也是 AudioContext 的解锁时机（浏览器自动播放策略要求）。
-      // 测试模式不放背景音乐：现场调雷达时留个干净的耳朵听动作音效。
       BGM('duck', false);
-      if (!test) BGM('start');
-    }
-
-    /** 当前模式下的重开：测试局重开还是测试局，普通局重开还是普通局 */
-    restart() {
-      this.start(this.testMode ? { test: true } : undefined);
+      BGM('start');
     }
 
     pause() {
@@ -393,9 +346,6 @@
 
     gameOver() {
       if (this.state === 'over') return;
-      // 测试局不结算、不写纪录：正常流程根本到不了这里，
-      // 真进来了说明状态被外部打乱，直接回主菜单最省事。
-      if (this.testMode) { this.toMenu(); return; }
       this.state = 'over';
 
       // 结算前再判一次：最后那一帧刚好达标的挑战不能被吞掉
@@ -454,7 +404,6 @@
 
     toMenu() {
       this.state = 'menu';
-      this.testMode = false;
       this.hp = CFG.HP.start;
       this.distance = 0;
       this.score = 0;
@@ -470,13 +419,10 @@
       this.cleanMeters = 0;
       this.player.reset();
       this.vick.reset();
-      this.obstacles.setEnabled(true);   // 退出测试模式：恢复正常生成
       this.obstacles.reset(false);
       this.world.updateStagePalette(0);
       this.world.setCine(0);
       this.hud.hideVickShout();
-      this.hud.setTestMode(false);
-      this.hud.setStage(0, CFG.DIFFICULTY[0].name, true);
       this.hud.setHearts(this.hp, CFG.HP.max);
       this.hud.setBoost(false);
       this.hud.hideCombo();
@@ -556,9 +502,8 @@
         this.input.update(dt);
 
         // ---- 速度：随距离线性爬升，加速带期间额外乘算 ----
-        // 曲线是 config 里的纯函数（热身段 + 爬升段），这里只读数；
-        // 测试模式改成固定速度，跑多久都一样快，方便对着雷达动作调参数。
-        var base = this.testMode ? CFG.TEST.speed : CFG.speedAt(this.distance);
+        // 曲线是 config 里的纯函数（热身段 + 爬升段），这里只读数
+        var base = CFG.speedAt(this.distance);
         if (this.boostTimer > 0) {
           this.boostTimer -= dt;
           if (this.boostTimer <= 0) {
@@ -640,9 +585,6 @@
     }
 
     _resolveCollisions() {
-      // 测试模式是一条空跑道：没有障碍也没有拾取物，碰撞判定整个跳过
-      if (this.testMode) return;
-
       var r = this.obstacles.checkCollisions(this.player);
       var px = this.player.x, py = this.player.y;
 
@@ -734,11 +676,6 @@
      */
     _checkRegion() {
       var si = this.obstacles.stageIndex;
-
-      // 测试模式锁在第 1 区：只测雷达，不换天气、不弹"进入新区域"横幅，
-      // 否则跑过 180 米画面突然变暗，现场看数据反而更容易分神。
-      if (this.testMode) { this._lastStageBanner = si; return; }
-
       if (si === this._lastStageBanner) return;
       this._lastStageBanner = si;
 
@@ -758,11 +695,7 @@
       this.hud.setDistance(this.distance);
       this.hud.setCoins(this.coins);
       this.hud.setSpeed(this.speed);
-      if (this.testMode) {
-        this.hud.setStage(0, '测试模式');
-      } else {
-        this.hud.setStage(this.obstacles.stageIndex, this.obstacles.stage.name);
-      }
+      this.hud.setStage(this.obstacles.stageIndex, this.obstacles.stage.name);
       this.hud.setCombo(this.combo, this.comboLevel, this.comboTimer / CFG.COMBO.window);
       this._updateChallenge();
     }
@@ -915,7 +848,7 @@
     _loadRecords() {
       var out = this._emptyRecords();
       var raw = null;
-      raw = storeGet(CFG.STORAGE_KEY_RECORDS);
+      try { raw = RR.Auth.get(CFG.STORAGE_KEY_RECORDS); } catch (e) { raw = null; }
       if (!raw) return out;
 
       var d = null;
@@ -954,7 +887,7 @@
     }
 
     _saveRecords(r) {
-      storeSet(CFG.STORAGE_KEY_RECORDS, JSON.stringify(r));
+      try { RR.Auth.set(CFG.STORAGE_KEY_RECORDS, JSON.stringify(r)); } catch (e) { /* 忽略 */ }
     }
 
     /** 把本局写进纪录：刷新各维度最高值 + 历史前插（超长直接截断，只留最近几局） */
@@ -1046,7 +979,7 @@
 
     _loadBest() {
       try {
-        var v = parseInt(storeGet(CFG.STORAGE_KEY) || '0', 10);
+        var v = parseInt(RR.Auth.get(CFG.STORAGE_KEY) || '0', 10);
         return isFinite(v) && v > 0 ? v : 0;
       } catch (e) {
         return 0;
@@ -1054,7 +987,7 @@
     }
 
     _saveBest(v) {
-      storeSet(CFG.STORAGE_KEY, String(v));
+      try { RR.Auth.set(CFG.STORAGE_KEY, String(v)); } catch (e) { /* 忽略 */ }
     }
   }
 
