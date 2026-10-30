@@ -38,5 +38,28 @@
 | [radar-calibration-plan.md](radar-calibration-plan.md) | 雷达数据评估、采集方案与开局校准设计 |
 | [radar-data-request-v3.md](radar-data-request-v3.md) | 数据采集需求与字段约定 |
 
+## 雷达服务与工具
+
+雷达侧代码在 `radar-service/`，日常启动入口见仓库根 `RADAR-SERVICE.md`。
+
+| 文档 | 说明 |
+|---|---|
+| [radar-autoconnect-handoff.md](radar-autoconnect-handoff.md) | 双雷达自动识别、板型判定、推流与采集的实现和验证记录 |
+| [boot-2t4r-pure-python.md](boot-2t4r-pure-python.md) | 2T4R 脱离 ONELAB 的纯 Python 启动（离线校验通过，实机未验证） |
+| [双雷达双开-组员操作手册.md](双雷达双开-组员操作手册.md) | 两块板各跑一个后台判定进程 + hub 合并的操作手册 |
+
+工具入口：
+
+| 位置 | 用途 |
+|---|---|
+| `radar-service/2-检查雷达.cmd` | 列出串口、判定板型、看帧率 |
+| `radar-service/3-采集数据.cmd` | 采集原始字节（结果在 `captures/`，不入库） |
+| `radar-service/5-推流到游戏.cmd` | 自动分配左右/上下两路 WebSocket |
+| `radar-service/radar_boot_2t4r.py` | 2T4R 启动序列重放 |
+| `radar-service/tools/rx_pair_probe.py` | 2T4R 四通道对角探针 |
+| `radar-service/tools/horizontal_guide.py` | 横向方位角标定引导 |
+| `tools/run-dual.bat` | 双雷达双开（后台判定 + hub 合并） |
+| `tools/run-dual-demo.bat` | 无硬件自测同一条链路 |
+
 仓库不包含雷达原始回波 `.bin` 抓包、图像或音频；`_radarreplay/` 下仅为动作回放所需的逐帧特征序列。
 如需复用这些材料，请注明来源并遵守课程的数据使用要求。

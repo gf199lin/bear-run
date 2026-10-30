@@ -87,6 +87,57 @@ http://127.0.0.1:8801/index.html?input=radar&radar=ws://127.0.0.1:8766&radar2=ws
 
 ---
 
+## 2T4R 的启动（新增，2026-10-30）
+
+1T2R 插上就出数；2T4R（DEV113P）**默认待机**，必须写一段启动序列才开始出流。
+以前只能在 ONELAB 里点一次唤醒，现在仓库里有纯 Python 的替代方案：
+
+```bat
+REM 1) 离线校验：只检查序列完整性，不碰串口
+py radar-service\radar_boot_2t4r.py --dry-run
+
+REM 2) 真机启动
+py radar-service\radar_boot_2t4r.py --send --port COM4 --verify
+```
+
+启动序列来自**本机 ONELAB 日志**，用 `radar-service\tools\extract_vendor_boot.py` 提取一次即可：
+
+```bat
+py radar-service\tools\extract_vendor_boot.py --logdir "<ONELAB安装目录>\ONELAB毫米波传感器开发工具\Log"
+```
+
+> 提取结果落在 `.deepworks/tmp/boot_seq_2t4r.json`，**含厂商寄存器配置，不要提交、不要外传**。
+> 仓库只收录提取脚本，不收录该 JSON，也不收录厂商日志原文。
+> 实机出流尚未验证，详见 `docs/boot-2t4r-pure-python.md`。
+
+## 双雷达双开：后台判定 + 合并（可选路线）
+
+`5-推流到游戏.cmd` 是「两个进程各读一台，游戏前端自己判」。
+如果希望**游戏只收动作结果**（left/right/jump/slide），用 `tools\run-dual.bat`：
+
+```
+雷达A → radar_bridge.py --role lr --judge → ws://127.0.0.1:9001 ┐
+                                                                ├→ radar_hub.py → ws://127.0.0.1:8766 → 游戏
+雷达B → radar_bridge.py --role ud --judge → ws://127.0.0.1:9002 ┘
+```
+
+- 没有硬件时先跑 `tools\run-dual-demo.bat`，同一链路用假数据走通。
+- 它与 `5-推流到游戏.cmd` **互斥**，不要同时开（抢串口和 8766）。
+- 操作细节见 `docs/双雷达双开-组员操作手册.md`。
+
+## 标定与探针工具
+
+| 工具 | 用途 |
+|---|---|
+| `radar-service\tools\rx_pair_probe.py` | 2T4R 四通道两两组合，确认哪对 RX 分别对应水平/垂直 |
+| `radar-service\tools\horizontal_guide.py` | 横向方位角标定引导（全流程语音提示 + 四通道同步记录） |
+| `radar-service\tools\radar_live_ws.py` | 推流实体（被 `radar_serve.py` 与启动器调用） |
+| `radar-service\tools\check_radar.py` | 单路 ws 体检 |
+
+采到的数据默认写到 `radar-service\captures\`，该目录**不入库**。
+
+---
+
 ## 硬件现状（组员 2026-10-30 实测，务必知道）
 
 | 板子 | 角色 | 状态 |

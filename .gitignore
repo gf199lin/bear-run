@@ -45,3 +45,16 @@ tmp/
 radar-service/captures/
 radar-service/logs/
 radar-service/bg_baseline.json
+
+# ---- 本地采集 / 标定原始数据（不入库）----
+data/
+*.bin
+!radar-service/sample-synthetic.bin
+
+# ---- 厂商资料与授权（禁止提交）----
+*.lic
+*.licence
+radar-service/vendor-sdk/
+
+# ---- 2T4R 启动序列（含厂商寄存器配置，只在本机生成）----
+boot_seq_*.json

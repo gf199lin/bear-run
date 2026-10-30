@@ -421,14 +421,187 @@ def build_frame(sample, cfg, now_ms):
             'raw': sample}
 
 
+# ---------------------------------------------------------------- 后台判定
+#
+# 为什么要搬到后台：
+#   原来的判定在游戏前端（js/InputSource.js 的 RadarDecoder）。双雷达时前端要开两条
+#   WebSocket、各自跑一个解码器、还要处理两台时钟不同源 —— 现场出问题很难定位。
+#   现在判定放在「读雷达的那个进程」里，游戏只收 left/right/jump/slide 结果。
+
+def apply_role(frame, role):
+    """按分工裁剪维度（口径与前端 pickRoleFrame 一致）。
+
+    lr = 只管左右：jump/crouch/height 清零，永远产生不出跳/蹲
+    ud = 只管上下：x 清零，永远换不了道
+    none / 空 = 不裁剪，单雷达全维度判定
+    """
+    if not role or role == 'none':
+        return frame
+    out = dict(frame)
+    if role == 'lr':
+        out['height'] = 0.0
+        out['jump'] = 0.0
+        out['crouch'] = 0.0
+    else:
+        out['x'] = 0.0
+    return out
+
+
+class Judge:
+    """把连续帧判成离散动作 left / right / jump / slide。
+
+    判定口径与前端 RadarDecoder 保持一致（车道迟滞、单帧限档、换道冷却、上升沿），
+    另外补两条只有在后端才需要处理的现场问题：
+
+      1. 跳/蹲最小间隔：上游抖动时同一动作不会连发；
+      2. 掉线恢复后第一帧不补发动作：上下雷达只有 1.92Hz，断一帧再回来时
+         上游很可能还保持着 jump=1，不挡住就会「补跳一次」。
+    """
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.role = cfg.get('role') or 'none'
+        self.lane = 1
+        self.prev_jump = False
+        self.prev_crouch = False
+        self.last_lane_at = 0.0
+        self.last_jump_at = 0.0
+        self.last_slide_at = 0.0
+        self.last_frame_at = 0.0
+        self.resume_guard = True       # True = 首帧 / 刚掉线恢复，本帧不判上升沿
+        self.seq = 0
+
+    def feed(self, frame, now_ms):
+        """喂一帧，返回本次触发的动作列表 [{'action':..., 'lane':..., 'ts':...}]"""
+        cfg = self.cfg
+        stale_ms = cfg.get('judge_stale_ms', 800)
+        events = []
+
+        # ---- 掉线恢复：先清掉上升沿记忆，并让这一帧只做状态同步 ----
+        if self.last_frame_at and now_ms - self.last_frame_at > stale_ms:
+            self.prev_jump = False
+            self.prev_crouch = False
+            self.resume_guard = True
+        self.last_frame_at = now_ms
+
+        if frame.get('confidence', 1) < cfg.get('min_conf', 0.3):
+            self.resume_guard = False
+            return events
+
+        # ---- 横向：只对 lr（或单雷达）生效 ----
+        if self.role in ('lr', 'none'):
+            gain = cfg.get('x_gain', 1.0)
+            x = frame.get('x', 0.0)
+            if gain and gain != 1.0:
+                x = x * gain
+            x = max(-1.0, min(1.0, x))
+
+            enter_th = cfg.get('enter_th', 0.36)
+            exit_th = cfg.get('exit_th', 0.22)
+            lane = self.lane
+            if lane == 1:
+                if x <= -enter_th:
+                    lane = 0
+                elif x >= enter_th:
+                    lane = 2
+            elif lane == 0:
+                if x >= enter_th:
+                    lane = 2
+                elif x >= -exit_th:
+                    lane = 1
+            else:
+                if x <= -enter_th:
+                    lane = 0
+                elif x <= exit_th:
+                    lane = 1
+
+            # 单帧限档：一下甩到最右边也只走一格
+            step = max(1, int(cfg.get('max_lane_step', 1)))
+            if lane > self.lane + step:
+                lane = self.lane + step
+            elif lane < self.lane - step:
+                lane = self.lane - step
+
+            # 换道冷却：冷却中这一帧先不动，下一帧继续判（动作不会丢）
+            if lane != self.lane:
+                cd = cfg.get('lane_cooldown_ms', 120)
+                if cd > 0 and self.last_lane_at and now_ms - self.last_lane_at < cd:
+                    lane = self.lane
+                else:
+                    self.last_lane_at = now_ms
+
+            while self.lane != lane:
+                if lane > self.lane:
+                    events.append({'action': 'right', 'lane': self.lane + 1})
+                    self.lane += 1
+                else:
+                    events.append({'action': 'left', 'lane': self.lane - 1})
+                    self.lane -= 1
+
+        # ---- 上下：只对 ud（或单雷达）生效 ----
+        if self.role in ('ud', 'none'):
+            jump_th = cfg.get('judge_jump_th', 0.5)
+            crouch_th = cfg.get('judge_crouch_th', 0.5)
+            jumping = (frame.get('jump', 0.0) >= jump_th
+                       or frame.get('height', 0.0) >= jump_th)
+            crouching = frame.get('crouch', 0.0) >= crouch_th
+
+            if not self.resume_guard:
+                if jumping and not self.prev_jump:
+                    gap = cfg.get('jump_gap_ms', 450)
+                    if not self.last_jump_at or now_ms - self.last_jump_at >= gap:
+                        self.last_jump_at = now_ms
+                        events.append({'action': 'jump', 'lane': self.lane})
+                if crouching and not self.prev_crouch:
+                    gap = cfg.get('slide_gap_ms', 400)
+                    if not self.last_slide_at or now_ms - self.last_slide_at >= gap:
+                        self.last_slide_at = now_ms
+                        events.append({'action': 'slide', 'lane': self.lane})
+
+            self.prev_jump = jumping
+            self.prev_crouch = crouching
+
+        self.resume_guard = False
+
+        for ev in events:
+            self.seq += 1
+            ev['seq'] = self.seq
+            ev['ts'] = now_ms
+            ev['role'] = self.role
+            ev['confidence'] = frame.get('confidence', 1)
+        return events
+
+
+def make_action(ev):
+    return {'type': 'action', 'action': ev['action'], 'ts': ev['ts'],
+            'seq': ev['seq'], 'role': ev['role'], 'lane': ev['lane'],
+            'confidence': ev['confidence']}
+
+
+def make_state(frame, cfg, ok, age_ms):
+    st = {'type': 'state', 'ts': int(time.time() * 1000), 'role': cfg.get('role') or 'none',
+          'ok': bool(ok), 'ageMs': int(age_ms * 1000)}
+    if frame:
+        st['x'] = frame.get('x', 0.0)
+        st['height'] = frame.get('height', 0.0)
+        st['jump'] = frame.get('jump', 0.0)
+        st['crouch'] = frame.get('crouch', 0.0)
+        st['confidence'] = frame.get('confidence', 1)
+        st['srcTs'] = frame.get('ts')
+    return st
+
+
 # ---------------------------------------------------------------- 主流程
 
 def ticker_loop(cfg, hub, latest, lock):
     dt = 1.0 / cfg['rate']
+    judge = bool(cfg.get('judge'))
+    state_gap = (1.0 / max(1.0, cfg.get('state_hz', 8.0))) if judge else 0.0
     t0 = time.time()
     i = 0
     last_warn = 0.0
     last_log = time.time()
+    last_state = 0.0
     while True:
         due = t0 + i * dt
         gap = due - time.time()
@@ -436,15 +609,26 @@ def ticker_loop(cfg, hub, latest, lock):
             time.sleep(gap)
         with lock:
             frame = latest['frame']
-            age = (time.time() - latest['at']) if frame else None
+            at = latest['at']
+        age = (time.time() - at) if frame else None
         if frame is not None:
-            hub.broadcast(json.dumps(frame, ensure_ascii=False))
-            if age is not None and age > cfg['stale'] and time.time() - last_warn > 5:
-                last_warn = time.time()
-                log('注意：上游已经 %.1fs 没有新数据了（仍在重复上一帧）—— 检查雷达是否在推数据' % age)
+            if judge:
+                # 判定模式：动作在收帧那一刻已经即时发出（不等 tick，少 50ms 延迟），
+                # ticker 只负责按 state_hz 发状态心跳，供游戏面板显示 x / 高度 / 在线状态。
+                if state_gap and (time.time() - last_state) >= state_gap:
+                    last_state = time.time()
+                    ok = age is not None and age <= cfg.get('judge_stale_ms', 800) / 1000.0
+                    hub.broadcast(json.dumps(make_state(frame, cfg, ok, age or 0.0),
+                                             ensure_ascii=False))
+            else:
+                hub.broadcast(json.dumps(frame, ensure_ascii=False))
+        if frame is not None and age is not None and age > cfg['stale'] and time.time() - last_warn > 5:
+            last_warn = time.time()
+            log('注意：上游已经 %.1fs 没有新数据了（仍在重复上一帧）—— 检查雷达是否在推数据' % age)
         if time.time() - last_log >= 10:
             last_log = time.time()
-            log('运行中：已推送 %d 帧，在线客户端 %d 个' % (hub.sent, len(hub.clients)))
+            log('运行中：已推送 %d 帧，在线客户端 %d 个%s'
+                % (hub.sent, len(hub.clients), '，判定动作 %d 个' % latest.get('events', 0) if judge else ''))
         i += 1
 
 
@@ -499,6 +683,27 @@ def main():
     ap.add_argument('--port', type=int, default=8766, help='输出端口，默认 8766')
     ap.add_argument('--stale', type=float, default=2.0, help='上游多久没数据就提醒（秒）')
     ap.add_argument('--print-sample', action='store_true', help='打印原始报文与解析结果（首次接入必用）')
+
+    # ---- 后台判定：游戏只收结果，不再做阈值判定 ----
+    g = ap.add_argument_group('后台判定（--judge）')
+    g.add_argument('--judge', action='store_true',
+                   help='打开后台判定：输出 left/right/jump/slide 动作事件，游戏侧只消费结果')
+    g.add_argument('--role', default='none', choices=['none', 'lr', 'ud'],
+                   help='分工：lr 只管左右(x)，ud 只管上下(jump/crouch/height)，none=全维度')
+    g.add_argument('--enter-th', type=float, default=0.36, help='进左右车道阈值（默认 0.36）')
+    g.add_argument('--exit-th', type=float, default=0.22, help='回中间车道阈值（默认 0.22）')
+    g.add_argument('--x-gain', type=float, default=1.0, help='横向增益，等价前端 RADAR.xGain')
+    g.add_argument('--max-lane-step', type=int, default=1, help='单帧最多换几档（默认 1）')
+    g.add_argument('--lane-cooldown-ms', type=int, default=120, help='两次换道最小间隔(ms)')
+    g.add_argument('--judge-jump-th', type=float, default=0.5, help='判定用的起跳阈值（0~1）')
+    g.add_argument('--judge-crouch-th', type=float, default=0.5, help='判定用的下蹲阈值（0~1）')
+    g.add_argument('--min-conf', type=float, default=0.3, help='低于此可信度的帧直接丢弃')
+    g.add_argument('--jump-gap-ms', type=int, default=450, help='两次 jump 的最小间隔（防抖）')
+    g.add_argument('--slide-gap-ms', type=int, default=400, help='两次 slide 的最小间隔（防抖）')
+    g.add_argument('--judge-stale-ms', type=int, default=800,
+                   help='多久没收到帧算掉线（默认 800；上下雷达 1.92Hz 需大于 520）')
+    g.add_argument('--state-hz', type=float, default=8.0,
+                   help='判定模式下状态帧的心跳频率（面板显示用，默认 8Hz）')
     args = ap.parse_args()
 
     cfg = vars(args)
@@ -521,13 +726,23 @@ def main():
                                   ('  x 缩放 %.4g 偏移 %.4g%s' % (cfg['scale_x'], cfg['offset_x'],
                                    ' 左右反转' if cfg['invert_x'] else ''))))
     log('输出 ws://%s:%d  →  游戏/联调台填 ws://127.0.0.1:%d' % (cfg['host'], cfg['port'], cfg['port']))
-    if not cfg['print_sample']:
+    if cfg['judge']:
+        log('后台判定：开（分工 %s）—— 游戏只收 left/right/jump/slide 结果' % cfg['role'])
+        log('  进道 %.2f / 回道 %.2f / 横向增益 %.2f / 换道冷却 %dms'
+            % (cfg['enter_th'], cfg['exit_th'], cfg['x_gain'], cfg['lane_cooldown_ms']))
+        log('  跳 %.2f / 蹲 %.2f / 动作防抖 %dms / 掉线 %.0fms / 状态心跳 %.1fHz'
+            % (cfg['judge_jump_th'], cfg['judge_crouch_th'], cfg['jump_gap_ms'],
+               cfg['judge_stale_ms'], cfg['state_hz']))
+        if cfg['role'] == 'none':
+            log('  提示：双雷达现场请用 --role lr / --role ud 各跑一个进程，避免两路互相抢动作')
+    elif not cfg['print_sample']:
         log('第一次接雷达建议加 --print-sample，先确认收到的报文长什么样')
     print('=' * 66, flush=True)
 
     hub = Hub()
-    latest = {'frame': None, 'at': 0.0}
+    latest = {'frame': None, 'at': 0.0, 'events': 0}
     lock = threading.Lock()
+    judge = Judge(cfg) if cfg['judge'] else None
 
     threading.Thread(target=ws_server, args=(cfg['host'], cfg['port'], hub), daemon=True).start()
     threading.Thread(target=ticker_loop, args=(cfg, hub, latest, lock), daemon=True).start()
@@ -549,10 +764,23 @@ def main():
             if not sample:
                 continue
             frame = build_frame(sample, cfg, int(time.time() * 1000))
+            frame = apply_role(frame, cfg['role'])        # 分工裁剪：本进程只保留自己管的维度
             if cfg['print_sample']:
                 log('收到: %s' % text[:160])
                 log('解析: %s' % json.dumps(sample, ensure_ascii=False)[:160])
                 log('成帧: x=%.4f jump=%.2f crouch=%.2f' % (frame['x'], frame['jump'], frame['crouch']))
+
+            if judge is not None:
+                # 判定就在收帧这一刻做，动作即时广播 —— 不等 ticker，少 50ms 延迟
+                events = judge.feed(frame, frame['ts'])
+                for ev in events:
+                    hub.broadcast(json.dumps(make_action(ev), ensure_ascii=False))
+                if events:
+                    with lock:
+                        latest['events'] += len(events)
+                    log('动作: %s' % ' '.join(
+                        '%s(lane=%d)' % (e['action'], e['lane']) for e in events))
+
             with lock:
                 latest['frame'] = frame
                 latest['at'] = time.time()
