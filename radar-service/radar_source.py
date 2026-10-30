@@ -61,6 +61,23 @@ REPLAY_RATE = {
 }
 
 
+def assert_dtr_rts(ser, settle=0.12):
+    """板载 MCU 桥的命令解析/数据转发受 DTR 门控（厂商实测 2026-10-30）。
+
+    厂商串口工具打开端口时默认置位 DTR；pyserial 在部分驱动（尤其 FT232）
+    上不保证置位 → 表现就是「端口能打开、但 MCU 不开工、绿灯不亮、零字节」。
+    所以每次打开串口后必须显式拉高 DTR/RTS，并留一点稳定时间再开始读。
+    """
+    for attr in ('dtr', 'rts'):
+        try:
+            setattr(ser, attr, True)
+        except Exception:
+            pass          # 某些虚拟串口不支持调线，忽略即可
+    if settle:
+        time.sleep(settle)
+
+
+
 def detect_board(desc='', hwid=''):
     """按串口描述/hwid 判断板型；认不出返回 None。
 
@@ -284,7 +301,7 @@ class SerialSource(SourceBase):
     """
 
     def __init__(self, port=DEFAULT_PORT, baud=None, retry_delay=1.0,
-                 on_event=None, prefer=(DEFAULT_PORT,)):
+                 on_event=None, prefer=(DEFAULT_PORT,), boot_wait=0.0):
         self.auto = (port is None) or (str(port).strip().lower() in ('auto', ''))
         self.port = None if self.auto else str(port)
         # baud=None → 按探测到的板型自动定波特率（1T2R 921600 / 2T4R 1500000）；
@@ -394,6 +411,12 @@ class SerialSource(SourceBase):
                               % (hit, BOARD_PROFILES[hit]['label'], want))
         self.ser = serial.Serial(port, self.baud, timeout=0.02,
                                  bytesize=8, parity='N', stopbits=1)
+        # 关键：显式拉高 DTR/RTS，否则 FT232 板（DEV113P）的 MCU 不开工
+        assert_dtr_rts(self.ser)
+        if self.boot_wait:
+            self._log('[serial] 板子启动中，等待 %.1fs 再读'
+                      '（DEV113P 上电后约 20s 才应答，属正常）' % self.boot_wait)
+            time.sleep(self.boot_wait)
         self.ser.reset_input_buffer()
         self.port = port
         self.connected = True

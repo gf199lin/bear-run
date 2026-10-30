@@ -435,7 +435,7 @@ def cmd_serve(args):
             continue
         try:
             # 进程死掉时 probe 会在 TCP 层就失败，这里只做展示
-            frames, secs, err = probe_ws(p['ws_port'], seconds=5.0)
+            frames, secs, err = probe_ws(p['ws_port'], seconds=wait)
         except Exception as e:
             frames, secs, err = 0, 0.0, str(e)
         if frames > 0 and not err:
@@ -485,7 +485,9 @@ def main(argv=None):
         return cmd_stop(None)
     ap = argparse.ArgumentParser(prog='radar_serve', description='自动识别两块雷达并启动 WebSocket 推流')
     ap.add_argument('--dry-run', action='store_true')
-    ap.add_argument('--wait', type=float, default=6.0)
+    ap.add_argument('--wait', type=float, default=25.0,
+                    help='自检最多等多久（秒）。DEV113P 上电后约 20s 才出数，'
+                         '别设太小，否则会把「还在启动」误判成「没数据」')
     ap.add_argument('--ws-port-lr', type=int, default=ROLE_DEFAULT_PORT['lr'])
     ap.add_argument('--ws-port-ud', type=int, default=ROLE_DEFAULT_PORT['ud'])
     ap.add_argument('--port-lr', default=None)

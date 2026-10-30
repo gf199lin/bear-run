@@ -56,6 +56,18 @@ import sys
 import threading
 import time
 
+try:
+    from radar_source import assert_dtr_rts   # 与推流端共用同一份实现
+except Exception:                              # 单独拷走本文件时也能跑
+    def assert_dtr_rts(ser, settle=0.12):
+        for attr in ('dtr', 'rts'):
+            try:
+                setattr(ser, attr, True)
+            except Exception:
+                pass
+        if settle:
+            time.sleep(settle)
+
 VERSION = '1.0.0'
 
 # --------------------------------------------------------------------------
@@ -325,6 +337,7 @@ def try_open(port, baud=115200):
         return 'error', '未安装 pyserial（%s）' % e
     try:
         s = serial.Serial(port, baud, timeout=0.15, write_timeout=0.2)
+        assert_dtr_rts(s, settle=0.05)
         try:
             s.close()
         except Exception:
@@ -475,6 +488,10 @@ def read_stream(port, baud, seconds, stop=None):
         return b'', '%s: %s' % (type(e).__name__, e)
 
     try:
+        assert_dtr_rts(s)          # 先拉高 DTR/RTS，否则 FT232 板 MCU 不开工
+    except Exception:
+        pass
+    try:
         try:
             s.reset_input_buffer()
         except Exception:
@@ -512,43 +529,48 @@ def check_one(port, board_hint=None, seconds=2.5, verbose=True):
         'fps': 0.0, 'baud': None, 'bytes': 0, 'evidence': [], 'error': None,
     }
 
-    st, err = try_open(port)
-    r['open_status'] = st
-    if st == 'missing':
-        r.update(status='missing', error=err)
-        return r
-    if st == 'error':
-        r.update(status='error', error=err)
-        return r
-    if st == 'busy':
-        r.update(status='busy', error=err)
-        return r
-
-    # 端口能打开 → 试波特率。先猜板型，再按需回退。
+    # 不再「先 try_open 探一下再关」——DEV113P 串口一关板子就停流，重开还要
+    # 约 20s 才应答；这一开一合等于把板子按了暂停键。直接读，端口不存在 /
+    # 被占用由第一次 read_stream 的报错定性。
+    r['open_status'] = None
     cands = []
     if board_hint in BOARD_PROFILES:
         cands.append(BOARD_PROFILES[board_hint]['baud'])
-    for b in BAUD_FALLBACK:
-        if b not in cands:
-            cands.append(b)
+    else:
+        cands.extend(BAUD_FALLBACK)
+
+    # 2T4R 上电后约 20s 才应答，2.5s 窗口必然读空 -> 给够时间
+    seq_secs = seconds
+    if board_hint == '2t4r':
+        seq_secs = max(seconds, 12.0)
 
     best = None
-    for baud in cands:
-        buf, err = read_stream(port, baud, seconds)
+    for i, baud in enumerate(cands):
+        buf, err = read_stream(port, baud, seq_secs)
         if err and not buf:
             r['error'] = err
-            # 打开后立刻出错（如被顶掉）→ 不再试其它波特率
+            low = err.lower()
+            if i == 0:          # 第一个波特率的报错最能说明端口状态
+                if ('filenotfound' in low or '找不到' in err
+                        or 'cannot find' in low or 'could not open port' in low):
+                    r.update(status='missing', error=err)
+                    return r
+                if ('permission' in low or '拒绝访问' in err
+                        or 'being used' in low or 'access is denied' in low):
+                    r.update(status='busy', error=err)
+                    return r
+            # 打开后立刻出错（如被顶掉）-> 不再试其它波特率
             if 'Permission' in err or '拒绝访问' in err:
                 r['status'] = 'busy'
                 return r
             continue
-        info = analyze_stream(buf, seconds)
+        info = analyze_stream(buf, seq_secs)
         info['baud'] = baud
         if info['bytes'] > 0:
             best = info
             if info['board']:
                 break          # 形态已确认，不用再试
-            # 有字节但认不出形态 → 继续换波特率
+            # 有字节但认不出形态 -> 继续换波特率
         else:
             if best is None:
                 best = info
