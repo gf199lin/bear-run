@@ -27,3 +27,8 @@ tmp/
 # ---- Python 缓存（工具脚本运行产物）----
 __pycache__/
 *.pyc
+
+# ---- 雷达代理的运行时依赖（随目录拷贝即可，不进仓库）----
+# runtime/node.exe 约 79MB; node_modules 可用 npm install 重新生成
+radar-agent/runtime/
+radar-agent/node_modules/
