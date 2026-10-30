@@ -20,6 +20,10 @@
   var USERS_KEY = 'bear-run:users:v1';
   var SESSION_KEY = 'bear-run:session:v1';
   var MIGRATED_KEY = 'bear-run:migrated:v1';
+  var GUEST_KEY = 'bear-run:guest:v1';
+
+  // 游客模式：所有存档/偏好只写进内存，不落盘 -> 关掉页面就什么都没了，无历史
+  var guestStore = {};
 
   var usersCache = null;
 
@@ -39,6 +43,21 @@
 
   function currentUser() { return getLS(SESSION_KEY) || null; }
   function saveSession(u) { if (u) setLS(SESSION_KEY, u); else removeLS(SESSION_KEY); }
+
+  // 游客标记：优先存 sessionStorage（关标签页即清空），无可降级到 localStorage
+  function getGuestMarker() {
+    try { if ('sessionStorage' in global) return global.sessionStorage.getItem(GUEST_KEY); } catch (e) { /* 忽略 */ }
+    return getLS(GUEST_KEY);
+  }
+  function setGuestMarker() {
+    try { if ('sessionStorage' in global) { global.sessionStorage.setItem(GUEST_KEY, '1'); return; } } catch (e) { /* 忽略 */ }
+    setLS(GUEST_KEY, '1');
+  }
+  function clearGuestMarker() {
+    try { if ('sessionStorage' in global) { global.sessionStorage.removeItem(GUEST_KEY); } } catch (e) { /* 忽略 */ }
+    removeLS(GUEST_KEY);
+  }
+  function isGuest() { return !!getGuestMarker(); }
 
   // crypto.subtle 不可用时的降级（仅演示用）
   function weakHash(str) {
@@ -158,17 +177,49 @@
       });
     },
 
-    logout: function () { saveSession(null); },
+    logout: function () {
+      saveSession(null);
+      clearGuestMarker();
+      guestStore = {};
+    },
 
-    /** 当前账号下某业务 key 的实际存储名；未登录时退回原名 */
+    /** 进入游客模式：不注册不登录，直接玩，但没有任何历史记录 */
+    enterGuest: function () {
+      saveSession(null);
+      guestStore = {};
+      setGuestMarker();
+    },
+
+    /** 是否处于游客模式 */
+    isGuest: function () { return isGuest(); },
+
+    /** 当前模式：'user'（已登录账号）| 'guest'（游客）| 'none'（未登录） */
+    mode: function () {
+      if (isGuest()) return 'guest';
+      return currentUser() ? 'user' : 'none';
+    },
+
+    /** 是否可以直接进游戏（已登录 或 游客） */
+    canPlay: function () { return this.mode() !== 'none'; },
+
+    /** 当前账号下某业务 key 的实际存储名；未登录/游客时退回原名 */
     key: function (raw) {
       var u = currentUser();
       return u ? ('bear-run:acct:' + u + ':' + raw) : raw;
     },
 
-    get: function (raw) { return getLS(Auth.key(raw)); },
-    set: function (raw, val) { setLS(Auth.key(raw), val); },
-    remove: function (raw) { removeLS(Auth.key(raw)); }
+    get: function (raw) {
+      if (isGuest()) return (raw in guestStore) ? guestStore[raw] : null;
+      return getLS(Auth.key(raw));
+    },
+    set: function (raw, val) {
+      if (isGuest()) { guestStore[raw] = String(val); return; }
+      setLS(Auth.key(raw), val);
+    },
+    remove: function (raw) {
+      if (isGuest()) { delete guestStore[raw]; return; }
+      removeLS(Auth.key(raw));
+    }
   };
 
   RR.Auth = Auth;
