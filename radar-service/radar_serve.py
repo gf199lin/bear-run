@@ -416,8 +416,23 @@ def cmd_serve(args):
     time.sleep(wait)
 
     ac.head('自检：浏览器/游戏能不能收到数据')
+
+    def _alive(pid):
+        """进程崩了和「没数据」是两回事，别让自检把方向带偏。"""
+        try:
+            out = subprocess.run(['tasklist', '/FI', 'PID eq %d' % pid, '/NH'],
+                                 capture_output=True, text=True, timeout=8).stdout
+            return str(pid) in out
+        except Exception:
+            return True
+
     good = []
     for p in procs:
+        if not _alive(p['pid']):
+            ac.say(ac.BAD, '%-8s %-6s 推流进程已退出（PID %d）——不是没数据，是脚本崩了'
+                  % (p['port'], p['role'], p['pid']))
+            print('           看日志：%s' % p['log'])
+            continue
         try:
             # 进程死掉时 probe 会在 TCP 层就失败，这里只做展示
             frames, secs, err = probe_ws(p['ws_port'], seconds=5.0)
