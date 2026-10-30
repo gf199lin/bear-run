@@ -29,6 +29,22 @@
 
 ## 三步跑起来
 
+> **从 GitHub clone 的同学先看这里**：仓库里**没有** `runtime/` 和 `node_modules/`
+> （`node.exe` 81MB 是二进制，依赖可重装），zip 分发包里才有。
+> clone 之后二选一：
+>
+> - 装 Node 18 以上，`node -v` 能输出即可（bat 会自动找 PATH 里的 node）；
+> - 或者手动把 Node 22 的 `node.exe` 放到 `radar-agent\runtime\node.exe`。
+>
+> 依赖装一次就行：
+>
+> ```
+> cd radar-agent
+> npm install
+> ```
+>
+> 也可以直接从 zip 分发版把 `node_modules\` 整个拷过来。
+
 ### 1. 启动雷达代理
 
 双击 `radar-agent\start_radar_agent.bat`

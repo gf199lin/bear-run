@@ -25,7 +25,7 @@ if not defined NODE (
 
 echo Using Node: %NODE%
 echo.
-"%NODE%" "%~dp0agent.js" --jc %*
+"%NODE%" "%~dp0agent.js" %*
 echo.
 echo radar-agent exited. Double-click this file to start it again.
 pause
