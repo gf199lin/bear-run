@@ -1,0 +1,90 @@
+{
+  "band_source": "measured:band",
+  "band_source_file": "serial:COM3",
+  "band": [
+    0.681,
+    1.363
+  ],
+  "band_stats": {
+    "n_frames": 154,
+    "bins": [
+      {
+        "bin": 0,
+        "r_m": 0.341,
+        "occ": 0.922,
+        "pts_per_frame": 5.227,
+        "pa_share": 0.003,
+        "v_med": 0.864,
+        "r_med": 0.341
+      },
+      {
+        "bin": 1,
+        "r_m": 1.022,
+        "occ": 0.649,
+        "pts_per_frame": 1.273,
+        "pa_share": 0.651,
+        "v_med": 0.504,
+        "r_med": 1.022
+      },
+      {
+        "bin": 2,
+        "r_m": 1.703,
+        "occ": 0.104,
+        "pts_per_frame": 0.123,
+        "pa_share": 0.317,
+        "v_med": 0.048,
+        "r_med": 1.703
+      },
+      {
+        "bin": 5,
+        "r_m": 3.747,
+        "occ": 0.013,
+        "pts_per_frame": 0.013,
+        "pa_share": 0.0,
+        "v_med": 0.048,
+        "r_med": 3.747
+      },
+      {
+        "bin": 6,
+        "r_m": 4.428,
+        "occ": 0.045,
+        "pts_per_frame": 0.045,
+        "pa_share": 0.003,
+        "v_med": 0.048,
+        "r_med": 4.429
+      },
+      {
+        "bin": 7,
+        "r_m": 5.11,
+        "occ": 0.253,
+        "pts_per_frame": 0.286,
+        "pa_share": 0.026,
+        "v_med": 0.048,
+        "r_med": 5.11
+      }
+    ],
+    "leak_bins": [
+      0
+    ],
+    "recommended_band": [
+      0.681,
+      1.363
+    ]
+  },
+  "version": 1,
+  "proposal": true,
+  "updated": "2026-10-20 20:56:50",
+  "created": "2026-10-16 14:28:11",
+  "processor": {
+    "angle_sign": 1.0,
+    "min_snr": 7.0,
+    "min_range": 0.681,
+    "angle_max": 45.0,
+    "cfar_scale": 2.6
+  },
+  "source": ".deepworks\\tmp\\seg\\seg_01.00.bin",
+  "notes": [
+    "本文件所有阈值均为实测提案，待小组确认（AGENTS.md 证据纪律）；判定原则仍是「相对位移方向」，校准只调阈值与距离带。",
+    "本文件所有阈值均为实测提案，待小组确认（AGENTS.md 证据纪律）；判定原则仍是「相对位移方向」，校准只调阈值与距离带。"
+  ]
+}

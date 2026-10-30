@@ -1,0 +1,60 @@
+# ==========================================
+# 熊二快跑 · Bear Run —— 不纳入版本控制的文件
+# ==========================================
+# 说明：被忽略的文件仍留在你本地，只是不会被提交到 GitHub。
+# 这样老师 clone 下来的仓库就是干净的游戏本体 + 可直接运行的演示资产。
+
+# ---- 开发调试用页面（游戏本体不依赖，index.html 照常运行）----
+_*.html
+
+# ---- 雷达回放数据 ----
+# 已确认可公开，作为 ?input=replay 的演示资产保留，不再忽略。
+# 后续新增的大体积录制文件请放到 radar-service/captures/（已忽略）。
+
+# ---- 依赖库（禁止提交）----
+node_modules/
+radar-agent/node_modules/
+radar-agent/runtime/
+venv/
+.venv/
+env/
+
+# ---- 构建产物 / 缓存 ----
+dist/
+build/
+.cache/
+__pycache__/
+*.pyc
+
+# ---- 操作系统自动生成的文件 ----
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---- 编辑器 / IDE 配置 ----
+.vscode/
+.idea/
+*.swp
+
+# ---- 本地工作区与临时文件 ----
+.deepworks/
+*.log
+tmp/
+
+# ---- 雷达服务运行时产物（采集数据、推流日志、环境底噪基线）----
+radar-service/captures/
+radar-service/logs/
+radar-service/bg_baseline.json
+
+# ---- 本地采集 / 标定原始数据（不入库）----
+data/
+*.bin
+!radar-service/sample-synthetic.bin
+
+# ---- 厂商资料与授权（禁止提交）----
+*.lic
+*.licence
+radar-service/vendor-sdk/
+
+# ---- 2T4R 启动序列（含厂商寄存器配置，只在本机生成）----
+boot_seq_*.json

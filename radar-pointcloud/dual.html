@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>毫米波雷达 · 双板并行</title>
+<style>
+  :root{
+    --bg:#070a0f; --panel:#0d121b; --line:#1b2534; --dim:#5b6b82;
+    --fg:#e8eef7; --accent:#59f0c8; --warm:#ff6b5a; --cool:#4aa8ff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font:13px/1.5 "Inter","Segoe UI","Microsoft YaHei",system-ui,sans-serif;overflow:hidden}
+  header{height:46px;display:flex;align-items:center;gap:14px;padding:0 16px;
+    border-bottom:1px solid var(--line);background:var(--panel);flex:none}
+  header h1{margin:0;font-size:13.5px;font-weight:600;letter-spacing:.2px}
+  header .sub{color:var(--dim);font-size:11.5px}
+  #chips{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;
+    border:1px solid var(--line);font-size:11.5px;color:var(--dim);
+    font-variant-numeric:tabular-nums;white-space:nowrap}
+  .chip b{color:var(--fg);font-weight:600}
+  .dot{width:6px;height:6px;border-radius:99px;background:#3a4557;flex:none}
+  .dot.on{background:var(--accent);box-shadow:0 0 6px rgba(89,240,200,.7)}
+  main{height:calc(100% - 46px);display:flex;flex-direction:column;min-height:0}
+  .pane{flex:1;min-height:0;position:relative;border-bottom:1px solid var(--line)}
+  .pane:last-child{border-bottom:0}
+  .pane iframe{width:100%;height:100%;border:0;display:block;background:var(--bg)}
+  .lbl{position:absolute;top:8px;left:10px;z-index:2;padding:2px 8px;border-radius:5px;
+    background:rgba(7,10,15,.82);border:1px solid var(--line);font-size:10.5px;
+    color:var(--dim);letter-spacing:.4px;pointer-events:none}
+  .empty{height:100%;display:flex;align-items:center;justify-content:center;
+    flex-direction:column;gap:10px;color:var(--dim);font-size:13px;text-align:center;padding:24px}
+  .empty code{background:#0a0f18;border:1px solid var(--line);border-radius:6px;
+    padding:6px 10px;color:var(--accent);font-size:12px}
+  button{background:#0a0f18;color:var(--fg);border:1px solid var(--line);border-radius:7px;
+    padding:5px 12px;font-size:12px;cursor:pointer;font-family:inherit}
+  button:hover{border-color:var(--accent);color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <h1>双板并行</h1>
+  <span class="sub">1T2R + 2T4R · 各自独立时间轴</span>
+  <button id="btnStart">开始</button>
+  <button id="btnStop">结束</button>
+  <div id="chips"></div>
+</header>
+<main id="main">
+  <div class="empty">正在读取板卡列表…</div>
+</main>
+<script>
+(function(){
+  const main = document.getElementById('main');
+  const chips = document.getElementById('chips');
+  let built = null;          // 已建好的板型组合，变化时重建 iframe
+
+  function setChips(boards, sessions){
+    chips.innerHTML = '';
+    boards.forEach(b => {
+      const s = sessions[b] || {};
+      const c = s.control || {};
+      const live = c.active ? 'on' : '';
+      const fps = (s.fps !== undefined) ? Number(s.fps).toFixed(2) : '—';
+      const port = s.cfg && s.cfg.port ? s.cfg.port : (s.port || '');
+      const d = document.createElement('span');
+      d.className = 'chip';
+      d.innerHTML = '<i class="dot ' + live + '"></i>'
+                  + '<b>' + b.toUpperCase() + '</b>'
+                  + '<span>' + (port || '') + '</span>'
+                  + '<span>' + fps + ' fps</span>';
+      chips.appendChild(d);
+    });
+  }
+
+  function build(boards){
+    if (built === boards.join(',')) return;
+    built = boards.join(',');
+    main.innerHTML = '';
+    boards.forEach(b => {
+      const pane = document.createElement('div');
+      pane.className = 'pane';
+      const lbl = document.createElement('div');
+      lbl.className = 'lbl';
+      lbl.textContent = b.toUpperCase();
+      const f = document.createElement('iframe');
+      f.src = '/?board=' + encodeURIComponent(b);
+      f.loading = 'eager';
+      pane.appendChild(lbl);
+      pane.appendChild(f);
+      main.appendChild(pane);
+    });
+  }
+
+  function poll(){
+    fetch('/status', {cache:'no-store'})
+      .then(r => r.json())
+      .then(st => {
+        if (st && Array.isArray(st.boards) && st.boards.length){
+          build(st.boards);
+          setChips(st.boards, st.sessions || {});
+        }else if (!built){
+          // 单板模式：按 /status 里实际的 cfg.board 嵌一张单板页（不硬编码 1t2r）
+          const b = (st && st.cfg && st.cfg.board) || '1t2r';
+          build([b]);
+          chips.innerHTML = '<span class="chip">单板模式（用 --ports COM3,COM4 启用双板）</span>';
+        }
+      })
+      .catch(() => {
+        if (!built){
+          main.innerHTML = '<div class="empty">连不上服务<br>'
+            + '<code>python radar-pointcloud/server.py --ports COM3,COM4</code></div>';
+        }
+      });
+  }
+
+  function ctl(action){
+    fetch('/control', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action: action})
+    }).catch(function(){});
+  }
+  document.getElementById('btnStart').onclick = () => ctl('start');
+  document.getElementById('btnStop').onclick = () => ctl('stop');
+
+  poll();
+  setInterval(poll, 3000);
+})();
+</script>
+</body>
+</html>

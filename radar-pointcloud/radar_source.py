@@ -226,13 +226,23 @@ def find_radar_port(prefer=(DEFAULT_PORT,)):
 
     返回 (device, reason, ports)：
       device 为 None 表示当前没有可用目标；
-      reason ∈ 'hint'(按 CP210x 等线索命中) / 'prefer'(命中历史端口名) /
-               'single'(系统只有一个串口) / 'ambiguous'(多个串口但认不出) / 'none'(一个都没有)。
+      reason ∈ 'vidpid'(USB VID:PID 命中已知雷达板) / 'hint'(按 CP210x 等线索命中) /
+               'prefer'(命中历史端口名) / 'single'(系统只有一个串口) /
+               'ambiguous'(多个串口但认不出) / 'none'(一个都没有)。
       ports 为本次枚举结果，供页面/日志显示原始证据。
     """
     ports = list_serial_ports()
     if not ports:
         return None, 'none', ports
+    # 1) 已知板卡的 USB VID:PID（10c4:ea60 / 0403:6001）优先：
+    #    串口描述会随驱动语言/版本变化（中文系统里常是"Silicon Labs CP210x..."），
+    #    但 hwid 里的 VID:PID 由芯片固定，跨机器更稳。
+    for dev, desc, hwid in ports:
+        blob = ('%s %s' % (desc or '', hwid or '')).lower()
+        for prof in BOARD_PROFILES.values():
+            if any(vp in blob for vp in prof['vidpid']):
+                return dev, 'vidpid', ports
+    # 2) 再退化为厂商标识关键字
     for dev, desc, hwid in ports:
         blob = ('%s %s %s' % (dev, desc, hwid)).lower()
         for h in RADAR_PORT_HINTS:
@@ -274,7 +284,8 @@ class SerialSource(SourceBase):
     """
 
     def __init__(self, port=DEFAULT_PORT, baud=None, retry_delay=1.0,
-                 on_event=None, prefer=(DEFAULT_PORT,)):
+                 on_event=None, prefer=(DEFAULT_PORT,),
+                 auto_boot=True, boot_seq=None, boot_gap=0.05):
         self.auto = (port is None) or (str(port).strip().lower() in ('auto', ''))
         self.port = None if self.auto else str(port)
         # baud=None → 按探测到的板型自动定波特率（1T2R 921600 / 2T4R 1500000）；
@@ -296,6 +307,13 @@ class SerialSource(SourceBase):
         self.on_event = on_event
         self._next_try = 0.0
         self._last_log = None
+        # 2T4R 上电待机、不会自跑：连上后若没在出流，
+        # 自动重放一次启动序列（见 _maybe_boot）。
+        # 1T2R 上电就出流，_already_streaming() 会直接让它跳过。
+        self.auto_boot = bool(auto_boot)
+        self.boot_seq = boot_seq or None
+        self.boot_gap = float(boot_gap)
+        self.boot_result = None
 
     def _log(self, msg):
         if self.on_event is not None:
@@ -327,6 +345,8 @@ class SerialSource(SourceBase):
             'connected': bool(self.connected),
             'last_error': self.last_error,
             'last_error_hint': self.last_error_hint,
+            'auto_boot': bool(self.auto_boot),
+            'boot': self.boot_result,
         }
 
     @staticmethod
@@ -391,10 +411,14 @@ class SerialSource(SourceBase):
         self.last_error_hint = None
         self._last_log = None
         self.name = 'serial:%s@%d' % (port, self.baud)
-        if reason == 'hint':
+        if reason == 'vidpid':
+            self._log('[serial] 自动识别到雷达串口 %s（USB VID:PID 命中已知雷达板）' % port)
+        elif reason == 'hint':
             self._log('[serial] 自动识别到雷达串口 %s（CP210x/Silicon Labs 线索）' % port)
         elif reason in ('prefer', 'single'):
             self._log('[serial] 使用串口 %s（自动选择规则: %s）' % (port, reason))
+        # 2T4R 不会自跑，开口后先确认它在不在出流
+        self._maybe_boot()
         return True
 
     def _on_fail(self, port, e):
@@ -405,6 +429,69 @@ class SerialSource(SourceBase):
         self.last_error = txt
         self.last_error_hint = hint
         return txt, hint
+
+    def _already_streaming(self, wait=0.35, enough=512):
+        """刚连上时先听一小会儿：有数据就说明芯片已在跑。
+
+        2T4R 满载约 66 kB/s，0.35 s 就能收到 2 万字节，所以 512 B
+        的门槛瓶颈低到不可能误判；反过来一只待机的芯片
+        是 0 字节，也不会被当成「已在跑」。
+        注意：这里读掉的字节会丢弃，但只有刚连上的一小段，不影响流水线。
+        """
+        if self.ser is None:
+            return False
+        buf = len(self.ser.read(self.ser.in_waiting or 0) or b'')
+        if buf >= enough:
+            return True
+        t0 = time.time()
+        while time.time() - t0 < wait:
+            n = self.ser.in_waiting
+            if n:
+                buf += len(self.ser.read(n) or b'')
+                if buf >= enough:
+                    return True
+            else:
+                time.sleep(0.01)
+        return buf >= enough
+
+    def _maybe_boot(self):
+        """仅对 2T4R 生效：已在出流就不动，否则重放启动序列。"""
+        if not self.auto_boot or self.board != '2t4r' or self.ser is None:
+            return
+        try:
+            if self._already_streaming():
+                self._log_once('[boot] 2T4R 已在出流，跳过启动序列')
+                return
+            self._boot_2t4r()
+        except Exception as exc:          # 启动失败不能把主流程带崩
+            self._log_once('[boot] 自动启动异常: %s' % exc)
+
+    def _boot_2t4r(self):
+        try:
+            from radar_boot_2t4r import load_seq, send_boot, DEFAULT_SEQ
+        except Exception as exc:
+            self._log_once('[boot] 无法加载启动模块: %s' % exc)
+            return
+        path = self.boot_seq or DEFAULT_SEQ
+        try:
+            _obj, frames = load_seq(path)
+        except SystemExit as exc:
+            self._log_once('[boot] %s' % exc)
+            return
+        except Exception as exc:
+            self._log_once('[boot] 读取启动序列失败: %s' % exc)
+            return
+        self._log('[boot] 2T4R 未出流 → 重放启动序列（%d 帧 / %d B）'
+                  % (len(frames), sum(len(f) for f in frames)))
+        try:
+            res = send_boot(self.ser, frames, gap=self.boot_gap,
+                            ack_timeout=0.4, log=self._log)
+        except Exception as exc:
+            self._log('[boot] 发送失败: %s' % exc)
+            return
+        self.boot_result = res
+        self._log('[boot] 启动完成：发=%d 回包=%d 无回包=%d 用时=%.2fs'
+                  % (res['sent'], res['acks'], res['no_ack'], res['elapsed']))
 
     def open(self):
         """尽力打开；失败不抛异常，由 read() 持续重试（便于演示时不中断）。"""
@@ -430,7 +517,7 @@ class SerialSource(SourceBase):
             try:
                 self._try_open()
                 self.reconnects += 1
-                if self.auto and self.port_reason == 'hint':
+                if self.auto and self.port_reason in ('vidpid', 'hint'):
                     pass          # _try_open 内已打过「自动识别」日志
                 else:
                     self._log('[serial] %s 已重连（第 %d 次）' % (self.port, self.reconnects))

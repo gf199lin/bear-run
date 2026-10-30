@@ -665,7 +665,10 @@
   }, 120);
 
   function connect(){
-    const es = new EventSource('/stream');
+    // ?board=2t4r → 只订阅该板（/dual 分屏页用）；
+    // 不带参数 = 单源全量，与改动前完全一致
+    const _b = (new URLSearchParams(location.search)).get('board');
+    const es = new EventSource('/stream' + (_b ? '?board=' + encodeURIComponent(_b) : ''));
     es.onmessage = e => {
       const m = JSON.parse(e.data);
       if(m.type === 'hello'){
