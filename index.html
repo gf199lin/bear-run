@@ -8,7 +8,7 @@
 <meta name="format-detection" content="telephone=no" />
 <meta name="theme-color" content="#2f6b2a" />
 <title>熊二快跑 · Bear Run</title>
-<link rel="stylesheet" href="./style.css?v=20261029e" />
+<link rel="stylesheet" href="./style.css?v=20261023b" />
 <script>
 /* 启动期错误兜底：任何脚本异常都直接显示在屏幕上，方便现场排查 */
 (function () {
@@ -46,8 +46,6 @@
     <div class="hud-group">
       <div id="hearts" class="hearts" aria-label="生命值"></div>
       <div id="boost-tag" class="boost-tag hidden">加速中 · 分数 x2</div>
-      <!-- 测试模式徽标：空跑道联调，不会掉血也不会结束 -->
-      <div id="test-badge" class="test-badge hidden">测试模式 · 无障碍</div>
       <!-- 表情小窗：永远正对玩家的那张脸 -->
       <div id="face-cam" class="face-cam" aria-hidden="true">
         <canvas id="face-canvas"></canvas>
@@ -77,7 +75,6 @@
         <span id="challenge-progress" class="challenge-prog">0 / 0</span>
       </div>
       <span class="challenge-bar"><b id="challenge-bar-fill"></b></span>
-    </div>
     </div>
   </header>
 
@@ -156,15 +153,11 @@
         <h1 class="menu-title">熊二快跑</h1>
         <div class="menu-title-en">BEAR RUN</div>
         <button id="btn-start" class="primary-btn menu-start" type="button">开始快跑</button>
-        <div class="menu-sub-btns">
-          <button id="btn-tutorial" class="ghost-btn menu-tutorial" type="button">新手指引</button>
-          <button id="btn-test" class="ghost-btn menu-tutorial menu-test" type="button">雷达测试</button>
-        </div>
+        <button id="btn-tutorial" class="ghost-btn menu-tutorial" type="button">新手指引</button>
         <div class="best-line">历史最高：<b id="start-best">0</b></div>
         <div class="acct-line">账号：<b id="acct-name">-</b>
           <button id="btn-logout" class="ghost-btn acct-btn" type="button">退出</button>
         </div>
-        <div class="test-note">测试模式：没有障碍物，熊二一直跑 —— 专用来对雷达的换道 / 跳 / 蹲</div>
       </section>
 
       <!-- 右侧：玩法说明 + 设置 -->
@@ -199,26 +192,13 @@
               <button class="chip" type="button" data-input="mock">雷达模拟器</button>
             </div>
             <div id="radar-url-note" class="radar-note"></div>
+            <div class="radar-note" style="margin-top:2px">
+              <a href="./radar-connect.html" target="_blank" style="color:#f7c531">雷达连不上 / 要换地址 → 打开雷达联调台</a>
+            </div>
 
             <div class="calib-menu-row">
               <button id="btn-calib" class="ghost-btn calib-open-btn" type="button">校准雷达动作</button>
               <span id="calib-status" class="calib-status"></span>
-            </div>
-
-            <!-- 雷达排障入口：连不上进联调台，数据不准进体检台 -->
-            <div class="radar-tools">
-              <div class="radar-tools-label">雷达排障</div>
-              <div class="radar-tools-row">
-                <a class="tool-btn" href="./radar-diagnose.html" target="_blank" rel="noopener">
-                  <b>数据体检</b>
-                  <span>帧率 · 噪声 · 方向 · 命中率</span>
-                </a>
-                <a class="tool-btn" href="./radar-connect.html" target="_blank" rel="noopener">
-                  <b>联调台</b>
-                  <span>改地址 · 看实时值</span>
-                </a>
-              </div>
-              <div class="radar-tools-hint">换场地 / 换人 / 挪过板子，先做一次 2.5 分钟体检</div>
             </div>
           </div>
         </div>
@@ -288,13 +268,6 @@
     <div>上滑跳跃 · 下滑滑铲</div>
   </div>
 
-  <!-- ========== 测试模式进场提示 ========== -->
-  <div id="test-hint" class="test-hint hidden">
-    <div class="test-hint-title">测试模式</div>
-    <div>空跑道 · 不会掉血 · 一直跑下去</div>
-    <div class="test-hint-sub">左右换道 / 跳 / 蹲，看右上「面板」里的雷达数据 · 暂停可回主菜单</div>
-  </div>
-
   <!-- ========== 竖屏提示 ========== -->
   <div id="rotate-hint">
     <div class="rotate-icon"></div>
@@ -345,29 +318,31 @@
       <div id="auth-msg" class="auth-msg" role="alert"></div>
       <button type="submit" id="auth-submit" class="auth-submit">登录</button>
       <button type="button" id="auth-toggle" class="auth-toggle">没有账号？去注册</button>
+      <div class="auth-divider"><span>或</span></div>
+      <button type="button" id="auth-guest" class="auth-guest">以游客身份直接玩（不保存历史）</button>
     </form>
     <p class="auth-note">账号与纪录只保存在本机浏览器，本地多账号演示用途。</p>
   </div>
 </div>
 
 <!-- 经典脚本按顺序加载：不需要 HTTP 服务器，双击 index.html 就能玩 -->
-<script src="./vendor/three.min.js?v=20261029e"></script>
-<script src="./js/config.js?v=20261029e"></script>
-<script src="./js/auth.js?v=20261029e"></script>
-<script src="./js/Audio.js?v=20261029e"></script>
-<script src="./js/InputSource.js?v=20261029e"></script>
-<script src="./js/Art.js?v=20261029e"></script>
-<script src="./js/World.js?v=20261029e"></script>
-<script src="./js/Particles.js?v=20261029e"></script>
-<script src="./js/Player.js?v=20261029e"></script>
-<script src="./js/Vick.js?v=20261029e"></script>
-<script src="./js/ObstacleManager.js?v=20261029e"></script>
-<script src="./js/FaceCam.js?v=20261029e"></script>
-<script src="./js/Hud.js?v=20261029e"></script>
-<script src="./js/DebugPanel.js?v=20261029e"></script>
-<script src="./js/Calibration.js?v=20261029e"></script>
-<script src="./js/Tutorial.js?v=20261029e"></script>
-<script src="./js/Game.js?v=20261029e"></script>
-<script src="./js/main.js?v=20261029e"></script>
+<script src="./vendor/three.min.js?v=20261023b"></script>
+<script src="./js/config.js?v=20261023b"></script>
+<script src="./js/auth.js?v=20261023b"></script>
+<script src="./js/Audio.js?v=20261023b"></script>
+<script src="./js/InputSource.js?v=20261023b"></script>
+<script src="./js/Art.js?v=20261023b"></script>
+<script src="./js/World.js?v=20261023b"></script>
+<script src="./js/Particles.js?v=20261023b"></script>
+<script src="./js/Player.js?v=20261023b"></script>
+<script src="./js/Vick.js?v=20261023b"></script>
+<script src="./js/ObstacleManager.js?v=20261023b"></script>
+<script src="./js/FaceCam.js?v=20261023b"></script>
+<script src="./js/Hud.js?v=20261023b"></script>
+<script src="./js/DebugPanel.js?v=20261023b"></script>
+<script src="./js/Calibration.js?v=20261023b"></script>
+<script src="./js/Game.js?v=20261023b"></script>
+<script src="./js/Tutorial.js?v=20261023b"></script>
+<script src="./js/main.js?v=20261023b"></script>
 </body>
 </html>
