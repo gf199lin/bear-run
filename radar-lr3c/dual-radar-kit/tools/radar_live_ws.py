@@ -210,15 +210,19 @@ class ZeroCal(object):
     比"启动瞬间锁一次"稳，因为你启动时可能在动。
     """
 
-    def __init__(self, secs, min_secs=6.0, max_std=4.5, short_secs=3.0):
+    def __init__(self, secs, min_secs=6.0, max_std=4.5, short_secs=3.0, adapt=False):
         self.secs = secs
         self.min_secs = min_secs
         self.max_std = max_std
         self.short_secs = short_secs
+        self.adapt = adapt
         self.buf = []
         self.zero = None
 
     def push(self, az, now):
+        # 默认锁定后不再更新：零点跟着人跑会"吃掉"移动量，行为不可预测。
+        if self.zero is not None and not self.adapt:
+            return self.zero
         self.buf.append((now, az))
         cut = now - self.secs
         while self.buf and self.buf[0][0] < cut:
@@ -267,6 +271,8 @@ def main():
                     help='丢帧后保持最近有效位置的时长（秒）')
     ap.add_argument('--jump-deg', type=float, default=12.0,
                     help='角度跳变超过该值(度)判为换了反射体，需连续3帧确认')
+    ap.add_argument('--zero-adapt', action='store_true',
+                    help='允许零点在站稳后继续跟随（默认锁定后固定）')
     ap.add_argument('--vertical', action='store_true',
                     help='这块板竖放（测角轴=垂直）：height 用同一角度给出 0..1')
     ap.add_argument('--quiet', action='store_true', help='不打印逐帧日志')
@@ -311,7 +317,7 @@ def main():
                                     os.path.basename(calib) if calib else '无'))
 
     state = {'lane': 'CENTER', 'jump': 0.0, 'crouch': 0.0, 'n': 0}
-    zcal = ZeroCal(args.zero_secs)
+    zcal = ZeroCal(args.zero_secs, adapt=args.zero_adapt)
 
     def emit(rec_out, ts_ms, board, py_val, n_pts, extra, az_hint=None):
         """把一帧识别结果转成 ws 帧并按 role 裁剪。
@@ -341,9 +347,18 @@ def main():
             if az_hint is not None:
                 state['az_ema'] = az          # 跟踪器已平滑，不再叠一层 EMA
             else:
-                # 轻平滑：时间常数 ~2 帧(0.26 s)，压住单帧角度抖动又不起明显延迟
+                # 平滑必须按**时间**算，不能按帧算。
+                # 原来的 0.55/0.45 时间常数约 1.67 帧：1T2R(130ms)→216ms 还行，
+                # 但 2T4R(527ms)→880ms，等于凭空多出大半秒延迟。
+                # 这里固定时间常数 80ms：帧越慢平滑越少（慢帧本来就没抖动可压）。
                 prev = state.get('az_ema')
-                state['az_ema'] = az if prev is None else (0.55 * prev + 0.45 * az)
+                _now = time.time()
+                _dt = _now - state.get('az_t', _now - 0.13)
+                _alpha = 1.0 - math.exp(-_dt / 0.08) if _dt > 0 else 0.45
+                _alpha = max(0.45, min(1.0, _alpha))
+                state['az_ema'] = (az if prev is None
+                                   else ((1.0 - _alpha) * prev + _alpha * az))
+                state['az_t'] = _now
             zero = zcal.push(state['az_ema'], time.time())
             state['last_t'] = time.time()
         else:

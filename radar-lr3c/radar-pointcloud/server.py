@@ -42,10 +42,20 @@ from radar_source import (SerialSource, ReplaySource, LoopbackSource,
                           BOARD_PROFILES, DEFAULT_BOARD, probe_board)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CLIENTS = set()
+CLIENTS = {}            # queue -> board 过滤（None = 不过滤，单源路径行为不变）
 CLIENTS_LOCK = threading.Lock()
 LATEST = {'cfg': None}
 CTL_REF = {'get': None}     # main() 注入；让 /status、/stream 在任何时刻都能取到控制状态与串口诊断
+
+# ---- 多板模式（--ports COM3,COM4）----------------------------------
+# 默认全空：单源路径从不读这些字段。
+MULTI = {'enabled': False, 'sessions': {}, 'order': []}
+_MULTI_CONTROL = {'fn': None}
+
+
+def set_multi_control(fn):
+    """多板模式注入控制入口 fn(action, board=None)。"""
+    _MULTI_CONTROL['fn'] = fn
 
 
 def current_control():
@@ -79,7 +89,12 @@ def make_source(args, mode=None, board=None):
         print(msg, flush=True)
     mode = mode or args.source
     if mode == 'serial':
-        return SerialSource(args.port, args.baud, retry_delay=args.retry, on_event=evt)
+        return SerialSource(
+            args.port, args.baud, retry_delay=args.retry, on_event=evt,
+            # 2T4R 上电待机，默认自动重放启动序列；
+            # 1T2R 上电自跑，会被「已在出流」检测直接跳过。
+            auto_boot=not getattr(args, 'no_boot_2t4r', False),
+            boot_seq=getattr(args, 'boot_seq', None))
     if mode == 'replay':
         if not args.replay:
             raise SystemExit('--source replay 需要 --replay <文件>')
@@ -121,7 +136,8 @@ def rd_json(r0):
     return q.reshape(-1).tolist()
 
 
-def make_frame_payload(pts, r0, stats, proc, noise, control=None, actions=None):
+def make_frame_payload(pts, r0, stats, proc, noise, control=None, actions=None,
+                       cfg=None):
     out = {
         'type': 'frame',
         'n': stats['frames'],
@@ -140,7 +156,7 @@ def make_frame_payload(pts, r0, stats, proc, noise, control=None, actions=None):
         'pts': [[round(p['x'], 3), round(p['y'], 3), round(p['deg'], 1),
                  round(p['v'], 2), round(p['p'], 3)] for p in pts],
         'rd': rd_json(r0),
-        'cfg': LATEST['cfg'],
+        'cfg': LATEST['cfg'] if cfg is None else cfg,
     }
     if control is not None:
         out['control'] = control
@@ -155,17 +171,26 @@ def make_frame_payload(pts, r0, stats, proc, noise, control=None, actions=None):
     return out
 
 
-def broadcast(obj):
+def broadcast(obj, board=None):
+    """广播一帧负载。
+
+    board 为空时从 obj['board'] 自动取；客户端在 /stream?board=xxx
+    注册了过滤器时，只接收自己那块板的帧。
+    单源模式下所有客户端都没过滤器，于是行为与改动前逐字相同。
+    """
     msg = ('data: ' + json.dumps(obj, separators=(',', ':')) + '\n\n').encode('utf-8')
+    b = board if board is not None else obj.get('board')
     with CLIENTS_LOCK:
         dead = []
-        for q in CLIENTS:
+        for q, want in CLIENTS.items():
+            if want and b and want != b:
+                continue
             try:
                 q.put_nowait(msg)
             except queue.Full:
                 dead.append(q)
         for q in dead:
-            CLIENTS.discard(q)
+            CLIENTS.pop(q, None)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -173,6 +198,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *a):
         pass
+
+    def _query(self, key, default=None):
+        """从 self.path 的查询字符串取参数（不依赖 urllib，保持零依赖）。"""
+        if '?' not in self.path:
+            return default
+        for kv in self.path.split('?', 1)[1].split('&'):
+            if kv.startswith(key + '='):
+                return kv.split('=', 1)[1] or default
+        return default
 
     def _send(self, code, ctype, body, extra=None):
         self.send_response(code)
@@ -190,6 +224,35 @@ class Handler(BaseHTTPRequestHandler):
             p = os.path.join(HERE, 'viewer.html')
             with open(p, 'rb') as f:
                 self._send(200, 'text/html; charset=utf-8', f.read())
+            return
+        if path == '/dual':
+            p = os.path.join(HERE, 'dual.html')
+            if not os.path.exists(p):
+                self._send(404, 'text/plain; charset=utf-8',
+                           'dual.html not found'.encode('utf-8'))
+                return
+            with open(p, 'rb') as f:
+                self._send(200, 'text/html; charset=utf-8', f.read())
+            return
+        if path == '/status' and MULTI['enabled']:
+            want = self._query('board')
+            if want:
+                s = MULTI['sessions'].get(want)
+                if s is None:
+                    self._send(404, 'application/json; charset=utf-8',
+                               json.dumps({'ok': False,
+                                           'msg': 'unknown board %s' % want}
+                                          ).encode('utf-8'))
+                    return
+                self._send(200, 'application/json; charset=utf-8',
+                           json.dumps(s.status(), ensure_ascii=False
+                                      ).encode('utf-8'))
+                return
+            agg = {'boards': MULTI['order'],
+                   'sessions': {b: MULTI['sessions'][b].status()
+                                for b in MULTI['order']}}
+            self._send(200, 'application/json; charset=utf-8',
+                       json.dumps(agg, ensure_ascii=False).encode('utf-8'))
             return
         if path == '/status':
             # 注意：LATEST['status'] 只在收到第一帧后才存在。用 --no-autostart 启动时
@@ -213,12 +276,29 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Cache-Control', 'no-store')
             self.send_header('Connection', 'keep-alive')
             self.end_headers()
+            # 支持 /stream?board=1t2r → 只接收该板的帧（双板页面用）
+            want = None
+            qs = self.path.split('?', 1)[1] if '?' in self.path else ''
+            for kv in qs.split('&'):
+                if kv.startswith('board='):
+                    want = kv.split('=', 1)[1].strip() or None
             q = queue.Queue(maxsize=8)
             with CLIENTS_LOCK:
-                CLIENTS.add(q)
+                CLIENTS[q] = want
             try:
-                hello = ('data: ' + json.dumps({'type': 'hello', 'cfg': LATEST['cfg'],
-                                                'control': current_control()})
+                # 多板模式：hello 要带上本板的 cfg 与控制状态，
+                # 否则子页面会拿到全局（往往为 None）的 cfg，轴刻度全错
+                hcfg, hctl = LATEST['cfg'], current_control()
+                if MULTI['enabled']:
+                    _s = MULTI['sessions'].get(want)
+                    if _s is not None:
+                        hcfg = _s.cfg
+                        try:
+                            hctl = _s.ctrl.status()
+                        except Exception:
+                            hctl = {}
+                hello = ('data: ' + json.dumps({'type': 'hello', 'cfg': hcfg,
+                                                'control': hctl})
                          + '\n\n')
                 self.wfile.write(hello.encode('utf-8'))
                 self.wfile.flush()
@@ -235,7 +315,7 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             finally:
                 with CLIENTS_LOCK:
-                    CLIENTS.discard(q)
+                    CLIENTS.pop(q, None)
             return
         self._send(404, 'text/plain; charset=utf-8', b'not found')
 
@@ -261,7 +341,13 @@ class Handler(BaseHTTPRequestHandler):
             action = None
         if not action and 'action=' in self.path:
             action = self.path.split('action=', 1)[1].split('&')[0]
-        if CONTROL_HANDLER is None:
+        if MULTI['enabled'] and callable(_MULTI_CONTROL['fn']):
+            try:
+                res = _MULTI_CONTROL['fn'](action, self._query('board'))
+            except Exception as exc:
+                res = {'ok': False, 'msg': '%s: %s'
+                       % (type(exc).__name__, exc)}
+        elif CONTROL_HANDLER is None:
             res = {'ok': False, 'msg': '控制器未初始化'}
         else:
             res = CONTROL_HANDLER(action)
@@ -286,6 +372,9 @@ def main():
     ap = argparse.ArgumentParser(description='ICL1122 雷达点云实时显示')
     ap.add_argument('--source', choices=['serial', 'replay', 'loopback'], default='serial')
     ap.add_argument('--port', default='auto', help='串口号 (默认 auto = 自动识别 CP210x/雷达串口)')
+    ap.add_argument('--ports', default=None,
+                    help='多板并行：串口逗号分隔，如 COM3,COM4。'
+                         '给了就走 /dual 分屏页；不给则与单板行为完全一致')
     ap.add_argument('--board', default='auto', choices=['auto', '1t2r', '2t4r'],
                     help='雷达板型 (默认 auto = 按 USB VID:PID 自动识别)。'
                          '板型同时决定串口波特率、上行协议与距离单元数：'
@@ -333,6 +422,10 @@ def main():
     ap.add_argument('--angle-max', type=float, default=None,
                     help='有效方位角上限（内置默认 45.0）')
     ap.add_argument('--retry', type=float, default=1.0, help='串口断开后的重连间隔 (秒)')
+    ap.add_argument('--no-boot-2t4r', action='store_true',
+                    help='2T4R 打开串口后不自动重放启动序列（默认会自动）')
+    ap.add_argument('--boot-seq', default=None,
+                    help='2T4R 启动序列 JSON 路径（默认用 radar_boot_2t4r.DEFAULT_SEQ）')
     ap.add_argument('--stall-timeout', type=float, default=8.0,
                     help='超过该秒数收不到帧就重建采集管道（0=关闭停滞判定）')
     ap.add_argument('--no-stall-restart', action='store_true',
@@ -409,6 +502,11 @@ def main():
     ap.add_argument('--quiet', action='store_true')
     args = ap.parse_args()
 
+    # 多板模式：早退分流，下面单源通道一步都不走
+    if getattr(args, 'ports', None):
+        import radar_multi
+        return radar_multi.run(args)
+
     global CONTROL_HANDLER
 
     # ---- 热切换状态（AGENTS.md 硬约束 2）------------------------------------
@@ -461,7 +559,14 @@ def main():
     #     会据此切换协议解析器 —— 这里只定 DSP 侧的距离单元数/速度刻度。
     board = None if args.board == 'auto' else args.board
     if board is None:
-        board = probe_board(None if args.source != 'serial' else args.port)
+        if args.source == 'serial':
+            board = probe_board(args.port)
+        elif args.source == 'replay':
+            # 回放与「当前插着什么硬件」无关：默认按 1T2R 口径解析。
+            # 否则插着 2T4R 板回放 1T2R 样例时会选错协议，一帧都出不来；
+            # 回放 2T4R 采集数据请显式加 --board 2t4r。
+            print('[board] replay 源不探测当前硬件，默认 1T2R'
+                  '（回放 2T4R 数据请加 --board 2t4r）', flush=True)
     board_auto = (args.board == 'auto')
     if board is None:
         board = DEFAULT_BOARD
@@ -499,8 +604,12 @@ def main():
         if args.min_range is None and 'min_range' not in psec:
             min_range = range_res_eff
     if not args.quiet:
-        print('板型: %s (%s)%s'
-              % (board, prof['label'], '  [按 USB VID:PID 自动识别]' if board_auto else ''))
+        src_note = ''
+        if board_auto and args.source == 'serial':
+            src_note = '  [按 USB VID:PID 自动识别]'
+        elif board_auto:
+            src_note = '  [回放默认口径，可用 --board 覆盖]'
+        print('板型: %s (%s)%s' % (board, prof['label'], src_note))
 
     proc = PointCloudProcessor(cfar_scale=cfar, min_power=args.min_power,
                                min_snr=min_snr,

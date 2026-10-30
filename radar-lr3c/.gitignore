@@ -27,3 +27,6 @@ ONELAB*/
 
 # ---------- 本地环境配置（含本机绝对路径） ----------
 .opencode/deepworks.json
+
+# clone 元数据备份（只为保留可还原性，不入库）
+bear-run-new/.git-clone-backup/
