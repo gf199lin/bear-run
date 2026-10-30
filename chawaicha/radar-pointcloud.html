@@ -1,0 +1,2545 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>毫米波雷达体感捕捉台</title>
+<style>
+  :root{
+    --bg:#0b0f17; --panel:#121826; --panel2:#0e1420; --line:#233048;
+    --txt:#d7e1f0; --dim:#7d8aa3; --acc:#35c4ff; --acc2:#7C5CFF;
+    --ok:#2fd57b; --warn:#ffb020; --bad:#ff5470;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    background:var(--bg); color:var(--txt); font:13px/1.5 "Microsoft YaHei",system-ui,sans-serif;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  header{
+    display:flex; align-items:center; gap:10px; padding:8px 14px;
+    background:linear-gradient(90deg,#101a2e,#0e1420); border-bottom:1px solid var(--line);
+  }
+  header h1{font-size:16px; color:var(--acc); letter-spacing:1px; white-space:nowrap;}
+  header .sp{flex:1;}
+  button,select,input[type=text],input[type=number],textarea{
+    background:#0d1524; color:var(--txt); border:1px solid var(--line);
+    border-radius:6px; padding:5px 10px; font-size:12.5px; outline:none;
+  }
+  button{cursor:pointer; transition:.15s;}
+  button:hover:not(:disabled){border-color:var(--acc); color:var(--acc);}
+  button:disabled{opacity:.4; cursor:not-allowed;}
+  button.primary{background:#12385c; border-color:#1d5d96;}
+  button.primary:hover:not(:disabled){background:#17517f; color:#fff;}
+  button.danger{border-color:#5c2333; color:var(--bad);}
+  select{min-width:90px;}
+  .dot{display:inline-block; width:9px; height:9px; border-radius:50%; background:#666; margin-right:5px;}
+  .dot.on{background:var(--ok); box-shadow:0 0 6px var(--ok);}
+  .dot.busy{background:var(--warn); box-shadow:0 0 6px var(--warn);}
+  main{flex:1; display:flex; min-height:0;}
+  .col{display:flex; flex-direction:column; gap:8px; padding:8px; overflow-y:auto; min-height:0;}
+  .col::-webkit-scrollbar{width:8px;} .col::-webkit-scrollbar-thumb{background:#26344e; border-radius:4px;}
+  #colL{width:300px; flex:none;}
+  #colC{flex:1; min-width:380px;}
+  #colR{width:300px; flex:none;}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 12px;}
+  .card h2{font-size:12.5px; color:var(--acc); margin-bottom:8px; letter-spacing:1px;
+    display:flex; align-items:center; justify-content:space-between;}
+  .card h2 .mini{font-weight:normal; color:var(--dim); font-size:11px;}
+  .row{display:flex; align-items:center; gap:6px; margin:6px 0; flex-wrap:wrap;}
+  .row label{color:var(--dim); min-width:64px;}
+  .row input[type=number]{width:74px;}
+  .row input[type=text]{flex:1; min-width:80px;}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:4px 10px;}
+  .grid2 .row{margin:2px 0;}
+  canvas{display:block; width:100%; border-radius:8px; background:#080c13;}
+  #cloudBox{flex:1; min-height:0; display:flex; flex-direction:column; gap:8px;}
+  #cvCloud{flex:1; min-height:0;}
+  #cvRD{height:180px; flex:none;}
+  .statBig{font-size:30px; font-weight:700; text-align:center; padding:6px 0 2px; color:var(--ok); letter-spacing:2px;}
+  .statSub{text-align:center; color:var(--dim); margin-bottom:6px;}
+  .kv{display:flex; justify-content:space-between; padding:2.5px 0; border-bottom:1px dashed #1c2740;}
+  .kv span:first-child{color:var(--dim);}
+  .kv b{font-weight:600; color:var(--txt);}
+  #evtLog{flex:1; min-height:120px; overflow-y:auto; font:11.5px/1.7 Consolas,monospace;
+    background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:6px 8px;}
+  #evtLog .t{color:#54627e; margin-right:6px;}
+  #evtLog .jump{color:var(--ok);} #evtLog .crouch{color:var(--warn);}
+  #evtLog .left,#evtLog .right{color:var(--acc);} #evtLog .sys{color:#8a97ad;}
+  #hexBox{height:120px; overflow-y:auto; font:10.5px/1.5 Consolas,monospace; color:#6f8099;
+    background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:6px 8px; white-space:pre-wrap; word-break:break-all;}
+  textarea{width:100%; height:110px; resize:vertical; font:11px/1.5 Consolas,monospace;}
+  details{margin-top:2px;} summary{cursor:pointer; color:var(--dim); font-size:12px;}
+  summary:hover{color:var(--acc);}
+  .flash{animation:fl .5s;}
+  @keyframes fl{0%{background:#1c3a5c;}100%{background:var(--panel);}}
+  .badge{padding:1px 8px; border-radius:10px; font-size:11px; border:1px solid var(--line); color:var(--dim);}
+  .badge.on{color:var(--ok); border-color:var(--ok);}
+  .hint{color:var(--dim); font-size:11.5px; line-height:1.6;}
+  dialog{background:var(--panel); color:var(--txt); border:1px solid var(--line); border-radius:12px; max-width:640px; padding:18px 22px;}
+  dialog::backdrop{background:rgba(0,0,0,.6);}
+  dialog h3{color:var(--acc); margin-bottom:8px;}
+  dialog li{margin:4px 0 4px 18px;}
+  dialog code{background:#0d1524; padding:1px 5px; border-radius:4px; color:#9fd8ff;}
+</style>
+</head>
+<body>
+<header>
+  <h1>毫米波雷达体感捕捉台 <span id="bdVer" style="font-size:12px;color:var(--ok);font-weight:normal"></span></h1>
+  <span class="badge" id="bdMode">未连接</span>
+  <span class="badge" id="bdFps">0 fps</span>
+  <span class="badge" id="bdPkts">包 0</span>
+  <span class="badge" id="bdBad">错包 0</span>
+  <span class="badge" id="bdFrm">帧 0</span>
+  <span class="badge" id="bdPts">0 点</span>
+  <span class="sp"></span>
+  <button id="btnHelp">使用说明</button>
+  <button id="btnCal" disabled>标定站立位置</button>
+  <button id="btnStart" class="primary" disabled>开始</button>
+  <button id="btnConn" class="primary">连接串口</button>
+</header>
+
+<main>
+  <!-- ============ 左栏:连接与参数 ============ -->
+  <div class="col" id="colL">
+    <div class="card">
+      <h2>连接 <span class="mini"><span class="dot" id="dotConn"></span><span id="txtConn">未连接</span></span></h2>
+      <div class="row"><label>工作模式</label>
+        <select id="selMode">
+          <option value="listen">仅监听(上位机已启动雷达)</option>
+          <option value="active">主动配置(内置配置脚本)</option>
+          <option value="sim">模拟器(无硬件调试)</option>
+        </select>
+      </div>
+      <div class="row"><label title="切换后自动联动: 芯片格式/波特率/启动脚本">目标板</label>
+        <select id="selBoard">
+          <option value="icl1240" selected>DEV113P (ICL1240 · 1.5M)</option>
+          <option value="icl1112">DEV202H (ICL1122 · 921600)</option>
+        </select>
+      </div>
+      <div class="row"><label>波特率</label>
+        <select id="selBaud">
+          <option selected>1500000</option><option>921600</option><option>460800</option><option>115200</option>
+        </select>
+      </div>
+      <div class="row hint" id="modeHint">被动监听串口数据流。注意: DEV113P 板上单片机会在上位机关闭串口后停止雷达输出(绿灯灭), 此时监听无数据, 请改用主动配置。</div>
+    </div>
+
+    <div class="card">
+      <h2>雷达与安装参数</h2>
+      <div class="grid2">
+        <div class="row"><label>芯片格式</label>
+          <select id="pChip" style="width:150px;">
+            <option value="icl1240" selected>ICL1240 (DEV113P)</option>
+            <option value="icl1112">ICL111A/1112 (手册推定)</option>
+            <option value="icl1122">ICL1122 (DEV202H实测)</option>
+            <option value="s5km312l">S5KM312L</option>
+          </select>
+        </div>
+        <div class="row"><label>距离分辨率</label><input type="number" id="pRangeRes" value="0.176" step="0.001"> m</div>
+        <div class="row"><label>速度分辨率</label><input type="number" id="pVelRes" value="0.19" step="0.001"> m/s</div>
+        <div class="row"><label>多普勒 bins</label><input type="number" id="pDoppBins" value="64" step="1"></div>
+        <div class="row"><label>天线间距</label><input type="number" id="pAntGap" value="5.9" step="0.1"> mm</div>
+        <div class="row"><label>角度方向</label>
+          <select id="pInvAng" style="width:150px;">
+            <option value="1">正向</option>
+            <option value="-1">反向(左右颠倒时选)</option>
+          </select>
+        </div>
+        <div class="row"><label>安装高度</label><input type="number" id="pMountH" value="2.4" step="0.05"> m</div>
+        <div class="row"><label>下倾角</label><input type="number" id="pTilt" value="40" step="1"> °</div>
+        <div class="row"><label title="chirp 间休眠时间, 决定帧率; 仅主动配置模式生效">帧空闲</label><input type="number" id="pFrameIdle" value="8000" step="100" min="500" max="8000"> µs</div>
+        <div class="row"><label title="固件按chirp抽稀: 数据量÷N、帧率不变、速度量程÷N; 串口老卡死就调大">低速模式</label>
+          <select id="pDownRate" style="width:150px;">
+            <option value="1" selected>关闭(全速 ~65KB/s)</option>
+            <option value="2">半速 ~33KB/s(推荐)</option>
+            <option value="4">¼速 ~17KB/s(最稳)</option>
+          </select>
+        </div>
+        <div class="row"><label title="桥接助手=本地小程序用大缓冲专职读串口(治卡死的根); 需先双击 outputs/radar-bridge/start_bridge.bat">数据源</label>
+          <select id="pTransport" style="width:150px;">
+            <option value="webserial" selected>浏览器直连</option>
+            <option value="bridge">桥接助手(推荐)</option>
+          </select>
+        </div>
+        <div class="row"><label title="桥接助手地址, 默认本机8765">桥接地址</label><input type="text" id="pBridgeUrl" value="ws://127.0.0.1:8765" style="width:150px;"></div>
+      </div>
+      <div class="row hint" id="hintFps"></div>
+      <details><summary>启动脚本(按目标板自动切换,均从厂商日志提取,免改)</summary>
+        <div class="row hint">每行一条串口帧(十六进制)。内嵌两块板的完整启动宏: DEV113P(ICL1240)=进命令模式→系统参数→写全部寄存器段→预启动1DFFT→开始输出; DEV202H(ICL1122)=芯片参数→Stop/Config/Start寄存器段→开始输出(全程921600,无波特率切换)。切换「目标板」时自动换成对应脚本。</div>
+        <textarea id="taConfig" spellcheck="false"></textarea>
+        <div class="row"><button id="btnSaveCfg">保存脚本</button><button id="btnResetCfg">恢复默认</button></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>识别参数</h2>
+      <div class="grid2">
+        <div class="row"><label>SNR阈值</label><input type="number" id="pSnr" value="12" step="1"> dB</div>
+        <div class="row"><label>静止过滤</label><input type="number" id="pVmin" value="0.08" step="0.01"> m/s</div>
+        <div class="row"><label>聚类半径</label><input type="number" id="pCluR" value="0.45" step="0.05"> m</div>
+        <div class="row"><label>左右阈值</label><input type="number" id="pLatTh" value="0.30" step="0.05"> m</div>
+        <div class="row"><label>跳/蹲幅度</label><input type="number" id="pJumpTh" value="0.22" step="0.02"> m</div>
+        <div class="row"><label>平滑系数</label><input type="number" id="pSmooth" value="0.35" step="0.05"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>事件输出(对接游戏)</h2>
+      <div class="row"><label>WebSocket</label><input type="text" id="pWsUrl" placeholder="ws://127.0.0.1:8899 (可选)">
+        <button id="btnWs">连接</button></div>
+      <div class="row"><button id="btnEvtRec">开始录制事件</button><button id="btnEvtDl">下载事件JSONL</button></div>
+      <div class="row hint">事件格式:{"t":时间戳,"type":"left_start|right_start|move_stop|jump|crouch_start|crouch_end|track","x":横向米,"h":高度代理米}</div>
+    </div>
+
+    <div class="card">
+      <h2>数据工具</h2>
+      <div class="row"><button id="btnRawRec">开始录制原始流</button><button id="btnRawDl">下载原始流</button></div>
+      <div class="row"><input type="file" id="fileReplay" accept=".bin,.log"></div>
+      <details><summary>原始数据查看器</summary><div id="hexBox"></div></details>
+    </div>
+  </div>
+
+  <!-- ============ 中栏:点云 ============ -->
+  <div class="col" id="colC">
+    <div id="cloudBox">
+      <canvas id="cvCloud"></canvas>
+      <canvas id="cvRD"></canvas>
+    </div>
+  </div>
+
+  <!-- ============ 右栏:状态与事件 ============ -->
+  <div class="col" id="colR">
+    <div class="card" id="cardPose">
+      <h2>当前姿态</h2>
+      <div class="statBig" id="txtPose">—</div>
+      <div class="statSub" id="txtPoseSub">等待数据</div>
+      <div class="kv"><span>横向偏移</span><b id="kvX">—</b></div>
+      <div class="kv"><span>高度代理</span><b id="kvH">—</b></div>
+      <div class="kv"><span>主目标距离</span><b id="kvR">—</b></div>
+      <div class="kv"><span>目标点数</span><b id="kvN">—</b></div>
+      <div class="kv"><span>标定状态</span><b id="kvCal">未标定</b></div>
+    </div>
+    <div class="card" id="cardJC">
+      <h2>跳/蹲判定 <span style="font-size:11px; opacity:.6;">DEV113P 专用</span></h2>
+      <div class="statBig" id="jcFlash" style="font-size:42px; line-height:1.15;">—</div>
+      <div class="statSub" id="jcState">等待数据</div>
+      <div class="kv"><span>玩家距离</span><b id="jcDist">—</b></div>
+      <div class="kv"><span>俯仰偏移</span><b id="jcDev">—</b></div>
+      <div class="kv"><span>动作计数</span><b id="jcCnt">跳 0 · 蹲 0</b></div>
+      <div class="row"><button id="btnJcRecal">重新校准</button><button id="btnJcCap">● 跳蹲采集(带同步)</button></div>
+      <div class="row"><label style="display:flex; align-items:center; gap:6px; font-size:12px;">
+        <input type="checkbox" id="chkJcOut"> 发给游戏(关闭观察模式)</label></div>
+      <div class="row hint">v0.8.1 观察模式: 判据正在用干净数据重训, 面板只显示不发游戏事件。点「跳蹲采集」会自动开提词器并精确对时, 录完自动下载 bin+同步文件。</div>
+    </div>
+    <div class="card" style="flex:1; display:flex; flex-direction:column; min-height:0;">
+      <h2>动作事件 <button id="btnClearLog" style="font-size:11px;">清空</button></h2>
+      <div id="evtLog"></div>
+    </div>
+  </div>
+</main>
+
+<dialog id="dlgHelp">
+  <h3>快速上手</h3>
+  <ol>
+    <li><b>接线</b>:DEV113P 直接用 USB 线连电脑,设备管理器中出现一个 USB 串行设备(COMx)。波特率选 1500000。</li>
+    <li><b>方式A·仅监听(推荐先试这个)</b>:打开厂商上位机,点「开始」确认能看到波形,然后<b>完全退出上位机</b>(雷达会保持数据输出)。回到本页选「仅监听」→「连接串口」→ 选择该 COM 口。</li>
+    <li><b>方式B·主动配置(推荐日常使用)</b>:选「主动配置」→「连接串口」,页面自动下发内置的 DEV113P 启动宏(从厂商上位机日志提取)并启动雷达,完全脱离上位机。</li>
+    <li><b>标定</b>:玩家站到游戏位正中自然站立,点「标定站立位置」,保持 1 秒。</li>
+    <li><b>动作</b>:左右移动超阈值产生 left/right 事件;跳跃(头顶快速接近雷达)产生 jump;下蹲(远离)产生 crouch。</li>
+    <li><b>对接游戏</b>:填 WebSocket 地址后事件会以 JSON 推送;或先「录制事件」拿 JSONL 样本给游戏端开发。</li>
+    <li><b>模拟器</b>:没有硬件时选「模拟器」模式即可体验完整链路(按 1/2/3/4 键模拟 左/右/跳/蹲)。</li>
+  </ol>
+  <p class="hint" style="margin-top:8px;">注意:Web 串口需要 Chrome / Edge 浏览器,且页面需以 https、localhost 或 file:// 方式打开。同一时刻只能有一个程序占用串口。</p>
+  <div class="row" style="justify-content:flex-end; margin-top:10px;"><button onclick="document.getElementById('dlgHelp').close()">关闭</button></div>
+</dialog>
+
+<script>
+'use strict';
+/* ============================================================
+ * 毫米波雷达体感捕捉台
+ * 链路: 串口 -> 帧解复用 -> 芯片数据解析 -> 点云 -> 跟踪 -> 动作
+ * 协议来源: UM10060 毫米波传感器开发工具用户手册 Rev.1.4
+ * ============================================================ */
+
+/* ---------------- v0.5.1 黑匣子: 任何未捕获异常都进日志区 ---------------- */
+window.__earlyErrs = [];
+window.onerror = (msg, src, line, col) => {
+  const t = '页面异常: ' + msg + ' (行' + line + ')';
+  try { EvtLog.add('err', t); } catch (_) { window.__earlyErrs.push(t); }
+};
+window.addEventListener('unhandledrejection', e => {
+  const t = '异步异常: ' + ((e.reason && e.reason.message) || e.reason);
+  try { EvtLog.add('err', t); } catch (_) { window.__earlyErrs.push(t); }
+});
+
+/* ---------------- 工具 ---------------- */
+const U = {
+  hex(b, sep=' '){ return Array.from(b, x=>x.toString(16).padStart(2,'0').toUpperCase()).join(sep); },
+  parseHex(str){
+    const s = str.replace(/0x/gi,'').replace(/[^0-9a-fA-F]/g,'');
+    const out = new Uint8Array(s.length>>1);
+    for(let i=0;i<out.length;i++) out[i]=parseInt(s.substr(i*2,2),16);
+    return out;
+  },
+  u16le(b,o){ return b[o] | (b[o+1]<<8); },
+  u32le(b,o){ return (b[o] | (b[o+1]<<8) | (b[o+2]<<16) | (b[o+3]<<24))>>>0; },
+  i16(x){ return x>32767 ? x-65536 : x; },
+  clamp(v,a,b){ return v<a?a:(v>b?b:v); },
+  now(){ return performance.now(); },
+  download(name, blob){
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download=name; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+  }
+};
+
+/* ---------------- 全局配置 ---------------- */
+const APP_VER = '0.8.1';   // semver: 存档参数按版本隔离, 跨版本恢复默认; 0.8.1=JCDet转观察模式(v1俯仰相位判据经回放证伪: 该板近距相位被杂波污染, 待干净实采数据定稿v2前不发gesture事件)
+const CFG = {
+  baud: 1500000,            // DEV113P 实测波特率
+  mode: 'listen',
+  chip: 'icl1240',          // 芯片帧格式: icl1240(DEV113P,默认) | icl1112 | s5km312l
+  rangeRes: 0.176,          // m / range bin (ICL1240 ini: 带宽0.852GHz)
+  rangeOff: 0,              // range bin 偏移
+  rangeBins: 32,            // 距离门数
+  velRes: 0.19,             // m/s / doppler bin — 由 frameIdleUS 自动推算 λ/(2·64·Tc), 勿手改
+  frameIdleUS: 8000,         // chirp 间休眠 µs(波形时序表 idx9, 10ns@100MHz 单位×100): 帧周期=64×(空闲+60)+5000µs; 8000≈1.9帧/s, 4000≈3.8帧/s, <3500 超出串口带宽无意义
+  velSign: 1,               // 速度符号校准: 1=默认 -1=翻转(接近为负时保持1)
+  swapIQ: 0,                // I/Q 字节序校准: 0=I在前(默认) 1=交换
+  doppBins: 64,
+  chirpsPerFrame: 64,       // 每雷达帧 chirp 数(ICL1240 实测)
+  rxCount: 4,               // 接收天线数(DEV113P = 4RX)
+  antGapMM: 5.9,            // 接收天线间距 mm (ini HorzAngleInfo)
+  wavelength: 0.01224,      // m (24.5GHz 中心)
+  mountH: 2.4, tiltDeg: 40, // 安装
+  invAng: 1,                // 角度方向: 1=正向 -1=反向(现场左右颠倒时切换)
+  minSnrDb: 12, vMin: 0.08, clusterR: 0.45,
+  latTh: 0.30, jumpTh: 0.22, smooth: 0.35,
+  mcuWrapped: 'auto',       // auto|yes|no  ICLH 封装
+  downRate: 1,              // v0.5.9: 固件chirp抽稀 1=全速 2=半速 4=¼速——帧率不变只降码率, USB噎不住时调大
+  transport: 'webserial',   // v0.7.0: webserial=浏览器直连 | bridge=桥接助手(路线B, 大缓冲不卡死)
+  bridgeUrl: 'ws://127.0.0.1:8765',
+};
+function loadParams(){
+  const $=id=>document.getElementById(id);
+  CFG.rangeRes=+$('pRangeRes').value||CFG.rangeRes;
+  CFG.velRes=+$('pVelRes').value||CFG.velRes;
+  CFG.doppBins=+$('pDoppBins').value||CFG.doppBins;
+  CFG.antGapMM=+$('pAntGap').value||CFG.antGapMM;
+  CFG.mountH=+$('pMountH').value||CFG.mountH;
+  CFG.tiltDeg=+$('pTilt').value||CFG.tiltDeg;
+  CFG.chip=$('pChip').value||CFG.chip;
+  CFG.invAng=+$('pInvAng').value||1;
+  CFG.minSnrDb=+$('pSnr').value||CFG.minSnrDb;
+  CFG.vMin=+$('pVmin').value||CFG.vMin;
+  CFG.clusterR=+$('pCluR').value||CFG.clusterR;
+  CFG.latTh=+$('pLatTh').value||CFG.latTh;
+  CFG.jumpTh=+$('pJumpTh').value||CFG.jumpTh;
+  CFG.smooth=+$('pSmooth').value||CFG.smooth;
+  CFG.downRate=Math.max(1,+$('pDownRate').value||1);   // v0.5.9: 低速模式(须先于velRes推算)
+  CFG.transport=(($('pTransport')||{}).value)||CFG.transport;                    // v0.7.0
+  CFG.bridgeUrl=((($('pBridgeUrl')||{}).value)||'').trim()||CFG.bridgeUrl;       // v0.7.0
+  // 帧空闲 → 帧周期/chirp周期/速度分辨率 联动推算 (Tc=空闲+60µs, 见 ini 定时参数验证)
+  CFG.frameIdleUS=Math.min(8000,Math.max(500,+$('pFrameIdle').value||8000));
+  const tcS=(CFG.frameIdleUS+60)*1e-6;
+  CFG.velRes=+(CFG.wavelength/(2*CFG.doppBins*tcS*(CFG.downRate||1))).toFixed(4);   // v0.5.9: 抽稀后chirp间隔×N, 每bin速度÷N
+  const pv=$('pVelRes'); if(pv) pv.value=CFG.velRes;
+  const fps=1e6/(64*(CFG.frameIdleUS+60)+5000);
+  const hf=$('hintFps');
+  if(hf) hf.textContent=`帧空闲 ${CFG.frameIdleUS}µs → 约 ${fps.toFixed(1)} 帧/s(仅主动配置模式生效); 串口带宽上限≈4.3帧/s, 空闲低于 3500µs 无提速效果`;
+}
+
+/* ---------------- 事件总线 ---------------- */
+const Bus = {
+  subs:{},
+  on(ev,fn){ (this.subs[ev]=this.subs[ev]||[]).push(fn); },
+  emit(ev,data){ (this.subs[ev]||[]).forEach(f=>{ try{f(data);}catch(e){console.error(e);} }); }
+};
+
+/* ---------------- 桥接助手传输层 (v0.7.0 路线B) ----------------
+ * 本地 Node 助手用大缓冲专职读串口, 经 ws 转发字节。这里把 WebSocket 伪装成
+ * Web Serial Port 的最小接口(readable/writable/open/setSignals/close/getInfo),
+ * 于是 Serial 的读循环/写命令/自愈机制全部原样复用, 上层零感知。 */
+const WsBridge = {
+  async openPort(url){
+    const ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+    await new Promise((res, rej)=>{
+      const t = setTimeout(()=>rej(new Error('连接桥接助手超时(4s)')), 4000);
+      ws.onopen = ()=>{ clearTimeout(t); res(); };
+      ws.onerror = ()=>{ clearTimeout(t); rej(new Error('连不上桥接助手 '+url+' —— 请先双击 outputs/radar-bridge/start_bridge.bat, 确认窗口显示「串口已打开」')); };
+    });
+    let ctrl = null, closed = false;
+    const port = {
+      readable: new ReadableStream({ start(c){ ctrl=c; }, cancel(){ try{ws.close();}catch(e){} } }),
+      writable: null,
+      async open(){
+        port.writable = new WritableStream({ write(chunk){ if(ws.readyState===1) ws.send(chunk); } });
+      },
+      async setSignals(){ /* 桥里已置 DTR/RTS */ },
+      async close(){ closed=true; try{ws.close();}catch(e){} try{ctrl&&ctrl.close();}catch(e){} },
+      getInfo(){ return {bridge:true}; },
+    };
+    ws.onmessage = ev=>{ if(closed) return; try{ ctrl.enqueue(new Uint8Array(ev.data)); }catch(e){} };
+    ws.onclose = ()=>{
+      if(closed) return; closed=true;
+      try{ ctrl.error(new Error('桥接助手连接断开')); }catch(e){}
+      port.readable = null;                    // 让 Serial._loop 的 while 条件退出
+      Bus.emit('serial-err', new Error('桥接助手连接断开'));
+      Bus.emit('serial-dead');                 // 走既有自愈: 整体重开(重连桥)+重放配置宏
+    };
+    ws.onerror = ()=>{};
+    return port;
+  }
+};
+
+/* ---------------- 串口 ---------------- */
+const Serial = {
+  port:null, reader:null, reading:false, onBytes:null,
+  overruns:0, _gen:0, _errStreak:0, _rebuilds:0,
+  async connect(baud){
+    this.port = await this._pickPort(true);
+      // v0.4.8: bufferSize默认仅255字节, 一帧34KB以线速爆发时JS稍有停顿就overrun,
+      // overrun又会打死reader(重建风暴的根因); 1MB≈28帧, 10/15抓包成功时即为大缓冲
+      await this.port.open({baudRate:baud, dataBits:8, stopBits:1, parity:'none', flowControl:'none', bufferSize:1<<20});
+    // v0.4.3: 显式置 DTR/RTS。板载MCU桥的命令解析/数据转发很可能受DTR门控——
+    // 桌面串口工具打开端口默认置位, Chrome Web Serial 在 Windows 上不一定置位;
+    // 这正符合「厂商工具绿灯亮 / 我们绿灯灭且无应答」的对比现象。
+    try{ await this.port.setSignals({dataTerminalReady:true, requestToSend:true}); }catch(e){}
+    await new Promise(r=>setTimeout(r,120));   // 给MCU一点稳定时间再开始握手
+    // 注意: 不要传 bufferSize! v0.3.1 曾设 4MB, Windows usbser.sys 驱动被破坏,
+    // 表现为「零字节+Buffer overrun 风暴锁死」(v0.4.1 回退为浏览器默认)
+    this.reading=true; this.overruns=0; this._errStreak=0; this._rebuilds=0; this.reader=null;
+    this._loop(++this._gen);
+  },
+  // v0.7.0: 按数据源挑端口——bridge=桥接助手伪装端口(免系统授权框); webserial=浏览器原生
+  async _pickPort(userGesture){
+    if(CFG.transport==='bridge') return await WsBridge.openPort(CFG.bridgeUrl);
+    if(!('serial' in navigator)) throw new Error('当前浏览器不支持 Web Serial,请用 Chrome/Edge');
+    if(userGesture) return await navigator.serial.requestPort();
+    const ports=await navigator.serial.getPorts();
+    const p=(ports&&ports[0])||null;
+    if(!p) throw new Error('串口授权丢失, 请手动重新连接');
+    return p;
+  },
+  // v0.4.5: 读通道彻底卡死后的整体重开(关口→重开→重置DTR→重启读循环)。
+  // getPorts() 拿回的是用户已授权过的端口, 不需要再点选择框。
+  async reopen(baud){
+    this.reading=false; this._gen++;
+    try{ if(this.reader) await this.reader.cancel(); }catch(e){}
+    try{ if(this.port) await this.port.close(); }catch(e){}
+    this.reader=null;
+    await new Promise(r=>setTimeout(r,400));
+    this.port = await this._pickPort(false);
+      // v0.4.8: bufferSize默认仅255字节, 一帧34KB以线速爆发时JS稍有停顿就overrun,
+      // overrun又会打死reader(重建风暴的根因); 1MB≈28帧, 10/15抓包成功时即为大缓冲
+      await this.port.open({baudRate:baud, dataBits:8, stopBits:1, parity:'none', flowControl:'none', bufferSize:1<<20});
+    try{ await this.port.setSignals({dataTerminalReady:true, requestToSend:true}); }catch(e){}
+    await new Promise(r=>setTimeout(r,120));
+    this.reading=true; this.overruns=0; this._errStreak=0; this._rebuilds=0; this.reader=null;
+    this._loop(++this._gen);
+  },
+  // 关键: Buffer overrun / framing / parity / break 都是非致命错误——
+  // read() 拒绝后同一 reader 通常可立刻继续读(溢出部分被丢弃,新数据照来)。
+  // 但 v0.4.4 实测: 雷达在残缺配置下全速狂奔把串口打爆后, Chrome 的 read()
+  // 会永久拒绝(零字节+无限overrun), 同一 reader 永远读不出数据。
+  // 对策: 连续8次出错且期间零字节(收到任何字节都会清零计数) → 判定 reader 已死,
+  // 重建 reader; 重建5次仍活不过来 → 发 serial-dead 让上层整体重开串口。
+  async _loop(gen){
+    while(this.port && this.port.readable && this.reading && gen===this._gen){
+      if(!this.reader){
+        try{ this.reader=this.port.readable.getReader(); }
+        catch(e){ Bus.emit('serial-err',e); await new Promise(r=>setTimeout(r,200)); continue; }
+      }
+      try{
+        for(;;){
+          const {value,done} = await this.reader.read();
+          if(done) break;
+          if(value && value.length){
+            this._errStreak=0;
+            // v0.5.5: 收到字节不再清零重建计数! 被毒reader每轮漏7936字节就把计数骗回0,
+            // 导致日志永远"第1次"、升级机制永远够不到。连续1MB无错才算真恢复。
+            this._clean=(this._clean||0)+value.length;
+            if(this._clean>(1<<20)){ this._rebuilds=0; this._clean=0; }
+            this.rxBytes=(this.rxBytes||0)+value.length;
+            CmdLink._sniff(value);   // v0.4.2: ACK嗅探(仅在等ACK时攒字节, 风暴期零开销)
+            if(this.onBytes){
+              // v0.4.9: 数据处理异常就地隔离——若外传会被当成读错误误杀reader(重建风暴嫌疑之一)
+              try{ this.onBytes(value); }catch(ex){
+                if((this._rxErrN||0)<3){ this._rxErrN=(this._rxErrN||0)+1; EvtLog.add('err','数据处理异常(已隔离, reader不受影响): '+((ex&&ex.message)||ex)); }
+              }
+            }
+          }
+        }
+        // done: 流被关闭(cancel/拔线), 重建 reader 或退出
+        try{ this.reader.releaseLock(); }catch(e){}
+        this.reader=null;
+        if(!this.reading) break;
+        await new Promise(r=>setTimeout(r,300));
+      }catch(e){
+        const msg=(e&&e.message)||String(e);
+        if(/overrun|framing|parity|break/i.test(msg)){
+          this.overruns++;
+          Bus.emit('serial-err', e);
+          this._errStreak++;
+          if(this._errStreak>=8){
+            // 连续出错且零字节: 当前 reader 已死, 重建; 反复死 → 上报整体重开
+            try{ this.reader.releaseLock(); }catch(_){}
+            this.reader=null;
+            this._errStreak=0;
+            this._rebuilds++;
+            this._clean=0;
+            if(this._rebuilds>=3){
+              // v0.5.7: 不再半路复位——盲发停流让板子住嘴, 然后直接走serial-dead整体重开+重放配置宏
+              // (唯一实测能救活的路径)。v0.5.6的盲RESUME失败根因: 板子在关开间隙可能自行复位,
+              // 此时0xFE=停止输出, 等于亲手掐灭了流; 完整宏永远0xFF在前0xFE在后, 与板子状态无关。
+              EvtLog.add('err','读通道反复卡死, 盲发停流后整体重开串口…');
+              try{
+                const STOP=[0xFD,0xFC,0xFB,0xFA,0x04,0x00,0xFF,0x00,0x01,0x00,0x04,0x03,0x02,0x01];
+                await this._blind(STOP); await new Promise(r=>setTimeout(r,120));
+                await this._blind(STOP); await new Promise(r=>setTimeout(r,80));
+              }catch(e){}
+              this.reading=false; Bus.emit('serial-dead'); return;
+            }
+            EvtLog.add('err','读通道卡死, 正在重建…(第'+this._rebuilds+'次, 已累计接收 '+(this.rxBytes||0)+' 字节)');
+            await new Promise(r=>setTimeout(r,200));
+          }else if(this._errStreak>3){
+            await new Promise(r=>setTimeout(r, Math.min(100,this._errStreak*10)));
+          }
+          continue;
+        }
+        Bus.emit('serial-err', e);
+        try{ this.reader.releaseLock(); }catch(_){}
+        this.reader=null;
+        if(!this.reading) break;
+        await new Promise(r=>setTimeout(r,300));
+      }
+    }
+  },
+  async write(bytes){
+    if(!this.port || !this.port.writable) throw new Error('串口未打开');
+    const w=this.port.writable.getWriter();
+    try{ await w.write(bytes); } finally{ w.releaseLock(); }
+  },
+  // v0.5.6 盲写: 不等ACK、吞掉所有错误; readable毒死时writable仍可用, 救场专用
+  async _blind(bytes){
+    try{
+      if(!this.port || !this.port.writable) return;
+      const w=this.port.writable.getWriter();
+      try{ await w.write(new Uint8Array(bytes)); } finally{ w.releaseLock(); }
+    }catch(e){}
+  },
+  // v0.5.6 短时排空: 读多少丢多少, 超时即止, 绝不让排空本身卡死
+  async _drain(ms){
+    let r=null;
+    try{
+      if(!this.port || !this.port.readable) return;
+      r=this.port.readable.getReader();
+      const t0=Date.now();
+      while(Date.now()-t0<ms){
+        const r1=await Promise.race([r.read(), new Promise(res=>setTimeout(()=>res(null),60))]);
+        if(!r1 || r1.done) break;
+      }
+    }catch(e){}
+    finally{
+      if(r){ try{ await Promise.race([r.cancel(), new Promise(res=>setTimeout(res,80))]); }catch(e){} try{ r.releaseLock(); }catch(e){} }
+    }
+  },
+
+  async close(){
+    this.reading=false; this._gen++;
+    try{ if(this.reader) await this.reader.cancel(); }catch(e){}
+    // v0.4.3: 关断前放下 DTR/RTS, 与桌面工具行为一致(MCU可据此回到默认输出态)
+    try{ if(this.port) await this.port.setSignals({dataTerminalReady:false, requestToSend:false}); }catch(e){}
+    try{ if(this.port) await this.port.close(); }catch(e){}
+    this.port=null; this.reader=null;
+  }
+};
+
+/* ---------------- 命令协议 (手册第5章) ----------------
+ * 帧: FD FC FB FA | len(2B LE) | payload(len) | 04 03 02 01
+ * payload(发送): cmdType(2B LE) + cmdData
+ * payload(响应): retCmdType(2B, 高字节bit0置1) + result(2B,0=成功) + data
+ */
+const CmdLink = {
+  MAGIC:[0xFD,0xFC,0xFB,0xFA], TAIL:[0x04,0x03,0x02,0x01],
+  build(cmdType, data=[]){
+    const len = 2 + data.length;
+    const out = new Uint8Array(4+2+len+4);
+    out.set(this.MAGIC,0);
+    out[4]=len&0xFF; out[5]=(len>>8)&0xFF;
+    out[6]=cmdType&0xFF; out[7]=(cmdType>>8)&0xFF;
+    out.set(data,8);
+    out.set(this.TAIL, 6+len);   // v0.4.2修复: 原误写8+len越界(帧尾应紧跟payload, payload起点为6)
+    return out;
+  },
+  // 常用命令
+  enterCmdMode(){ return this.build(0x00FF,[0x01,0x00]); },
+  protocolVer(){ return this.build(0x00FF,[0x02,0x00]); },
+  readVersion(){ return this.build(0x0000); },
+  startData(){ return this.build(0x00FE); },
+  mcuCfg(sub, val){ return this.build(0x0012,[sub,0x00,val&0xFF,(val>>8)&0xFF]); },
+  writeRegs(chipAddr, pairs, wide=false){
+    // pairs: [[reg,val],...]  16bit格式: 每对4字节; 32bit: 每对8字节
+    const per = wide?8:4;
+    const data = new Uint8Array(2 + pairs.length*per);
+    data[0]=chipAddr&0xFF; data[1]=(chipAddr>>8)&0xFF;
+    pairs.forEach((p,i)=>{
+      const o=2+i*per;
+      if(wide){
+        data[o]=p[0]&0xFF; data[o+1]=(p[0]>>8)&0xFF; data[o+2]=(p[0]>>16)&0xFF; data[o+3]=(p[0]>>>24)&0xFF;
+        data[o+4]=p[1]&0xFF; data[o+5]=(p[1]>>8)&0xFF; data[o+6]=(p[1]>>16)&0xFF; data[o+7]=(p[1]>>>24)&0xFF;
+      }else{
+        data[o]=p[0]&0xFF; data[o+1]=(p[0]>>8)&0xFF;
+        data[o+2]=p[1]&0xFF; data[o+3]=(p[1]>>8)&0xFF;
+      }
+    });
+    return this.build(0x0001, Array.from(data));
+  },
+  /* ---- v0.4.2: 响应嗅探 + ACK 握手 ----
+   * 固件对每个命令回一帧: 返回命令码=命令码|0x0100, 结果字0=成功。
+   * 嗅探器只在有等待者时攒字节, 溢出风暴期间零开销。 */
+  _respBuf:[], _waiters:[], _sniffBytes:0, _lastTimeoutBytes:0,
+  _sniff(chunk){
+    if(!this._waiters.length){ this._respBuf.length=0; return; }
+    this._sniffBytes+=chunk.length;   // v0.4.7: 统计等待ACK期间收到的字节数(超时诊断)
+    for(let i=0;i<chunk.length;i++) this._respBuf.push(chunk[i]);
+    if(this._respBuf.length>4096) this._respBuf.splice(0,this._respBuf.length-2048);
+    for(;;){
+      let m=-1;
+      for(let i=0;i+4<=this._respBuf.length;i++){
+        if(this._respBuf[i]===0xFD&&this._respBuf[i+1]===0xFC&&this._respBuf[i+2]===0xFB&&this._respBuf[i+3]===0xFA){ m=i; break; }
+      }
+      if(m<0){
+        // v0.4.7修复: 找不到完整帧头时不能全清——末尾1~3字节可能是被数据块边界切开的
+        // 半个帧头, 全清会把跨块到达的ACK整个吞掉(宏帧随机"无应答"的重大嫌疑)
+        let keep=0; const n=this._respBuf.length;
+        for(let k=Math.min(3,n);k>=1;k--){
+          let ok=true;
+          for(let j=0;j<k;j++) if(this._respBuf[n-k+j]!==this.MAGIC[j]){ ok=false; break; }
+          if(ok){ keep=k; break; }
+        }
+        this._respBuf.splice(0,n-keep);
+        break;
+      }
+      if(m>0) this._respBuf.splice(0,m);
+      if(this._respBuf.length<10) break;
+      const len=this._respBuf[4]|(this._respBuf[5]<<8);
+      if(len>1024){ this._respBuf.splice(0,4); continue; }  // v0.4.3: 响应不可能这么长=伪帧头, 跳过魔数继续找
+      const total=10+len;
+      if(this._respBuf.length<total) break;
+      const t=6+len;
+      if(this._respBuf[t]===0x04&&this._respBuf[t+1]===0x03&&this._respBuf[t+2]===0x02&&this._respBuf[t+3]===0x01){
+        this._dispatch(this._respBuf[6]|(this._respBuf[7]<<8), len>=4?(this._respBuf[8]|(this._respBuf[9]<<8)):0);
+        this._respBuf.splice(0,total);
+      }else{
+        this._respBuf.splice(0,4);  // v0.4.3: 帧尾不符=垃圾里的伪帧头, 只跳4字节防止吞掉后面的真ACK
+      }
+    }
+  },
+  _dispatch(retCmd,result){
+    const i=this._waiters.findIndex(w=>w.retCmd===retCmd);
+    if(i<0) return;
+    const w=this._waiters.splice(i,1)[0];
+    clearTimeout(w.timer); w.resolve({retCmd,result});
+  },
+  // 发命令并等ACK; 超时/写失败返回 null
+  request(cmdType,data=[],timeoutMs=700){
+    return this.sendRaw(this.build(cmdType,data),timeoutMs);
+  },
+  // v0.4.4: 直接发原始帧并按其内嵌命令码等ACK(宏逐帧确认用, 与厂商工具行为一致)
+  sendRaw(bytes,timeoutMs=400){
+    const retCmd=(bytes[6]|(bytes[7]<<8))|0x0100;
+    this._sniffBytes=0;
+    return new Promise(res=>{
+      const w={retCmd,resolve:res,timer:setTimeout(()=>{ this._waiters=this._waiters.filter(x=>x!==w); this._lastTimeoutBytes=this._sniffBytes; res(null); },timeoutMs)};
+      this._waiters.push(w);
+      Serial.write(bytes).catch(()=>{ clearTimeout(w.timer); this._waiters=this._waiters.filter(x=>x!==w); res(null); });
+    });
+  },
+  // 协议规定: 上电默认输出波形, 进命令模式要「发一发 -> 清缓存delay~100ms -> 再发并等ACK」
+  async enterCmdMode(tries=3){
+    for(let t=0;t<tries;t++){
+      await Serial.write(this.build(0x00FF,[0x02,0x00]));
+      await new Promise(r=>setTimeout(r,150));
+      const resp=await this.request(0x00FF,[0x02,0x00],700);
+      if(resp) return true;   // v0.4.3: 收到0x01FF应答即算握手成功(result非零也先继续发宏)
+    }
+    return false;
+  }
+};
+
+/* ---------------- DEV113P(ICL1240) 启动宏 ----------------
+ * 从厂商上位机日志 LogFile_2026_10_15_20_47_32.txt 逐帧提取(31帧),
+ * 顺序/内容与原工具一致: 进命令模式 -> 系统参数 -> 级联 -> 写寄存器段
+ * (0=ModCal 68个, 0x10=Timing 60个, 1=Stop 6个, 2=Config 155个) ->
+ * 预启动1DFFT -> 段3=Start 9个 -> 退命令模式开始输出。
+ * 0x16/0x20 命令在此固件会回错误码 0x0FA7/0x0FA8, 属预期可忽略。
+ */
+const DEFAULT_CFG_SCRIPT = [
+  '# 进入命令模式',
+  'FD FC FB FA 04 00 FF 00 02 00 04 03 02 01',
+  '# 系统参数: 芯片数量=1',
+  'FD FC FB FA 08 00 12 00 05 00 01 00 00 00 04 03 02 01',
+  '# 系统参数: 芯片地址表 0x24/0x26/0x25/0x27',
+  'FD FC FB FA 08 00 12 00 06 00 24 26 25 27 04 03 02 01',
+  '# 命令 16 00 (接口类型, 本固件回0x0FA7属预期)',
+  'FD FC FB FA 08 00 16 00 01 00 06 00 02 00 04 03 02 01',
+  '# 系统参数: UART波特率=1500000',
+  'FD FC FB FA 08 00 12 00 08 00 60 E3 16 00 04 03 02 01',
+  '# 设置级联: 1芯片/4RX/2TX',
+  'FD FC FB FA 08 00 14 00 01 00 04 00 02 00 04 03 02 01',
+  '# 系统参数: 降采样率=1',
+  'FD FC FB FA 08 00 12 00 01 00 01 00 00 00 04 03 02 01',
+  '# 系统参数: 寄存器格式 A32_D32',
+  'FD FC FB FA 08 00 12 00 07 00 02 00 00 00 04 03 02 01',
+  '# 系统参数: 关闭MCU数据封装(裸芯片流)',
+  'FD FC FB FA 08 00 12 00 03 00 00 00 00 00 04 03 02 01',
+  '# 系统参数: 参数0B=0',
+  'FD FC FB FA 08 00 12 00 0B 00 00 00 00 00 04 03 02 01',
+  '# 系统参数: SPI通道数=2',
+  'FD FC FB FA 08 00 12 00 0D 00 02 00 00 00 04 03 02 01',
+  '# 系统参数: 参数0E=4',
+  'FD FC FB FA 08 00 12 00 0E 00 04 00 00 00 04 03 02 01',
+  '# 命令 20 00 (RX通道掩码, 本固件回0x0FA8属预期)',
+  'FD FC FB FA 08 00 20 00 00 00 0F 00 00 00 04 03 02 01',
+  '# 命令 00 00 (读版本)',
+  'FD FC FB FA 02 00 00 00 04 03 02 01',
+  '# 命令 11 00 / 05 00 (本固件可能回错误码, 属预期)',
+  'FD FC FB FA 02 00 11 00 04 03 02 01',
+  'FD FC FB FA 02 00 05 00 04 03 02 01',
+  '# ---- 寄存器段0 ModCal (声明68个, 分2帧写) ----',
+  'FD FC FB FA 08 00 12 00 00 01 00 00 44 00 04 03 02 01',
+  'FD FC FB FA F4 01 01 00 24 00 00 08 00 60 A6 0B 00 00 04 08 00 60 5C 13 05 E0 0C C0 00 60 1E 00 00 00 10 C0 00 60 00 00 00 00 1C C0 00 60 40 0B 00 00 38 C0 00 60 78 00 00 00 3C C0 00 60 42 08 00 00 00 C0 00 60 01 00 00 00 04 11 00 60 D1 D0 00 00 00 E0 00 60 40 03 04 00 04 E0 00 60 50 60 06 00 08 E0 00 60 24 80 56 00 58 E0 00 60 35 88 00 00 0C E0 00 60 00 00 00 00 50 E0 00 60 30 31 73 00 10 E0 00 60 70 83 36 00 14 E0 00 60 68 13 00 00 18 E0 00 60 70 83 36 00 1C E0 00 60 68 13 00 00 50 D0 00 60 00 FF 00 00 54 D0 00 60 92 57 00 00 5C D0 00 60 46 00 00 00 20 E0 00 60 80 88 03 00 24 E0 00 60 07 63 0E 00 28 E0 00 60 62 03 00 00 50 D2 00 60 00 FF 00 00 54 D2 00 60 92 57 00 00 5C D2 00 60 46 00 00 00 2C E0 00 60 80 88 03 00 30 E0 00 60 07 63 0E 00 34 E0 00 60 62 03 00 00 50 D4 00 60 00 FF 00 00 54 D4 00 60 92 57 00 00 5C D4 00 60 46 00 00 00 38 E0 00 60 80 88 03 00 3C E0 00 60 07 63 0E 00 40 E0 00 60 62 03 00 00 50 D6 00 60 00 FF 00 00 54 D6 00 60 92 57 00 00 5C D6 00 60 46 00 00 00 44 E0 00 60 80 88 03 00 48 E0 00 60 07 63 0E 00 4C E0 00 60 62 03 00 00 54 E0 00 60 33 00 00 00 D8 D0 00 60 08 20 00 00 DC D0 00 60 00 00 00 00 48 D0 00 60 19 20 00 00 4C D0 00 60 36 12 00 00 38 D0 00 60 00 00 00 00 44 D0 00 60 21 00 78 00 D8 D2 00 60 08 20 00 00 DC D2 00 60 00 00 00 00 48 D2 00 60 19 20 00 00 4C D2 00 60 36 12 00 00 38 D2 00 60 00 00 00 00 44 D2 00 60 21 00 78 00 D8 D4 00 60 08 20 00 00 DC D4 00 60 00 00 00 00 48 D4 00 60 19 20 00 00 4C D4 00 60 36 12 00 00 38 D4 00 60 00 00 00 00 44 D4 00 60 21 00 78 00 04 03 02 01',
+  'FD FC FB FA 34 00 01 00 24 00 D8 D6 00 60 08 20 00 00 DC D6 00 60 00 00 00 00 48 D6 00 60 19 20 00 00 4C D6 00 60 36 12 00 00 38 D6 00 60 00 00 00 00 44 D6 00 60 21 00 78 00 04 03 02 01',
+  '# ---- 寄存器段0x10 Timing (声明60个, 1帧写) ----',
+  'FD FC FB FA 08 00 12 00 00 01 10 00 3C 00 04 03 02 01',
+  'FD FC FB FA E4 01 01 00 24 00 04 F0 00 60 99 19 00 00 08 F0 00 60 52 05 66 22 0C F0 00 60 00 00 FF FF 10 F0 00 60 99 19 66 E6 14 F0 00 60 52 B5 FF 00 18 F0 00 60 1E 98 29 00 1C F0 00 60 3F 01 00 00 20 F0 00 60 4F 24 85 7E 24 F0 00 60 0F 64 00 19 28 F0 00 60 55 E5 06 00 2C F0 00 60 43 D2 07 00 30 F0 00 60 25 44 C2 11 34 F0 00 60 28 28 02 00 38 F0 00 60 00 10 66 02 44 F0 00 60 10 00 02 00 48 F0 00 60 01 00 00 00 54 F0 00 60 00 00 D4 01 60 F0 00 60 00 00 E0 01 64 F0 00 60 C8 00 00 00 68 F0 00 60 14 09 01 07 00 F0 00 60 01 00 00 00 00 F1 00 60 00 00 00 00 04 F1 00 60 00 00 00 00 10 F1 00 60 40 42 0F 00 14 F1 00 60 00 00 00 00 18 F1 00 60 00 00 D4 01 1C F1 00 60 01 00 00 80 20 F1 00 60 00 00 00 00 04 F1 00 60 00 00 01 01 04 F1 00 60 00 00 00 00 10 F1 00 60 96 00 00 00 14 F1 00 60 00 40 00 00 18 F1 00 60 00 00 D4 01 1C F1 00 60 60 EA 00 C0 20 F1 00 60 00 00 00 00 04 F1 00 60 01 00 01 01 04 F1 00 60 00 00 00 00 10 F1 00 60 20 4E 00 00 14 F1 00 60 85 FF FF 0F 18 F1 00 60 00 80 F9 01 1C F1 00 60 01 00 00 80 20 F1 00 60 00 00 00 00 04 F1 00 60 02 00 01 01 04 F1 00 60 00 00 00 00 10 F1 00 60 10 27 00 00 14 F1 00 60 00 00 00 00 18 F1 00 60 00 00 D4 01 1C F1 00 60 01 00 00 80 20 F1 00 60 00 00 00 00 04 F1 00 60 03 00 01 01 04 F1 00 60 00 00 00 00 10 F1 00 60 01 80 00 0C 04 F1 00 60 00 00 01 10 04 F1 00 60 00 00 00 00 10 F1 00 60 01 80 30 04 04 F1 00 60 01 00 01 10 04 F1 00 60 00 00 00 00 60 F1 00 60 AE E9 02 00 00 F1 00 60 01 01 00 00 FD FF FF FF DC AE 01 00 04 03 02 01',
+  '# ---- 寄存器段1 Stop (声明6个) ----',
+  'FD FC FB FA 08 00 12 00 00 01 01 00 06 00 04 03 02 01',
+  'FD FC FB FA 34 00 01 00 24 00 10 04 00 60 00 00 00 00 00 50 00 60 00 00 00 00 00 10 00 60 00 00 00 0C 00 70 00 60 42 06 00 07 00 F1 00 60 00 00 00 00 04 F1 00 60 00 00 00 00 04 03 02 01',
+  '# ---- 寄存器段2 Config (声明155个, 分3帧写 62+62+31) ----',
+  'FD FC FB FA 08 00 12 00 00 01 02 00 9B 00 04 03 02 01',
+  'FD FC FB FA F4 01 01 00 24 00 04 F0 00 60 99 19 01 00 08 F0 00 60 62 00 33 00 0C F0 00 60 00 00 FF FF 10 F0 00 60 99 19 66 E6 14 F0 00 60 52 B5 FF 00 18 F0 00 60 1E 98 29 00 1C F0 00 60 3F 01 00 00 20 F0 00 60 4F 24 85 7E 24 F0 00 60 0F 66 10 19 28 F0 00 60 55 E1 06 00 2C F0 00 60 43 D2 07 00 30 F0 00 60 25 24 C2 11 34 F0 00 60 28 28 02 00 38 F0 00 60 00 10 66 02 44 F0 00 60 11 80 02 00 48 F0 00 60 01 00 00 00 54 F0 00 60 00 00 D4 01 60 F0 00 60 00 00 DE 01 64 F0 00 60 C8 00 00 00 68 F0 00 60 14 1F 01 07 00 F0 00 60 01 00 00 00 00 90 00 60 00 00 11 00 14 90 00 60 00 00 21 00 08 90 00 60 00 00 00 00 50 50 00 60 00 00 00 00 54 50 00 60 FF 00 F4 01 60 50 00 60 E8 03 00 00 80 50 00 60 03 02 03 30 94 50 00 60 12 00 C0 FF B0 50 00 60 04 00 00 00 E4 50 00 60 1F 00 00 00 E8 50 00 60 3F 00 00 C0 C4 50 00 60 01 00 1F 1F F4 50 00 60 1F 00 00 00 F8 50 00 60 1F 00 00 80 00 10 00 60 0F 03 04 0B 08 13 00 60 F0 0B FB 01 08 11 00 60 00 50 21 00 08 20 00 60 04 00 00 F1 18 20 00 60 31 00 02 00 18 20 00 60 13 00 02 00 18 20 00 60 13 00 03 01 18 13 00 60 00 00 00 00 40 20 00 60 05 00 00 00 00 70 00 60 4A 06 00 07 00 06 00 60 00 00 00 00 08 06 00 60 00 00 00 00 40 08 00 60 00 00 FF FF 40 51 00 60 00 00 00 00 00 12 00 60 11 00 00 10 04 12 00 60 01 00 00 00 08 12 00 60 02 00 00 00 0C 12 00 60 00 00 00 00 10 12 00 60 00 00 00 00 20 12 00 60 40 05 00 00 24 12 00 60 2E 2E 00 00 28 12 00 60 2E 2E 00 00 2C 12 00 60 00 00 00 00 10 F1 00 60 48 26 00 00 14 F1 00 60 00 00 00 00 18 F1 00 60 1F 05 E0 01 1C F1 00 60 01 00 00 80 04 03 02 01',
+  'FD FC FB FA F4 01 01 00 24 00 20 F1 00 60 00 00 00 00 04 F1 00 60 00 00 01 01 04 F1 00 60 00 00 00 00 10 F1 00 60 C8 00 00 00 14 F1 00 60 00 00 00 00 18 F1 00 60 1F 05 E0 01 1C F1 00 60 01 00 00 80 20 F1 00 60 00 00 00 00 04 F1 00 60 01 00 01 01 04 F1 00 60 00 00 00 00 10 F1 00 60 B0 04 00 00 14 F1 00 60 43 04 00 30 18 F1 00 60 1F 05 E0 01 1C F1 00 60 01 00 00 80 20 F1 00 60 00 00 00 00 04 F1 00 60 02 00 01 01 04 F1 00 60 00 00 00 00 10 F1 00 60 20 03 00 00 14 F1 00 60 9B F9 FF 1F 18 F1 00 60 2F FF F3 01 1C F1 00 60 01 00 00 80 20 F1 00 60 00 00 00 00 04 F1 00 60 03 00 01 01 04 F1 00 60 00 00 00 00 10 F1 00 60 10 27 00 00 14 F1 00 60 00 00 00 00 18 F1 00 60 1F 05 E0 01 1C F1 00 60 01 00 00 80 20 F1 00 60 00 00 00 00 04 F1 00 60 04 00 01 01 04 F1 00 60 00 00 00 00 10 F1 00 60 A0 86 01 00 14 F1 00 60 00 00 00 80 18 F1 00 60 1F 05 E0 01 1C F1 00 60 01 00 52 03 20 F1 00 60 30 31 00 00 04 F1 00 60 05 00 01 01 04 F1 00 60 00 00 00 00 10 F1 00 60 D8 0E 00 00 14 F1 00 60 00 00 00 70 18 F1 00 60 1F 05 E0 01 1C F1 00 60 01 00 52 03 20 F1 00 60 30 31 00 00 04 F1 00 60 06 00 01 01 04 F1 00 60 00 00 00 00 10 F1 00 60 C8 00 00 00 14 F1 00 60 00 00 00 30 18 F1 00 60 1F 05 E0 01 1C F1 00 60 01 00 42 03 20 F1 00 60 30 31 00 00 04 F1 00 60 07 00 01 01 04 F1 00 60 00 00 00 00 10 F1 00 60 B0 04 00 00 14 F1 00 60 43 04 00 30 18 F1 00 60 1F 05 E0 01 1C F1 00 60 01 00 00 00 20 F1 00 60 30 31 00 00 04 F1 00 60 08 00 01 01 04 F1 00 60 00 00 00 00 10 F1 00 60 20 03 00 00 14 F1 00 60 9B F9 FF 1F 18 F1 00 60 2F FF F3 01 04 03 02 01',
+  'FD FC FB FA FC 00 01 00 24 00 1C F1 00 60 01 00 52 03 20 F1 00 60 30 31 00 00 04 F1 00 60 09 00 01 01 04 F1 00 60 00 00 00 00 10 F1 00 60 00 35 0C 00 14 F1 00 60 00 00 00 00 18 F1 00 60 1F 05 E0 01 1C F1 00 60 01 00 52 03 20 F1 00 60 30 31 00 00 04 F1 00 60 0A 00 01 01 04 F1 00 60 00 00 00 00 10 F1 00 60 80 1A 06 00 14 F1 00 60 00 00 00 00 18 F1 00 60 1F 05 E0 01 1C F1 00 60 01 00 52 03 20 F1 00 60 30 31 00 00 04 F1 00 60 0B 00 01 01 04 F1 00 60 00 00 00 00 10 F1 00 60 01 80 00 14 04 F1 00 60 00 00 01 10 04 F1 00 60 00 00 00 00 10 F1 00 60 01 00 51 04 04 F1 00 60 01 00 01 10 04 F1 00 60 00 00 00 00 10 F1 00 60 40 80 61 14 04 F1 00 60 02 00 01 10 04 F1 00 60 00 00 00 00 10 F1 00 60 01 80 B0 04 04 F1 00 60 03 00 01 10 04 F1 00 60 00 00 00 00 60 F1 00 60 AE E9 02 00 04 03 02 01',
+  '# ---- 数据预启动: 0=1DFFT ----',
+  'FD FC FB FA 08 00 12 00 04 00 00 00 00 00 04 03 02 01',
+  '# ---- 寄存器段3 Start (声明9个) ----',
+  'FD FC FB FA 08 00 12 00 00 01 03 00 09 00 04 03 02 01',
+  'FD FC FB FA 4C 00 01 00 24 00 00 08 00 60 A6 03 00 00 80 10 00 60 00 00 00 00 84 10 00 60 66 66 66 66 60 13 00 60 10 00 00 00 88 10 00 60 00 00 00 00 0C 90 00 60 00 00 00 00 00 50 00 60 00 01 01 00 00 F0 00 60 33 00 00 00 00 F1 00 60 01 01 00 00 04 03 02 01',
+  '# 退出命令模式 = 开始输出数据',
+  'FD FC FB FA 02 00 FE 00 04 03 02 01'
+].join('\n');
+
+/* ---------------- DEV202H(ICL1122) 启动宏 ----------------
+ * 从厂商工具日志 LogFile_2026_10_19_12_30_39.txt 逐帧提取(12:31:31 会话,
+ * ReadModuleName 应答确为 "DEV202H"), 只保留实际 ACK 的关键帧——
+ * SetInterfaceType/CascadingMode/SPI/LVDS/RxChannelBit/ReadSerialNumber 等
+ * 通用流程命令在此 MCU 固件回 NACK(0x0001), 厂商工具本身也直接忽略, 故省略。
+ * 序列: 进命令模式 -> 芯片数量/地址(0x20/0x22/0x21/0x23) -> 降采样=1 ->
+ * 关MCU封装 -> Stop段(9寄存器) -> Config段(67寄存器,分6帧) -> 预启动 ->
+ * Start段(5寄存器,含启动位) -> 开MCU封装 -> MCU功能 -> 退命令模式开始输出。
+ * 关键: 全程 921600, 不含任何波特率切换命令。
+ */
+const DEV202H_CFG_SCRIPT = [
+  '# 进入命令模式',
+  'FD FC FB FA 04 00 FF 00 02 00 04 03 02 01',
+  '# 系统参数: 芯片数量=1',
+  'FD FC FB FA 08 00 12 00 05 00 01 00 00 00 04 03 02 01',
+  '# 系统参数: 芯片地址表 0x20/0x22/0x21/0x23',
+  'FD FC FB FA 08 00 12 00 06 00 20 22 21 23 04 03 02 01',
+  '# 系统参数: 降采样率=1',
+  'FD FC FB FA 08 00 12 00 01 00 01 00 00 00 04 03 02 01',
+  '# 系统参数: 关闭MCU数据封装',
+  'FD FC FB FA 08 00 12 00 03 00 00 00 00 00 04 03 02 01',
+  '# 读版本 / 读模块名(日志确认用, 应回 DEV202H)',
+  'FD FC FB FA 02 00 00 00 04 03 02 01',
+  'FD FC FB FA 02 00 05 00 04 03 02 01',
+  '# ---- Stop 寄存器段 (9个) ----',
+  'FD FC FB FA 28 00 01 00 20 00 40 00 07 42 41 00 00 00 09 00 01 E9 01 00 00 00 67 00 00 00 76 00 25 00 72 00 50 06 3A 00 10 84 77 00 00 32 04 03 02 01',
+  '# ---- Config 寄存器段 (67个, 分6帧写) ----',
+  'FD FC FB FA 34 00 01 00 20 00 42 00 00 00 43 00 50 C3 44 00 40 7C 45 00 00 00 46 00 F4 01 47 00 00 10 48 00 B4 14 49 00 00 20 4A 00 DC 05 4B 00 00 00 4C 00 CC A6 4D 00 00 00 04 03 02 01',
+  'FD FC FB FA 34 00 01 00 20 00 4E 00 01 00 4F 00 00 00 50 00 88 13 51 00 00 00 52 00 ED 7E 53 00 0C 50 54 00 CD CC 55 00 00 00 56 00 11 09 57 00 FF FF 58 00 F1 DF 59 00 00 00 04 03 02 01',
+  'FD FC FB FA 34 00 01 00 20 00 5A 00 00 00 5B 00 22 00 5C 00 22 00 5D 00 01 06 5E 00 02 FF 5F 00 16 2D 61 00 D6 02 62 00 56 02 63 00 D6 02 64 00 56 02 65 00 11 11 66 00 00 00 04 03 02 01',
+  'FD FC FB FA 34 00 01 00 20 00 67 00 00 00 6C 00 60 C6 6D 00 C0 EE 6E 00 FC 03 70 00 A0 3E 76 00 01 00 77 00 0F 06 69 00 00 00 06 00 01 01 31 00 00 00 07 00 B2 01 08 00 1C 00 04 03 02 01',
+  'FD FC FB FA 34 00 01 00 20 00 02 00 1E 00 04 00 0C 02 09 00 01 69 35 00 00 00 0B 00 1E 0C 05 00 08 00 0E 00 00 00 0D 00 40 40 33 00 00 3F 34 00 00 07 32 00 00 00 2F 00 00 44 04 03 02 01',
+  'FD FC FB FA 20 00 01 00 20 00 3B 00 01 08 3E 00 09 10 3F 00 F0 04 3A 00 00 C4 36 00 A3 00 37 00 06 04 3C 00 08 00 04 03 02 01',
+  '# ---- 数据预启动 ----',
+  'FD FC FB FA 08 00 12 00 04 00 00 00 00 00 04 03 02 01',
+  '# ---- Start 寄存器段 (5个, reg0x40 启动位置位) = 雷达启动 ----',
+  'FD FC FB FA 18 00 01 00 20 00 72 00 D0 02 41 00 04 40 00 00 00 20 01 00 E4 8D 40 00 07 02 04 03 02 01',
+  '# 打开MCU数据封装',
+  'FD FC FB FA 08 00 12 00 03 00 01 00 00 00 04 03 02 01',
+  '# MCU功能=5000',
+  'FD FC FB FA 08 00 17 00 00 00 88 13 00 00 04 03 02 01',
+  '# 退出命令模式 = 开始输出数据',
+  'FD FC FB FA 02 00 FE 00 04 03 02 01'
+].join('\n');
+
+/* 目标板 -> 内置脚本 / 联动参数 (v0.7.1: 双板支持; DEV113P 仍为默认) */
+const CFG_SCRIPTS = { icl1240: DEFAULT_CFG_SCRIPT, icl1112: DEV202H_CFG_SCRIPT };
+const BOARD_PRESETS = {
+  icl1240: { chip:'icl1240', baud:1500000, rangeRes:0.176, rangeBins:32, rxCount:4, label:'DEV113P (ICL1240)' },
+  icl1112: { chip:'icl1122', baud:921600,  rangeRes:0.704, rangeBins:8,  rxCount:2, label:'DEV202H (ICL1122)' }   // 0.704m×8门=5.6m(厂商ini); 真实流实证格式=icl1122
+};
+
+/* ============================================================
+ * 第二部分: 数据流解复用 -> 芯片帧解析 -> 点云 -> 跟踪 -> 动作
+ * ============================================================ */
+
+/* ---------------- 芯片帧头/帧尾格式 ---------------- */
+const ChipProfiles = {
+  // ICL111A / ICL1112 / ICL1122 (手册表4.4/4.7, 头最高字节=0xAA)
+  icl1112: {
+    name:'ICL111A/1112/1122',
+    types:{0:'DFFT_CFAR',1:'DFFT_PEAK',2:'DSRAW',3:'FFT',4:'DFFT'},
+    parseHead(h){
+      return {
+        rx:(h>>>23)&1, type:(h>>>20)&7,
+        idx:((h>>>12)&0xFF)|(((h>>>11)&1)<<8),  // chirp/dpl 帧计数
+        len:(h&0x7FF)+1                          // 采样量
+      };
+    },
+    parseTail(t){ return {cksum:(t>>>16)&0xFFFF, frame:(t>>>12)&0xF, ok:(t&0xFF)===0x55}; },
+    checksum(buf){ let s=0; for(let i=0;i+1<buf.length;i+=2) s=(s+(buf[i]|(buf[i+1]<<8)))&0xFFFF; return s; }
+  },
+  /* ICL1240 (DEV113P) —— 格式已从 1.87MB 真实抓包实证:
+   *   包 = AA | b1 | b2 | b3 | 负载(b3+1)*4字节 | 尾4字节
+   *     b1 = 0x80 | (chirp>>4)   (高6位恒为 100000)
+   *     b2 = (chirp&0xF)<<4      (低4位恒为0)
+   *     b3 = 复数点数-1 (1DFFT 时=0x1F, 即32点)
+   *   chirp = ((b1&0x03)<<4) | (b2>>>4), 每雷达帧 0..63 循环
+   *   负载 = (b3+1) 个 int16 LE 复数点 (默认 I 在前 Q 在后, CFG.swapIQ 可换)
+   *   尾4字节: 第3字节=chirp*4, 末字节=0x55; 校验和算法未逆向, 不校验
+   *   RX 不显式编码: 同一 chirp 连续 4 个包头完全相同, 依次是 RX0..RX3
+   *   帧结构: chirp 主序, 64 chirp × 4 RX = 256 包 = 1 雷达帧
+   */
+  icl1240: {
+    name:'ICL1240 (DEV113P)',
+    types:{0:'FFT1D'},
+    implicitRx:true,                 // RX 由组内序号推导
+    headAt(b,p){                     // 直接按字节匹配(非 u32le)
+      return b[p]===0xAA && (b[p+1]&0xFC)===0x80 && (b[p+2]&0x0F)===0 && b[p+3]>=0x03;
+    },
+    parseBytes(b,p){
+      const n = b[p+3]+1;
+      const chirp = ((b[p+1]&0x03)<<4) | (b[p+2]>>>4);
+      return {type:0, idx:chirp, len:n, plen:n*4};
+    }
+  }
+};
+ChipProfiles.s5km312l = ChipProfiles.icl1112; // S5KM312L 头格式略有差异, 暂用默认, 实测校正
+// ICL1122 (DEV202H) —— 2026-10-19 真实流实证(radar_raw_1792394334451.bin, 9752包全校验):
+//   头 = AA b1 b2 b3; 负载 = (b3-1)×4 字节(实测8距离门×int16LE I/Q复数=32B); 尾 = 未知16位 + 字节2高4位帧计数 + 末字节0x55
+//   b1: bit7=rx(显式), bit0-1=chirp高2位; b2高4位=chirp低4位 → chirp=((b1&3)<<4)|(b2>>>4) 绝对编号0..63
+//   每帧 64chirp×2RX=128包(76/76组实测全覆盖); MCU封装(ICLH,52B记录)与裸流同构; 1dfft语义直通 _fft1d 管线
+ChipProfiles.icl1122 = {
+  types: { 0: 'FFT1D' },
+  headAt(b, p){
+    if(b[p] !== 0xAA) return false;
+    const pl = (b[p+3]-1)*4;
+    return pl >= 4 && pl <= 512 && p+4+pl+4 <= b.length && b[p+4+pl+3] === 0x55;
+  },
+  parseBytes(b, p){
+    const b1 = b[p+1], b2 = b[p+2], b3 = b[p+3];
+    const pl = (b3-1)*4;
+    return { type:0, rx:b1>>>7, idx:((b1&3)<<4)|(b2>>>4), len:b3-1, plen:pl, frame:b[p+4+pl+2]>>>4 };
+  }
+};
+
+/* ---------------- 流解复用: 命令响应 / MCU封装 / 裸芯片帧 ---------------- */
+class StreamDemux {
+  constructor(){
+    this.buf = new Uint8Array(0);
+    this.profile = ChipProfiles[CFG.chip];
+    this.stats = {cmd:0, chip:0, mcu:0, bad:0, bytes:0};
+    this._rxGrp = {chirp:-1, n:0};   // ICL1240 隐式RX组状态
+  }
+  push(bytes){
+    this.stats.bytes += bytes.length;
+    const nb = new Uint8Array(this.buf.length + bytes.length);
+    nb.set(this.buf,0); nb.set(bytes,this.buf.length);
+    this.buf = nb;
+    this._scan();
+    if(this.buf.length > 1<<20) this.buf = this.buf.slice(this.buf.length-4096); // 防爆
+  }
+  _scan(){
+    let p = 0;
+    const b = this.buf;
+    while(p + 4 <= b.length){
+      // 1) 命令响应 FD FC FB FA
+      if(b[p]===0xFD && b[p+1]===0xFC && b[p+2]===0xFB && b[p+3]===0xFA){
+        if(p+6 > b.length) break;
+        const len = U.u16le(b,p+4), total = 4+2+len+4;
+        if(p+total > b.length) break;
+        const payload = b.slice(p+6, p+6+len);
+        this.stats.cmd++;
+        Bus.emit('cmd-resp', {
+          type: U.u16le(payload,0),
+          result: len>=4 ? U.u16le(payload,2) : 0,
+          data: payload.slice(4),
+          raw: b.slice(p,p+total)
+        });
+        p += total; continue;
+      }
+      // 2) MCU 封装 ICLH ... ICLT
+      if(b[p]===0x49 && b[p+1]===0x43 && b[p+2]===0x4C && b[p+3]===0x48){
+        if(p+6 > b.length) break;
+        const len = U.u16le(b,p+4);
+        let matched = 0; // 0=不是封装  -1=等数据  >0=消费的字节数
+        for(const extra of [0,1,2]){  // type/ext 字段是否计入长度, 手册未明示, 逐一尝试
+          const total = 4+2+len+extra+4;
+          if(p+total > b.length){ matched = -1; break; }
+          if(b[p+total-4]===0x49 && b[p+total-3]===0x43 && b[p+total-2]===0x4C && b[p+total-1]===0x54){
+            this.stats.mcu++;
+            this._mcuPacket(b.slice(p+6, p+6+len+extra));
+            matched = total; break;
+          }
+        }
+        if(matched === -1) break;
+        if(matched > 0){ p += matched; continue; }
+        p++; continue; // 无效封装头, 让出1字节
+      }
+      // 3) 裸芯片帧: icl1112=头最高字节0xAA(LE第4字节); icl1240=profile.headAt 字节匹配
+      const prof = this.profile;
+      if(prof.headAt ? prof.headAt(b,p) : b[p+3]===0xAA){
+        const consumed = this._tryChip(p);
+        if(consumed === -1) break;      // 数据未到齐, 等待
+        if(consumed > 0){ p += consumed; continue; }
+      }
+      p++; // 垃圾字节, 前进
+    }
+    this.buf = b.slice(p);
+  }
+  _tryChip(p){
+    const prof = this.profile;
+    if(prof.parseBytes) return this._tryChip1240(p);
+    const b = this.buf;
+    if(p+8 > b.length) return -1; // 需要更多数据
+    const head = U.u32le(b,p);
+    const info = prof.parseHead(head);
+    if(info.len<=0 || info.len>4096) return 0;
+    // 候选负载字节数: 复数点(4B/点) 优先, 其次定长结构, 再次 16bit 字(2B/点)
+    const fixed = (prof.types[info.type]==='DFFT_PEAK') ? 108 :
+                  (prof.types[info.type]==='DFFT_CFAR') ? 32 : 0;
+    const cands = [...new Set([info.len*4, fixed, info.len*2].filter(x=>x>0 && x<65536))];
+    for(const plen of cands){
+      const total = 4 + plen + 4;
+      if(p+total > b.length) return -1; // 数据未到齐
+      const tail = U.u32le(b, p+4+plen);
+      const t = prof.parseTail(tail);
+      if(!t.ok) continue;
+      const hd = b.slice(p, p+4+plen);
+      if(prof.checksum(hd) !== t.cksum) continue;
+      this.stats.chip++;
+      Bus.emit('chip-packet', {
+        type: prof.types[info.type] || ('UNK'+info.type),
+        typeId: info.type, rx: info.rx, idx: info.idx,
+        len: info.len, frame: t.frame, cfgMsg: t.cfg,
+        payload: b.slice(p+4, p+4+plen),
+        raw: b.slice(p, p+total)
+      });
+      return total;
+    }
+    this.stats.bad++;
+    return 0;
+  }
+  // ICL1240 实证格式: AA头在首字节, 定长负载, 尾末字节0x55, RX=组内序号(隐式)
+  _tryChip1240(p){
+    const b = this.buf, prof = this.profile;
+    if(p+8 > b.length) return -1;
+    const info = prof.parseBytes(b,p);
+    if(info.plen<=0 || info.plen>8192) return 0;
+    const total = 4 + info.plen + 4;
+    if(p+total > b.length) return -1;      // 数据未到齐
+    if(b[p+total-1] !== 0x55){ this.stats.bad++; return 0; }  // 尾校验失败, 让出1字节重新同步
+    // RX: icl1122 显式编在头里(直接用); icl1240 隐式(同一 chirp 连续 N 包 = RX0..N-1)
+    const g = this._rxGrp;
+    let rx;
+    if(info.rx !== undefined){ rx = info.rx; g.chirp = info.idx; g.n = 0; }
+    else if(info.idx === g.chirp){
+      g.n++;
+      if(g.n >= CFG.rxCount){ this.stats.bad++; g.n = 0; rx = 0; }  // 组溢出: 重新同步
+      else rx = g.n;
+    } else {
+      g.chirp = info.idx; g.n = 0; rx = 0;
+    }
+    this.stats.chip++;
+    Bus.emit('chip-packet', {
+      type:'FFT1D', typeId:0, rx, idx:info.idx,
+      len:info.len, frame:info.frame||0,
+      payload: b.slice(p+4, p+4+info.plen),
+      raw: b.slice(p, p+total)
+    });
+    return total;
+  }
+  _mcuPacket(inner){
+    // inner: type(1B) [ext(1B 通道)] data...
+    if(inner.length < 1) return;
+    const type = inner[0];
+    let off = 1, ch = -1;
+    if(type & 0x80){ ch = inner[1]; off = 2; }
+    const data = inner.slice(off);
+    if(type === 0x00 || (type & 0x80)){
+      // 内嵌芯片帧: 作为独立流解析(残留字节不跨包保留)
+      const save = this.buf;
+      this.buf = data;
+      this._scan();
+      this.buf = save;
+      Bus.emit('mcu-chip', {type, ch});
+    } else {
+      Bus.emit('mcu-msg', {type, data});
+    }
+  }
+}
+
+/* ---------------- 64点基2 FFT (多普勒维) ---------------- */
+const FFT64 = (()=>{
+  const N=64, rev=new Uint8Array(N), cosT=[], sinT=[], hann=[];
+  for(let i=0;i<N;i++){
+    let r=0; for(let b=0;b<6;b++) r|=((i>>b)&1)<<(5-b); rev[i]=r;
+    hann[i]=0.5*(1-Math.cos(2*Math.PI*i/(N-1)));
+  }
+  for(let k=0;k<N/2;k++){ cosT[k]=Math.cos(2*Math.PI*k/N); sinT[k]=-Math.sin(2*Math.PI*k/N); }
+  // 输入 iIn/qIn(长度64), 输出 iOut/qOut = DFT(加Hann窗)
+  return function(iIn,qIn,iOut,qOut){
+    for(let i=0;i<N;i++){ const r=rev[i]; iOut[r]=iIn[i]*hann[i]; qOut[r]=qIn[i]*hann[i]; }
+    for(let len=2;len<=N;len<<=1){
+      const half=len>>1, step=N/len;
+      for(let i=0;i<N;i+=len){
+        for(let j=0,k=0;j<half;j++,k+=step){
+          const a=i+j, b2=i+j+half;
+          const wr=cosT[k], wi=sinT[k];
+          const xi=iOut[b2]*wr - qOut[b2]*wi;
+          const xq=iOut[b2]*wi + qOut[b2]*wr;
+          iOut[b2]=iOut[a]-xi; qOut[b2]=qOut[a]-xq;
+          iOut[a]+=xi;    qOut[a]+=xq;
+        }
+      }
+    }
+  };
+})();
+
+/* ---------------- 帧组装: 数据包 -> 距离-多普勒图 / 峰值列表 ---------------- */
+class FrameAssembler {
+  constructor(){
+    this.dfft = {rows:{0:[],1:[]}, frame:{0:-1,1:-1}};
+    this.fft  = {rows:{0:{},1:{}}, frame:{0:-1,1:-1}};
+    this.chirpsPerFrame = 64;
+    this.f1d = {chirps:{}, lastChirp:-1};   // ICL1240: chirp主序 64chirp×4RX
+    this.stats = {frames:0};                  // v0.5.1: 渲染循环/心跳要读, 之前缺失导致整页渲染崩溃
+    this._ti=new Float64Array(64), this._tq=new Float64Array(64);
+    this._fi=new Float64Array(64), this._fq=new Float64Array(64);
+  }
+  feed(pkt){
+    switch(pkt.type){
+      case 'DFFT':      return this._dfft(pkt);
+      case 'FFT':       return this._fft(pkt);
+      case 'FFT1D':     return this._fft1d(pkt);
+      case 'DFFT_PEAK': return this._peak(pkt, 9);
+      case 'DFFT_CFAR': return this._peak(pkt, 4);
+      case 'DSRAW': case 'IIR_RAW':
+        Bus.emit('raw-packet', pkt); return;
+    }
+  }
+  _complex(payload){
+    const n = payload.length>>2;
+    const I = new Int16Array(n), Q = new Int16Array(n);
+    for(let k=0;k<n;k++){
+      const a=U.i16(U.u16le(payload,k*4)), b=U.i16(U.u16le(payload,k*4+2));
+      if(CFG.swapIQ){ I[k]=b; Q[k]=a; } else { I[k]=a; Q[k]=b; }
+    }
+    return {I,Q,n};
+  }
+  /* ICL1240 1DFFT 流: 每包 = 某 chirp × 某 RX 的 32 个距离门复数点。
+   * 按 chirp 主序收集 64×4, chirp 回卷(新值<上次)时组帧并沿 chirp 维做 64 点多普勒 FFT,
+   * 输出 rd-map: {chans:[rx0..rx3], doppBins, rangeBins}, 每行已做 fftshift(零速在中间)。 */
+  _fft1d(pkt){
+    const st=this.f1d;
+    if(st.lastChirp>=0 && pkt.idx < st.lastChirp) this._emit1d();   // 帧边界
+    st.lastChirp = pkt.idx;
+    const row = st.chirps[pkt.idx] || (st.chirps[pkt.idx]=[]);
+    row[pkt.rx] = this._complex(pkt.payload);
+  }
+  _emit1d(){
+    const st=this.f1d, N=CFG.chirpsPerFrame, RX=CFG.rxCount, B=CFG.rangeBins;
+    // 完整性检查: 录制中途开始的首帧不完整, 丢弃(等下一帧自动对齐)
+    let filled=0;
+    for(let c=0;c<N;c++){ const row=st.chirps[c]; if(row) for(let rx=0;rx<RX;rx++) if(row[rx]&&row[rx].n>=B) filled++; }
+    st.lastChirp=-1;
+    if(filled < N*RX*0.6/(CFG.downRate||1)){ st.chirps={}; return; }   // v0.5.9: 抽稀帧按比例放宽完整性门槛
+    const maps=[];
+    for(let rx=0;rx<RX;rx++){
+      const rows=[];
+      for(let d=0;d<N;d++) rows.push({I:new Float64Array(B), Q:new Float64Array(B), n:B});
+      for(let r=0;r<B;r++){
+        const ti=this._ti, tq=this._tq;
+        for(let c=0;c<N;c++){
+          const cell=st.chirps[c]&&st.chirps[c][rx];
+          ti[c]=cell?cell.I[r]:0; tq[c]=cell?cell.Q[r]:0;
+        }
+        FFT64(ti,tq,this._fi,this._fq);
+        for(let d=0;d<N;d++){
+          const sh=(d+N/2)%N;             // fftshift: 索引 N/2 = 零速
+          rows[sh].I[r]=this._fi[d]; rows[sh].Q[r]=this._fq[d];
+        }
+      }
+      maps.push(rows);
+    }
+    st.chirps={};
+    this.stats.frames++; Bus.emit('rd-map', {chans:maps, doppBins:N, rangeBins:B});
+  }
+  _dfft(pkt){
+    // 一个包 = 当前帧某 RX 的一行(多普勒 bin), 按到达顺序编号
+    const st = this.dfft, rx = pkt.rx;
+    if(st.frame[rx] !== pkt.frame){ st.rows[rx]=[]; st.frame[rx]=pkt.frame; }
+    st.rows[rx].push(this._complex(pkt.payload));
+    const rows = CFG.doppBins;
+    if(st.rows[0].length>=rows && st.rows[1].length>=rows){
+      const map = {ch0:st.rows[0].slice(0,rows), ch1:st.rows[1].slice(0,rows)};
+      st.rows={0:[],1:[]};
+      this.stats.frames++; Bus.emit('rd-map', map);
+    }
+  }
+  _fft(pkt){
+    const st=this.fft, rx=pkt.rx;
+    if(rx>1) return;                          // ICL1112/1122 = 2RX, 防越界
+    if(st.frame[rx] !== pkt.frame){ st.rows[rx]={}; st.frame[rx]=pkt.frame; }
+    st.rows[rx][pkt.idx] = this._complex(pkt.payload);
+    const got0 = Object.keys(st.rows[0]).length, got1 = Object.keys(st.rows[1]).length;
+    if(got0>=this.chirpsPerFrame && got1>=this.chirpsPerFrame){
+      Bus.emit('fft-frames', {ch0:st.rows[0], ch1:st.rows[1]});
+      // v0.7.1: DEV202H(ICL1122) 1DFFT流 —— 沿chirp维做64点多普勒FFT → rd-map,
+      // 走与 ICL1240 完全相同的下游显示管线(RDView/点云/跟踪), 此前 fft-frames 无人消费是死路。
+      const N=this.chirpsPerFrame;
+      let B=0;
+      for(let c=0;c<N;c++){ const a=st.rows[0][c], b=st.rows[1][c]; if(a&&b){ B=Math.min(a.n,b.n); break; } }
+      if(B>0){
+        const maps=[];
+        for(let rx2=0;rx2<2;rx2++){
+          const rows=[];
+          for(let d=0;d<N;d++) rows.push({I:new Float64Array(B), Q:new Float64Array(B), n:B});
+          for(let r=0;r<B;r++){
+            const ti=this._ti, tq=this._tq;
+            for(let c=0;c<N;c++){ const cell=st.rows[rx2][c]; ti[c]=(cell&&r<cell.n)?cell.I[r]:0; tq[c]=(cell&&r<cell.n)?cell.Q[r]:0; }
+            FFT64(ti,tq,this._fi,this._fq);
+            for(let d=0;d<N;d++){
+              const sh=(d+N/2)%N;             // fftshift: 索引 N/2 = 零速
+              rows[sh].I[r]=this._fi[d]; rows[sh].Q[r]=this._fq[d];
+            }
+          }
+          maps.push(rows);
+        }
+        this.stats.frames++; Bus.emit('rd-map', {chans:maps, doppBins:N, rangeBins:B});
+      }
+      st.rows={0:{},1:{}};
+    }
+  }
+  _peak(pkt, maxN){
+    // 每包内含双通道峰值. 布局按手册重建(待实测校正):
+    //   每峰2个DW: DW0=[31]=0,[30:24]=ch0 didx,[23]=0,[22:16]=ch0 ridx,[15:0]=ch0 value
+    //              DW1=同构 ch1
+    const w = [], n = Math.min(maxN, pkt.payload.length>>3);
+    for(let k=0;k<(pkt.payload.length>>2);k++) w.push(U.u32le(pkt.payload,k*4));
+    const peaks = [];
+    for(let k=0;k<n;k++){
+      for(let ch=0; ch<2; ch++){
+        const dw = w[k*2+ch];
+        if(dw===undefined) break;
+        const didx=(dw>>>24)&0x7F, ridx=(dw>>>16)&0x7F, val=dw&0xFFFF;
+        if(val===0 || ridx===0) continue;
+        peaks.push({ch, didx, ridx, val});
+      }
+    }
+    Bus.emit('peaks', {peaks, rawDws:w, pkt});
+  }
+}
+
+/* ---------------- 点云计算 ---------------- */
+const Cloud = {
+  points: [], hasAngle: false, rdMap: null, ts: 0,
+  // 背景抑制: 每格 EMA
+  bg: null, bgAlpha: 0.02,   // 背景适应放慢: 人站住不动不会从点云里消失(约50帧才学完背景)
+  fromRDMap(map){
+    const chans = map.chans || [map.ch0, map.ch1];   // 兼容 {ch0,ch1} 与 {chans:[...]}
+    const RX = chans.length;
+    const rows = chans[0].length, cols = chans[0][0].I.length;
+    const pts = [];
+    const key = rows*cols;
+    if(!this.bg || this.bg.length !== key){ this.bg = new Float32Array(key); }
+    const mag = new Float32Array(key);
+    // 幅度(各RX平均) + 背景更新
+    for(let d=0; d<rows; d++){
+      for(let r=0; r<cols; r++){
+        const k=d*cols+r;
+        let m=0;
+        for(let rx=0;rx<RX;rx++){ const c=chans[rx][d]; m+=c.I[r]*c.I[r]+c.Q[r]*c.Q[r]; }
+        m/=RX;
+        mag[k]=m;
+        const res = m - this.bg[k];
+        this.bg[k] += this.bgAlpha*(m - this.bg[k]);
+        mag[k] = Math.max(res, 0);
+      }
+    }
+    // 噪声估计 + 门限
+    let sum=0; for(let k=0;k<key;k++) sum+=mag[k];
+    const noise = sum/key + 1e-6;
+    const th = noise * Math.pow(10, CFG.minSnrDb/10);
+    // 局部极大值检测
+    for(let d=1; d<rows-1; d++){
+      for(let r=1; r<cols-1; r++){   // v0.5.3: bin1(≈0.18m)起检, 近距离目标不再漏
+        const k=d*cols+r, v=mag[k];
+        if(v < th) continue;
+        if(v<mag[k-1]||v<mag[k+1]||v<mag[k-cols]||v<mag[k+cols]) continue;
+        // 角度: 相邻RX对相位差平均 (a*conj(b) => φ_rx - φ_rx+1)
+        let reS=0, imS=0;
+        for(let rx=0;rx<RX-1;rx++){
+          const a=chans[rx][d], b=chans[rx+1][d];
+          const ai=a.I[r], aq=a.Q[r], bi=b.I[r], bq=b.Q[r];
+          reS += ai*bi + aq*bq;
+          imS += aq*bi - ai*bq;
+        }
+        let dPhi = Math.atan2(imS, reS);                  // [-π,π]
+        const dAnt = CFG.antGapMM/1000;
+        let sinT = CFG.invAng * dPhi * CFG.wavelength / (2*Math.PI*dAnt);
+        sinT = U.clamp(sinT, -1, 1);
+        const rng = (r + CFG.rangeOff) * CFG.rangeRes;
+        const vel = (d - rows/2) * CFG.velRes * CFG.velSign;
+        pts.push({
+          r: rng, v: vel,
+          snr: 10*Math.log10(v/noise+1e-9),
+          x: rng*sinT, y: rng*Math.sqrt(Math.max(1-sinT*sinT,0)),
+          theta: Math.asin(sinT)*180/Math.PI
+        });
+      }
+    }
+    this.points = pts; this.hasAngle = true; this.ts = U.now();
+    Bus.emit('cloud', this);
+  },
+  fromPeaks(pl){
+    const pts = pl.peaks.map(p=>{
+      const rng = (p.ridx + CFG.rangeOff) * CFG.rangeRes;
+      return {
+        r: rng,
+        v: (p.didx - CFG.doppBins/2) * CFG.velRes * CFG.velSign,
+        snr: 10*Math.log10(p.val+1),
+        x: 0, y: rng, theta: null, ch: p.ch
+      };
+    }).filter(p=>p.snr>=CFG.minSnrDb*0.8);
+    this.points = pts; this.hasAngle = false; this.ts = U.now();
+    Bus.emit('cloud', this);
+  }
+};
+
+/* ---------------- 人体跟踪 ---------------- */
+class Tracker {
+  constructor(){
+    this.active=false; this.x=0; this.y=0; this.rMin=0; this.v=0; this.n=0;
+    this.lostFrames=0; this.trail=[];
+  }
+  update(cloud){
+    let pts = cloud.points.filter(p=>p.snr>=CFG.minSnrDb && p.r>0.25 && p.r<8);
+    // 静止点过滤: 保留动点 或 靠近上次目标的点(人静止时)
+    pts = pts.filter(p=>{
+      if(Math.abs(p.v) >= CFG.vMin) return true;
+      if(this.active){
+        const dx=p.x-this.x, dy=p.y-this.y;
+        if(dx*dx+dy*dy < 0.36) return true;
+      }
+      return false;
+    });
+    if(!cloud.hasAngle){ // 无角度: 用 r 构造伪x=0, 跟踪退化为一维
+      pts = pts.map(p=>({...p, x:0}));
+    }
+    if(!pts.length){ this._lost(); return this._out(); }
+    // 贪心聚类
+    const clusters=[];
+    for(const p of pts){
+      let best=-1, bd=CFG.clusterR*CFG.clusterR;
+      for(let i=0;i<clusters.length;i++){
+        const c=clusters[i], dx=p.x-c.x, dy=p.y-c.y, d=dx*dx+dy*dy;
+        if(d<bd){bd=d;best=i;}
+      }
+      const w=Math.pow(10,p.snr/10);
+      // 身高代理用前向距离 y(去除横向分量), 避免左右走动被误判为下蹲
+      if(best<0) clusters.push({x:p.x,y:p.y,w,n:1,rMin:p.y,pts:[p]});
+      else{
+        const c=clusters[best];
+        c.x=(c.x*c.w+p.x*w)/(c.w+w); c.y=(c.y*c.w+p.y*w)/(c.w+w);
+        c.w+=w; c.n++; c.rMin=Math.min(c.rMin,p.y); c.pts.push(p);
+      }
+    }
+    // 主目标: 加权评分(靠近上次位置优先)
+    let bi=-1, bs=-1;
+    for(let i=0;i<clusters.length;i++){
+      const c=clusters[i];
+      let s=c.w;
+      if(this.active){
+        const d=Math.hypot(c.x-this.x,c.y-this.y);
+        if(d>1.5) s*=0.2; else s*= (1.5-d)*0.5+1;
+      }
+      if(s>bs){bs=s;bi=i;}
+    }
+    if(bi<0){ this._lost(); return this._out(); }
+    const c=clusters[bi];
+    const a=CFG.smooth;
+    if(!this.active){ this.x=c.x; this.y=c.y; this.rMin=c.rMin; this.active=true; }
+    else{
+      // 横向速度(EMA), 用于跳跃时排除横向走动干扰
+      const dt=Math.max((U.now()-(this._t||U.now()))/1000, 1e-3);
+      const vx=(c.x-this.x)/dt;
+      this.vx = (this.vx||0)*0.7 + vx*0.3;
+      this.x+=a*(c.x-this.x); this.y+=a*(c.y-this.y);
+      this.rMin+=a*(c.rMin-this.rMin);
+    }
+    this._t=U.now();
+    this.n=c.pts.length;
+    this.v = c.pts.reduce((s,p)=>s+Math.abs(p.v),0)/c.pts.length;
+    // 幅度加权平均速度: 静止背景残点很弱, 不稀释运动人体点的多普勒符号
+    let wSum=0, vSum=0;
+    for(const p of c.pts){ const w=p.amp||1; wSum+=w; vSum+=w*p.v; }
+    this.vMean = wSum? vSum/wSum : 0;  // 带符号: 负=接近雷达
+    this.lostFrames=0;
+    this.trail.push({x:this.x,y:this.y,t:U.now()});
+    if(this.trail.length>40) this.trail.shift();
+    return this._out();
+  }
+  _lost(){ if(++this.lostFrames>12) this.active=false; }
+  _out(){
+    const st = {active:this.active, x:this.x, y:this.y, rMin:this.rMin, v:this.v,
+                vMean:this.vMean||0, vx:this.vx||0, n:this.n, trail:this.trail};
+    Bus.emit('track', st);
+    return st;
+  }
+}
+
+/* ---------------- 动作引擎 (斜装方案) ---------------- */
+class GestureEngine {
+  constructor(){
+    this.calibrated=false; this.x0=0; this.r0=0;
+    this.lat='center';            // center|left|right
+    this.crouching=false;
+    this.rBase=0; this.rBaseInit=false;
+    this._calBuf=[]; this._calEnd=0;
+    this._lastJump=0; this._crouchStart=0;
+  }
+  calibrate(){
+    this._calBuf=[]; this._calEnd=U.now()+1000;
+    Bus.emit('sys', '标定中…请自然站立 1 秒');
+  }
+  _finishCal(){
+    const xs=this._calBuf.map(s=>s.x).sort((a,b)=>a-b);
+    const rs=this._calBuf.map(s=>s.rMin).sort((a,b)=>a-b);
+    if(!xs.length){ Bus.emit('sys','标定失败:未检测到目标'); return; }
+    this.x0=xs[xs.length>>1]; this.r0=rs[rs.length>>1];
+    this.rBase=this.r0; this.rBaseInit=true;
+    this.calibrated=true;
+    Bus.emit('sys', `标定完成: 中心x=${this.x0.toFixed(2)}m, 身高代理r=${this.r0.toFixed(2)}m`);
+    Bus.emit('calibrated', {x0:this.x0, r0:this.r0});
+  }
+  update(trk){
+    if(!trk.active){ if(this.lat!=='center'){this.lat='center';} return; }
+    const now=U.now();
+    // 标定窗口
+    if(this._calEnd){
+      this._calBuf.push(trk);
+      if(now>=this._calEnd){ this._calEnd=0; this._finishCal(); }
+      return;
+    }
+    if(!this.calibrated) return;
+    // rMin 平滑: 稀疏点云在身体部位间跳变(头↔肩差~0.2m), 直接用瞬时值判蹲/跳会抖动
+    if(this.rMinS==null) this.rMinS=trk.rMin;
+    this.rMinS += 0.3*(trk.rMin-this.rMinS);
+    const dx=trk.x-this.x0, dr=this.rBase-this.rMinS;
+    // ---- 左右 ----
+    const enter=CFG.latTh, exit=CFG.latTh-0.10;
+    if(this.lat==='center'){
+      if(dx> enter){ this.lat='right'; this._evt('right_start',dx,trk); }
+      else if(dx< -enter){ this.lat='left'; this._evt('left_start',dx,trk); }
+    }else if(this.lat==='right' && dx<exit){ this.lat='center'; this._evt('move_stop',dx,trk); }
+    else if(this.lat==='left' && dx> -exit){ this.lat='center'; this._evt('move_stop',dx,trk); }
+    // v0.8.0: DEV113P(4RX+32门)时跳/蹲改由 JCDet 俯仰相位状态机接管(旧几何判据基于斜装, 正挂竖板不成立);
+    //         旧判定仅 DEV202H 等无垂直天线对的板型保留。左右判定不受影响。
+    const _jcEl = (CFG.rxCount===4 && CFG.rangeBins===32);
+    if(!_jcEl){
+    // ---- 跳 ----
+    // 方案A(主): 多普勒接近脉冲——起跳瞬间上半身所有点产生朝向雷达的径向速度(斜装几何)
+    // 方案B(备): rMin 快速变小(大下倾角/近距离安装时距离变化足够大)
+    // 门控1: 横向快速走动时横向运动也会产生径向分量, 排除
+    // 门控2: 蹲姿起身同样是向上运动, 仅当不处于蹲姿时才允许判跳(crouching 标志已足够,
+    //       不能再要求 |dr| 很小——起跳时 rMin 必然下降 0.15~0.25, 那是跳跃本身的物理特征)
+    // 门控3: 蹲姿起身的末段(已判 crouch_end 但身体仍在上升)会产生同样的接近脉冲,
+    //       故 crouch_end 后 500ms 内禁止判跳
+    const crouchTh = CFG.jumpTh*0.7;
+    // 接近脉冲: 起跳瞬间全身点产生朝向雷达的径向速度。点云稀疏、单帧可能漏检,
+    // 用滑窗计数(最近5帧内≥2帧)代替严格连续2帧
+    const ascPulse = !this.crouching && dr > -crouchTh && trk.vMean < -0.45 && Math.abs(trk.vx) < 0.5
+                     && now-(this._lastCrouchEnd||0)>500;
+    if(ascPulse) this._lastAsc=now;
+    this._ascWin=this._ascWin||[];
+    this._ascWin.push(ascPulse?1:0);
+    if(this._ascWin.length>5) this._ascWin.shift();
+    const ascCnt=this._ascWin.reduce((a,b)=>a+b,0);
+    if(ascCnt>=2 && now-this._lastJump>800){
+      this._lastJump=now; this._ascWin=[];
+      this._evt('jump',dx,trk,{v:+trk.vMean.toFixed(2)});
+    }
+    if(!this.crouching && dr > CFG.jumpTh && now-this._lastJump>800){
+      this._lastJump=now; this._evt('jump',dx,trk,{dr:+dr.toFixed(2)});
+    }
+    // ---- 蹲: rMin 持续变大 + 远离脉冲(vMean>0: 身体下压时全身点远离雷达)。双判据缺一不可。
+    // 起跳后的落地阶段 rMin 同样会回升(跳跃全程0.7s, 落地回弹在600~900ms),
+    // 与下蹲特征相似, 故接近脉冲后 1000ms 内抑制;
+    // 横向走动时稀疏点云的 rMin 会大幅跳变, 走动中不判蹲 ----
+    if(trk.vMean > 0.25 && Math.abs(trk.vx) < 0.6) this._lastRec=now;
+    if(!this.crouching){
+      if(-dr > crouchTh && now-(this._lastAsc||0)>1000 && now-(this._lastRec||0)<700 && Math.abs(trk.vx)<0.6){
+        if(!this._crouchStart) this._crouchStart=now;
+        if(now-this._crouchStart>250){ this.crouching=true; this._crouchStart=0; this._evt('crouch_start',dx,trk,{dr}); }
+      } else this._crouchStart=0;
+    }else{
+      if(-dr < crouchTh*0.5){ this.crouching=false; this._lastCrouchEnd=now; this._evt('crouch_end',dx,trk,{dr}); }
+    }
+    }   // v0.8.0 end if(!_jcEl) 旧跳/蹲判据
+    // ---- 基线慢更新(仅站立居中时, 跟踪平滑后的 rMin) ----
+    if(this.lat==='center' && !this.crouching && Math.abs(dr)<0.1){
+      this.rBase += 0.02*(this.rMinS-this.rBase);
+    }
+    // 连续跟踪事件(5Hz节流, 供游戏做平滑控制)
+    if(!this._lastTrkEvt || now-this._lastTrkEvt>200){
+      this._lastTrkEvt=now;
+      Bus.emit('gesture', {type:'track', t:Date.now(), x:+dx.toFixed(3), h:+(this.rBase-this.rMinS).toFixed(3)});
+    }
+  }
+  _evt(type,dx,trk,extra={}){
+    Bus.emit('gesture', {
+      type, t:Date.now(),
+      x:+dx.toFixed(3),
+      h:+(this.rBase-(this.rMinS!=null?this.rMinS:trk.rMin)).toFixed(3),
+      ...extra
+    });
+  }
+}
+/*JCDET-BEGIN*/
+/* ---------------- JCDet v1 · DEV113P(ICL1240, 4RX+2TX) 跳/蹲判定核心 ----------------
+ * 原理(全部经三组实采回放验证, 见 outputs/game-training-data/qc_report.md):
+ *   找人: 静止玩家会被"运动残差"当背景, 必须用 bin0(零速)能量剖面在 0.7~1.6m 内定位;
+ *   特征: 垂直天线对(虚拟通道5-2, 2-3)相位差 = 俯仰 proxy, 相对 3 秒校准基准的偏移 dev(度);
+ *   判别: 跳 = 单帧尖峰(|dev|≥18°, 次帧回落), 蹲 = ≥2帧持续平台(|dev|≥12°)。
+ *         用"持续时长"判别而非符号——板子倾斜/安装高度会翻转符号, 时长不会, 因此免标方向。
+ * 环境无关: 不碰 DOM/Bus, 页面与 Node 回放测试(.deepworks/tmp/test_jcdet.js)共用同一份代码。 */
+const JCDet = {
+  G:32, ND:32, GATE_M:0.176, P_LO:4, P_HI:9,      // 找人门区 0.70~1.58m
+  TH_ON:12, TH_OFF:7, TH_SPIKE:18, CALIB_N:6,     // 偏移阈值(度) / 校准帧数≈3.1s
+  QUIET_R:0.35, CALIB_MAX:40,                      // 校准帧安静度门限 / 最长等待帧数(超时取最安静的6帧)
+  LOST_N:4, LOST_R:0.35,                           // 玩家离开: 零速能量<35%基准 连续4帧
+  swapIQ:false, en:true,
+  state:'wait', personG:-1, elBase:[0,0], eTotMed:0,
+  calib:[], ep:null, lostN:0, nJump:0, nCrouch:0,
+  dev0:0, dev1:0, personM:0, frames:0,
+  onEvent:null, onState:null,
+  _ct:null, _st:null, _ch:null, _last:-1,
+  reset(){ this.state='wait'; this.personG=-1; this.calib=[]; this.ep=null; this.lostN=0; this._ch=null; this._last=-1; this._stEmit('手动重新校准'); },
+  _initT(){
+    if(this._ct) return;
+    this._ct=[]; this._st=[];
+    for(let d=0;d<this.ND;d++){ const c=[],s=[];
+      for(let k=0;k<this.ND;k++){ const a=-2*Math.PI*d*k/this.ND; c.push(Math.cos(a)); s.push(Math.sin(a)); }
+      this._ct.push(c); this._st.push(s); }
+  },
+  /* 喂 ICL1240 FFT1D 包: {idx:chirp(0..63), rx:0..3, payload:Uint8Array | {I,Q,n}} */
+  push(pkt){
+    if(!this.en || pkt.rx>3) return;
+    if(this._last>=0 && pkt.idx<this._last){ const fr=this._ch; this._ch=null; this._frame(fr); }
+    this._last=pkt.idx;
+    const ch=this._ch||(this._ch=[]);
+    const row=ch[pkt.idx]||(ch[pkt.idx]=[]);
+    row[pkt.rx]=this._cpx(pkt.payload);
+  },
+  flush(){ if(this._ch){ const fr=this._ch; this._ch=null; this._last=-1; this._frame(fr); } },
+  _cpx(pl){
+    if(pl && pl.I) return pl;
+    const I=[],Q=[];
+    const dv=new DataView(pl.buffer, pl.byteOffset, pl.byteLength);
+    const n=pl.byteLength>>2;
+    for(let k=0;k<n;k++){ const a=dv.getInt16(k*4,true), b=dv.getInt16(k*4+2,true);
+      if(this.swapIQ){ I.push(b); Q.push(a); } else { I.push(a); Q.push(b); } }
+    return {I,Q,n};
+  },
+  _frame(ch){
+    if(!ch) return;
+    let filled=0;
+    for(let c=0;c<64;c++){ const row=ch[c]; if(row) for(let rx=0;rx<4;rx++) if(row[rx]&&row[rx].n>=32) filled++; }
+    if(filled<230) return;                       // 不完整帧丢弃(256中≥90%)
+    this._initT();
+    const {ND,G}=this;
+    // 8 虚拟通道 vc=parity*4+rx, 每通道沿同奇偶的 32 个 chirp 做 32 点多普勒 DFT(bin0=零速)
+    const vc=[];
+    for(let p=0;p<2;p++) for(let rx=0;rx<4;rx++){
+      const rows=[]; for(let d=0;d<ND;d++) rows.push(new Float64Array(G*2));
+      for(let g=0;g<G;g++){
+        const xr=new Float64Array(ND), xi=new Float64Array(ND);
+        for(let k=0;k<ND;k++){ const cell=ch[p+2*k]&&ch[p+2*k][rx]; if(cell){ xr[k]=cell.I[g]; xi[k]=cell.Q[g]; } }
+        for(let d=0;d<ND;d++){ let re=0, im=0;
+          for(let k=0;k<ND;k++){ re+=xr[k]*this._ct[d][k]-xi[k]*this._st[d][k]; im+=xr[k]*this._st[d][k]+xi[k]*this._ct[d][k]; }
+          rows[d][g*2]=re; rows[d][g*2+1]=im; }
+      }
+      vc.push(rows);
+    }
+    this._features(vc);
+  },
+  _energy(vc,d,g){ let e=0; for(let v=0;v<8;v++){ const a=vc[v][d]; e+=a[g*2]*a[g*2]+a[g*2+1]*a[g*2+1]; } return e; },
+  _elAt(vc,g){
+    let bd=0, be=-1;
+    for(let d=0;d<this.ND;d++){ const e=this._energy(vc,d,g); if(e>be){ be=e; bd=d; } }
+    const ph=[];
+    for(let v=0;v<8;v++){ const a=vc[v][bd]; ph.push(Math.atan2(a[g*2+1],a[g*2])); }
+    return { el:[this._d2r(ph[5]-ph[2]), this._d2r(ph[2]-ph[3])], e:be };
+  },
+  _d2r(x){ let v=x*180/Math.PI; while(v>180)v-=360; while(v<-180)v+=360; return v; },
+  _med(xs){ if(!xs.length) return NaN; const s=[...xs].sort((a,b)=>a-b); return s[s.length>>1]; },
+  _features(vc){
+    this.frames++;
+    // ---- 校准: 先收帧 → bin0 中位数剖面定人门 → 只用"安静帧"(多普勒活跃度低)定俯仰基准 ----
+    // 关键教训: 若校准窗里混入挥手/走动帧, 人门会锁到错误距离(实测挥手时身体在1.4m, 平时0.9m),
+    //           基准相位也会带偏 → 全程乱报。所以校准帧必须通过安静度筛选。
+    if(this.state==='wait'){
+      const prof=[]; for(let g=0;g<this.G;g++) prof.push(this._energy(vc,0,g));
+      const elByG={}, actByG={};
+      for(let g=this.P_LO;g<=this.P_HI;g++){
+        elByG[g]=this._elAt(vc,g).el;
+        let aE=0, tE=0;
+        for(let gg=Math.max(0,g-1);gg<=Math.min(this.G-1,g+1);gg++) for(let d=0;d<this.ND;d++){ const e=this._energy(vc,d,gg); tE+=e; if(d!==0) aE+=e; }
+        actByG[g]=aE/(tE+1);
+      }
+      this.calib.push({prof, elByG, actByG});
+      const n=this.calib.length;
+      let done=false, pg=-1, pool=null;
+      if(n>=this.CALIB_N){
+        // 临时人门(全收集窗中位数剖面) → 用它评估安静度
+        const med0=[]; for(let g=0;g<this.G;g++) med0.push(this._med(this.calib.map(c=>Math.log(c.prof[g]+1))));
+        pg=this.P_LO; for(let g=this.P_LO;g<=this.P_HI;g++) if(med0[g]>med0[pg]) pg=g;
+        const actAt=(c)=>{ const a=c.actByG; return ((a[pg-1]??a[pg])+a[pg]+(a[pg+1]??a[pg]))/3; };
+        const quiet=this.calib.filter(c=>actAt(c)<this.QUIET_R);
+        if(quiet.length>=this.CALIB_N){ pool=quiet.slice(-this.CALIB_N); done=true; }
+        else if(n>=this.CALIB_MAX){ pool=[...this.calib].sort((x,y)=>actAt(x)-actAt(y)).slice(0,this.CALIB_N); done=true; }
+      }
+      if(!done){ this._stEmit(`校准中 ${n}/${this.CALIB_N}+ (请站定, 挥手/走动不算)`); return; }
+      // 最终: 在安静帧池上重定人门 + 基准
+      const med=[]; for(let g=0;g<this.G;g++) med.push(this._med(pool.map(c=>Math.log(c.prof[g]+1))));
+      pg=this.P_LO; for(let g=this.P_LO;g<=this.P_HI;g++) if(med[g]>med[pg]) pg=g;
+      this.personG=pg; this.personM=+(pg*this.GATE_M).toFixed(2);
+      this.elBase=[this._med(pool.map(c=>c.elByG[pg][0])), this._med(pool.map(c=>c.elByG[pg][1]))];
+      this.eTotMed=this._med(pool.map(c=>c.prof[pg]));
+      this.calib=[]; this.state='ready'; this.ep=null; this._stEmit();
+      return;
+    }
+    // ---- 就绪 ----
+    const cur=this._elAt(vc,this.personG);
+    const e0=this._energy(vc,0,this.personG);
+    if(e0 < this.eTotMed*this.LOST_R){
+      if(++this.lostN>=this.LOST_N){ this.reset(); this._stEmit('玩家离开, 重新校准'); return; }
+    } else this.lostN=0;
+    const dev=[this._d2r((cur.el[0]-this.elBase[0])*Math.PI/180), this._d2r((cur.el[1]-this.elBase[1])*Math.PI/180)];
+    this.dev0=dev[0]; this.dev1=dev[1];
+    const a=Math.abs(dev[1]);
+    // ---- 状态机(时长判别) ----
+    if(!this.ep){
+      if(a>=this.TH_ON) this.ep={len:1, peak:a, sust:false};
+    }else if(!this.ep.sust){
+      if(a>=this.TH_ON){                        // 第2帧仍高 → 蹲
+        this.ep.sust=true; this.ep.len=2; this.ep.peak=Math.max(this.ep.peak,a);
+        this.nCrouch++; this._fire('crouch_start', {peak:+this.ep.peak.toFixed(0)});
+      }else{                                    // 回落 → 单帧尖峰: 达跳阈值才判跳, 否则丢弃(晃动)
+        if(this.ep.peak>=this.TH_SPIKE){ this.nJump++; this._fire('jump', {peak:+this.ep.peak.toFixed(0)}); }
+        this.ep=null;
+      }
+    }else{                                      // 蹲持续中
+      this.ep.len++; this.ep.peak=Math.max(this.ep.peak,a);
+      if(a<this.TH_OFF){ this._fire('crouch_end', {dur:+(this.ep.len*0.52084).toFixed(1)}); this.ep=null; }
+    }
+    // 基准慢漂(仅静止帧, α≈0.03/帧 ≈ 17s 时间常数, 抗站位微移/板子微动)
+    if(!this.ep && a<this.TH_OFF) for(let i=0;i<2;i++) this.elBase[i]+=0.03*dev[i];
+    this._stEmit();
+  },
+  _fire(type, extra){
+    // observeOnly=true: 只闪面板不发 gesture 总线(v1 阈值已证伪, 等干净数据定稿 v2 前防止误报进游戏)
+    if(this.onEvent) this.onEvent({ type, f:this.frames, t:+(this.frames*0.52084).toFixed(2), personM:this.personM, observe:!!this.observeOnly, ...extra });
+    this._stEmit();
+  },
+  _stEmit(msg){
+    if(this.onState) this.onState({ state:this.state, msg:msg||'', personM:this.personM, dev1:+this.dev1.toFixed(0), dev0:+this.dev0.toFixed(0), nJump:this.nJump, nCrouch:this.nCrouch, frames:this.frames });
+  },
+};
+/*JCDET-END*/
+
+/* ---------------- JCDet 页面接入(大字面版) ---------------- */
+const JCPanel = {
+  el:{}, _flashT:0,
+  init(){
+    ['jcFlash','jcState','jcDist','jcDev','jcCnt'].forEach(id=>this.el[id]=document.getElementById(id));
+    const b=document.getElementById('btnJcRecal'); if(b) b.onclick=()=>JCDet.reset();
+    const b2=document.getElementById('btnJcCap'); if(b2) b2.onclick=()=>JCCapture.toggle();
+    // v0.8.2: 勾选=把跳/蹲事件发到 gesture 总线(即「事件输出」WebSocket/融合器); 默认不勾=观察模式
+    const c=document.getElementById('chkJcOut');
+    if(c) c.onchange=()=>{
+      JCDet.observeOnly=!c.checked;
+      EvtLog.add('sys', c.checked
+        ? '跳/蹲事件已接入游戏总线(阈值尚未按新板调参, 可能误报; 先看联调台自检结果)'
+        : '跳/蹲回到观察模式(只显示, 不发游戏事件)');
+    };
+  },
+  state(s){
+    if(!this.el.jcState) return;
+    this.el.jcState.textContent = s.state==='ready'
+      ? ('就绪 · 已跟踪 '+(s.frames)+' 帧'+(s.msg?' · '+s.msg:''))
+      : (s.msg||'等待数据…(雷达出帧后自动找人+校准)');
+    this.el.jcDist.textContent = s.state==='ready' ? s.personM.toFixed(2)+' m' : '—';
+    this.el.jcDev.textContent = s.state==='ready' ? (s.dev1>0?'+':'')+s.dev1+'°' : '—';
+    this.el.jcCnt.textContent = '跳 '+s.nJump+' · 蹲 '+s.nCrouch;
+  },
+  flash(type){
+    if(!this.el.jcFlash) return;
+    const f=this.el.jcFlash;
+    if(type==='jump'){ f.textContent='跳!'; f.style.color='var(--ok)'; this._hold(700); }
+    else if(type==='crouch_start'){ f.textContent='蹲!'; f.style.color='var(--warn)'; this._hold(0); }
+    else if(type==='crouch_end'){ f.textContent='—'; f.style.color=''; }
+  },
+  _hold(ms){
+    clearTimeout(this._flashT);
+    if(ms>0) this._flashT=setTimeout(()=>{ if(this.el.jcFlash.textContent==='跳!'){ this.el.jcFlash.textContent='—'; this.el.jcFlash.style.color=''; } }, ms);
+  },
+};
+
+/* ---------------- 跳蹲采集(带同步) ----------------
+ * 一键: 开录原始流 + 打开提词器页(dev113p-prompter.html#jc)。
+ * 提词器开始时写 localStorage.jc_sync(墙钟), 结束时写 jc_sync_done;
+ * 本模块用墙钟差算出 剧本t0 - 录制t0 的精确偏移(±0.1s, 对时挥手段作复核),
+ * 剧本结束自动停录并同时下载 .bin + 同步 JSON。 */
+const JCCapture = {
+  on:false, recT0:0, promptT0:0, synced:false, _poll:0, _opened:false,
+  toggle(){
+    if(this.on){ this._finish('手动停止'); return; }
+    if(!Serial.port && !App.simMode){ EvtLog.add('sys','跳蹲采集: 请先连接串口再点采集'); return; }
+    RawRec.chunks=[]; RawRec.n=0; RawRec.on=true;
+    const btn=document.getElementById('btnRawRec'); if(btn) btn.textContent='停止录制原始流';
+    this.on=true; this.synced=false; this.recT0=Date.now(); this.promptT0=0;
+    try{ localStorage.removeItem('jc_sync'); localStorage.removeItem('jc_sync_done'); }catch(e){}
+    if(!this._opened){ this._opened=true; window.open('dev113p-prompter.html#jc','_blank'); }
+    EvtLog.add('sys','跳蹲采集开始: 原始流录制中。请到提词器页点「开始」(或按空格), 剧本结束会自动停录+下载');
+    const b=document.getElementById('btnJcCap'); if(b) b.textContent='■ 停止采集';
+    this._poll=setInterval(()=>{
+      if(!this.synced){ try{
+        const s=localStorage.getItem('jc_sync');
+        if(s){ const o=JSON.parse(s); this.promptT0=o.t0; this.synced=true;
+          EvtLog.add('sys',`对时锁定: 提词器比录制晚启动 ${((this.promptT0-this.recT0)/1000).toFixed(2)}s (剧本t0=录制第${((this.promptT0-this.recT0)/1000).toFixed(2)}秒)`); }
+      }catch(e){} }
+      try{ if(localStorage.getItem('jc_sync_done')) this._finish('剧本结束'); }catch(e){}
+    },200);
+  },
+  _finish(why){
+    if(!this.on) return;
+    this.on=false; clearInterval(this._poll);
+    RawRec.on=false;
+    const btn=document.getElementById('btnRawRec'); if(btn) btn.textContent='开始录制原始流';
+    const b=document.getElementById('btnJcCap'); if(b) b.textContent='● 跳蹲采集(带同步)';
+    const offS=this.synced?(this.promptT0-this.recT0)/1000:null;
+    EvtLog.add('sys',`跳蹲采集结束(${why}), 共 ${RawRec.chunks.reduce((s,c)=>s+c.length,0)} 字节, 自动下载 .bin 与同步 JSON`+(this.synced?'':` ⚠未拿到提词器对时(你在提词器页点开始了没?)`));
+    RawRec.download();
+    U.download('radar_sync_'+Date.now()+'.json', new Blob([JSON.stringify({recT0:this.recT0, promptT0:this.promptT0||null, offS, note:'offS=提词器剧本t0相对录制文件开头的秒数; 剧本段落定义见 dev113p-prompter.html PHASES_JC; 对时挥手段(0-4s)可作复核', ver:'0.8.1'},null,1)],{type:'application/json'}));
+    try{ localStorage.removeItem('jc_sync_done'); }catch(e){}
+  },
+};
+
+/* ============================================================
+ * 第三部分: 渲染 / 模拟器 / 录制回放 / 事件输出 / 应用装配
+ * ============================================================ */
+
+/* ---------------- 点云渲染 ---------------- */
+const CloudView = {
+  cv:null, ctx:null, hover:null, sel:null, selPt:null,
+  init(){ this.cv=document.getElementById('cvCloud'); this.ctx=this.cv.getContext('2d'); this._resize();
+    // v0.5.2: 鼠标悬停查看点坐标
+    this.cv.addEventListener('mousemove', e=>{
+      const b=this.cv.getBoundingClientRect();
+      const mx=(e.clientX-b.left)*(this.cv.width/Math.max(1,b.width));
+      const my=(e.clientY-b.top)*(this.cv.height/Math.max(1,b.height));
+      this.pick(mx,my, undefined, this.sel&&this.selPt? [this.selPt] : Cloud.points);
+    });
+    this.cv.addEventListener('mouseleave', ()=>{ this.hover=null; });
+    // v0.5.4: 点击标记"我的点" / 点空白取消
+    this.cv.addEventListener('click', e=>{
+      const b=this.cv.getBoundingClientRect();
+      const mx=(e.clientX-b.left)*(this.cv.width/Math.max(1,b.width));
+      const my=(e.clientY-b.top)*(this.cv.height/Math.max(1,b.height));
+      this.clickAt(mx,my);
+    });
+  },
+  pick(mx,my,th,list){
+    // 与 draw() 相同的俯视投影: 原点底部中央, y向前(距离), x横向
+    const W=this.cv.width, H=this.cv.height, scale=(H*0.86)/6, ox=W/2, oy=H*0.93;
+    const dpr=window.devicePixelRatio||1, TH=th||14*dpr;
+    let best=null, bd=TH*TH;
+    for(const p of (list||Cloud.points)){
+      const sx=ox+p.x*scale, sy=oy-p.y*scale;
+      const d2=(sx-mx)*(sx-mx)+(sy-my)*(sy-my);
+      if(d2<bd){ bd=d2; best={pt:p, sx, sy}; }
+    }
+    this.hover=best;
+    return best;
+  },
+  clickAt(mx,my){
+    const hit=this.pick(mx,my, 20*(window.devicePixelRatio||1));
+    if(hit){ this.sel={x:hit.pt.x, y:hit.pt.y, lost:0}; EvtLog.add('已标记点: x='+hit.pt.x.toFixed(2)+'m r='+hit.pt.y.toFixed(2)+'m (点击空白处取消)'); }
+    else if(this.sel){ this.sel=null; this.selPt=null; EvtLog.add('已取消标记, 显示全部点'); }
+  },
+  // v0.5.4: 跨帧关联最近点(门限0.6m), 连续丢失约3秒自动取消
+  assoc(points){
+    if(!this.sel) return null;
+    let best=null, bd=0.6*0.6;
+    for(const p of points){
+      const dx=p.x-this.sel.x, dy=p.y-this.sel.y, d2=dx*dx+dy*dy;
+      if(d2<bd){ bd=d2; best=p; }
+    }
+    if(best){ this.sel.x=best.x; this.sel.y=best.y; this.sel.lost=0; }
+    else if(++this.sel.lost>6){ this.sel=null; this.selPt=null; EvtLog.add('标记点连续丢失, 已自动取消'); }
+    this.selPt=best;
+    return best;
+  },
+  _resize(){
+    const r=this.cv.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    this.cv.width=Math.max(100,r.width*dpr); this.cv.height=Math.max(100,r.height*dpr);
+  },
+  draw(cloud, trk, ges){
+    const c=this.ctx, W=this.cv.width, H=this.cv.height;
+    c.clearRect(0,0,W,H);
+    c.fillStyle='#080c13'; c.fillRect(0,0,W,H);
+    // 俯视坐标: 雷达在原点(底部中央), y向前(向上), x横向
+    const rMax=6, scale=(H*0.86)/rMax, ox=W/2, oy=H*0.93;
+    const P=(x,y)=>[ox+x*scale, oy-y*scale];
+    // 距离圈
+    c.strokeStyle='#1a2540'; c.lineWidth=1; c.fillStyle='#3a4a68';
+    c.font=`${11*(window.devicePixelRatio||1)}px sans-serif`; c.textAlign='left';
+    for(let r=1;r<=rMax;r++){
+      c.beginPath(); c.arc(ox,oy,r*scale,Math.PI,2*Math.PI); c.stroke();
+      c.fillText(r+'m', ox+r*scale+3, oy-4);
+    }
+    // 角度线
+    for(const a of [-60,-45,-30,-15,0,15,30,45,60]){
+      const rad=a*Math.PI/180;
+      const [x2,y2]=P(Math.sin(rad)*rMax, Math.cos(rad)*rMax);
+      c.beginPath(); c.moveTo(ox,oy); c.lineTo(x2,y2); c.stroke();
+    }
+    // 标定基线与左右阈值
+    if(ges.calibrated){
+      const [bx]=P(ges.x0,0);
+      c.strokeStyle='#2fd57b55'; c.setLineDash([6,5]);
+      c.beginPath(); c.moveTo(bx,oy); c.lineTo(bx,oy-rMax*scale); c.stroke();
+      for(const s of [-1,1]){
+        const [lx]=P(ges.x0+s*CFG.latTh,0);
+        c.strokeStyle='#ffb02044';
+        c.beginPath(); c.moveTo(lx,oy); c.lineTo(lx,oy-rMax*scale); c.stroke();
+      }
+      c.setLineDash([]);
+    }
+    // 点云(带拖尾+编号; v0.5.4 标记模式下只画标记点)
+    const dpr=window.devicePixelRatio||1;
+    const selPt = this.sel? this.assoc(cloud.points) : null;
+    const showPts = this.sel? (selPt?[selPt]:[]) : cloud.points;
+    showPts.forEach((p,idx)=>{
+      const [px,py]=P(p.x,p.y);
+      const hue = p.v<-CFG.vMin? 190 : (p.v>CFG.vMin? 25 : 210);
+      const sat = Math.abs(p.v)>CFG.vMin? 90 : 35;
+      const sz = this.sel? 8*dpr : U.clamp((p.snr-8)/3,1.5,6)*dpr;
+      c.fillStyle=`hsla(${hue},${sat}%,60%,${U.clamp((p.snr-6)/18,0.45,1)})`;
+      c.beginPath(); c.arc(px,py,sz,0,7); c.fill();
+      c.fillStyle='rgba(255,255,255,0.9)'; c.beginPath(); c.arc(px,py,Math.max(1.2*dpr,sz*0.35),0,7); c.fill();
+      c.font=(10*dpr)+'px monospace'; c.fillStyle='#e8eefc'; c.textAlign='left';
+      c.fillText(this.sel? '我' : String(idx+1), px+6*dpr, py-6*dpr);
+    });
+    // v0.5.4: 标记点高亮环+坐标 / 丢失虚线圈 / 模式提示
+    if(selPt){
+      const [px,py]=P(selPt.x,selPt.y);
+      c.strokeStyle='#ffd166'; c.lineWidth=2.5*dpr;
+      c.beginPath(); c.arc(px,py,13*dpr,0,7); c.stroke();
+      c.fillStyle='#ffd166'; c.font=(12*dpr)+'px monospace'; c.textAlign='left';
+      c.fillText('x='+selPt.x.toFixed(2)+'m r='+selPt.y.toFixed(2)+'m', px+16*dpr, py-10*dpr);
+    } else if(this.sel){
+      const [px,py]=P(this.sel.x,this.sel.y);
+      c.strokeStyle='rgba(255,209,102,0.5)'; c.lineWidth=2*dpr; c.setLineDash([4,4]);
+      c.beginPath(); c.arc(px,py,13*dpr,0,7); c.stroke(); c.setLineDash([]);
+      c.fillStyle='rgba(255,209,102,0.8)'; c.font=(11*dpr)+'px monospace'; c.textAlign='left';
+      c.fillText('丢失…', px+16*dpr, py-10*dpr);
+    }
+    c.fillStyle='rgba(120,140,180,0.7)'; c.font=(10*dpr)+'px monospace'; c.textAlign='right';
+    c.fillText(this.sel? '标记模式: 只显示我的点 (点击空白处取消)' : '点击某个点 = 标记为"我"', W-8*dpr, 14*dpr);
+    // v0.5.2: 悬停点高亮+坐标标签
+    if(this.hover){
+      const {pt,sx,sy}=this.hover;
+      c.strokeStyle='#ffd166'; c.lineWidth=2*dpr;
+      c.beginPath(); c.arc(sx,sy,9*dpr,0,7); c.stroke();
+      const l1='x='+pt.x.toFixed(2)+'m  r='+pt.y.toFixed(2)+'m';
+      const l2='v='+pt.v.toFixed(2)+'m/s  SNR='+(pt.snr|0)+'dB';
+      c.font=(12*dpr)+'px monospace';
+      const wT=Math.max(c.measureText(l1).width, c.measureText(l2).width)+12*dpr, hT=34*dpr;
+      let bx=sx+12*dpr, by=sy-hT-10*dpr;
+      if(bx+wT>W) bx=sx-wT-12*dpr;
+      if(by<0) by=sy+14*dpr;
+      c.fillStyle='rgba(10,16,28,0.9)'; c.fillRect(bx,by,wT,hT);
+      c.strokeStyle='#3a4a68'; c.lineWidth=1; c.strokeRect(bx,by,wT,hT);
+      c.fillStyle='#ffd166'; c.textAlign='left';
+      c.fillText(l1, bx+6*dpr, by+14*dpr);
+      c.fillText(l2, bx+6*dpr, by+28*dpr);
+    }
+    // 主目标
+    if(trk.active){
+      const [tx,ty]=P(trk.x,trk.y);
+      c.strokeStyle='#2fd57b'; c.lineWidth=2*dpr;
+      c.beginPath(); c.arc(tx,ty,10*dpr,0,7); c.stroke();
+      // 轨迹
+      c.strokeStyle='#2fd57b66'; c.lineWidth=2;
+      c.beginPath();
+      trk.trail.forEach((p,i)=>{ const [x,y]=P(p.x,p.y); i?c.lineTo(x,y):c.moveTo(x,y); });
+      c.stroke();
+      c.fillStyle='#2fd57b'; c.font=`${12*dpr}px sans-serif`;
+      c.fillText(`x=${trk.x.toFixed(2)} r=${trk.y.toFixed(2)}`, tx+14*dpr, ty-8*dpr);
+    }
+    if(!cloud.hasAngle && cloud.points.length){
+      c.fillStyle='#ffb020'; c.font=`${12*dpr}px sans-serif`;
+      c.fillText('当前数据无角度信息(峰值模式), 横向位置不可用', 12*dpr, 20*dpr);
+    }
+    // 雷达图标
+    c.fillStyle='#35c4ff';
+    c.beginPath(); c.moveTo(ox,oy); c.lineTo(ox-7*dpr,oy+9*dpr); c.lineTo(ox+7*dpr,oy+9*dpr); c.closePath(); c.fill();
+  }
+};
+
+/* ---------------- 距离-多普勒热图 ---------------- */
+const RDView = {
+  cv:null, ctx:null,
+  init(){ this.cv=document.getElementById('cvRD'); this.ctx=this.cv.getContext('2d'); this._resize(); this.map=null; },
+  _resize(){
+    const r=this.cv.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    this.cv.width=Math.max(100,r.width*dpr); this.cv.height=Math.max(60,r.height*dpr);
+    this._dirty=true;
+  },
+  setMap(map){
+    this.map=map; this._dirty=true;
+    // 背景 EMA 学习(约6秒收敛): 显示时减掉, 墙/桌等静止杂波从热图消失, 只剩会动的目标
+    const chans=map.chans||[map.ch0,map.ch1];
+    if(chans && chans[0]){
+      const rows=chans[0].length, cols=chans[0][0].I.length;
+      if(!this._bg || this._bg.length!==rows*cols) this._bg=new Float32Array(rows*cols);
+      const half=rows>>1;
+      for(let d=0;d<rows;d++)for(let r=0;r<cols;r++){
+        let pw=0; for(let rx=0;rx<chans.length;rx++){ const a=chans[rx][d]; pw+=a.I[r]*a.I[r]+a.Q[r]*a.Q[r]; }
+        const i=d*cols+r;
+        // 前景冻结只对零速线以外的运动区生效: 零速带必须持续学习(静止的人/墙会被学进背景 → 不动隐身;
+        // 否则人站在画面里时零速带能量巨大且被冻结, 减背景后剩一个恒定的"人形残差", 峰值永远钉在中线)
+        if(Math.abs(d-half)>1 && this._bg[i] && pw>this._bg[i]*3) continue;
+        this._bg[i]=this._bg[i]? this._bg[i]*0.98+pw*0.02 : pw;
+      }
+    }
+  },
+  draw(){
+    if(this.map && !this._dirty) return;   // 无新热图不重绘: 60fps 空转+逐帧建 canvas 会拖累主线程
+    this._dirty=false;
+    const c=this.ctx, W=this.cv.width, H=this.cv.height;
+    c.fillStyle='#080c13'; c.fillRect(0,0,W,H);
+    if(!this.map){
+      c.fillStyle='#54627e'; c.font=`${12*(window.devicePixelRatio||1)}px sans-serif`;
+      c.fillText('距离-多普勒热图 (DFFT 数据时显示)', 14, 24);
+      return;
+    }
+    const chans=this.map.chans || [this.map.ch0, this.map.ch1];
+    const RX=chans.length;
+    const rows=chans[0].length, cols=chans[0][0].I.length;
+    // 速度纵轴放大: 全量程±1.55m/s对室内人体太宽(走动0.1~0.6m/s挤在中线附近), 只显示中间 1/ZOOM
+    const Z=this.ZOOM||2, half=rows>>1;
+    const dRows=(rows/Z)|0, d0=half-(dRows>>1);          // 显示窗口 [d0, d0+dRows)
+    const img=c.createImageData(cols,dRows);
+    let mx=1;
+    const mag=new Float32Array(rows*cols);
+    const useBg=!!this._bg && this._bg.length===rows*cols;
+    for(let d=0;d<rows;d++)for(let r=0;r<cols;r++){
+      let pw=0;
+      for(let rx=0;rx<RX;rx++){ const a=chans[rx][d]; pw+=a.I[r]*a.I[r]+a.Q[r]*a.Q[r]; }
+      if(useBg) pw=Math.max(0, pw-this._bg[d*cols+r]);   // 减掉背景: 只剩"比静止场景多出来"的能量
+      const m=Math.log10(1+pw);
+      mag[d*cols+r]=m; if(m>mx)mx=m;
+    }
+    // 峰值显著性(log域): 峰-中位数>0.6 ≈ 能量超噪声中位4倍, 没人动时不画框(纯噪声不框)
+    const sorted=Array.from(mag).sort((a,b)=>a-b); const med=sorted[sorted.length>>1]||0;
+    let pk=-1;
+    for(let di=0;di<dRows;di++)for(let r=0;r<cols;r++){
+      const d=d0+di, t=mag[d*cols+r]/mx, k=((dRows-1-di)*cols+r)*4;   // 0速在中间: 翻转 doppler 轴
+      const [ir,ig,ib]=RDView._inferno(t);
+      img.data[k]=ir; img.data[k+1]=ig; img.data[k+2]=ib; img.data[k+3]=255;
+      if(Math.abs(d-half)>2 && (pk<0 || mag[d*cols+r]>mag[pk])) pk=d*cols+r;   // ±0.1m/s内算"准静止"不锁
+    }
+    if(!this._off) this._off=document.createElement('canvas');
+    const off=this._off; off.width=cols; off.height=dRows;
+    off.getContext('2d').putImageData(img,0,0);
+    c.imageSmoothingEnabled=false;
+    c.drawImage(off,0,0,W,H);
+    // 峰值锁定框: 亮蓝(黄亮斑的互补色)+距离/速度标签, 新手跟着它看即可
+    if(pk>=0 && mag[pk]-med>0.6){
+      const pd=(pk/cols)|0, pr=pk%cols, cw=W/cols, rh=H/dRows;
+      const di=pd-d0;
+      c.strokeStyle='#00bfff'; c.lineWidth=2.5;
+      c.strokeRect(pr*cw-1, (dRows-1-di)*rh-1, cw+2, rh+2);
+      const rng=pr*CFG.rangeRes, vel=(pd-half)*CFG.velRes*CFG.velSign;
+      const label=`▼${rng.toFixed(1)}m ${vel>=0?'+':''}${vel.toFixed(2)}m/s`;
+      const lx=Math.min(Math.max(pr*cw-6,2), W-130*(window.devicePixelRatio||1)), ly=Math.max((dRows-1-di)*rh-5, 13);
+      c.font=`bold ${12*(window.devicePixelRatio||1)}px sans-serif`;
+      c.lineWidth=3; c.strokeStyle='#000'; c.strokeText(label, lx, ly);   // 黑描边: 任何底色上都可读
+      c.fillStyle='#00bfff'; c.fillText(label, lx, ly);
+    }
+    c.fillStyle='#ffffff88'; c.font=`${10*(window.devicePixelRatio||1)}px monospace`;
+    c.fillText('距离→', W-46, H-6); c.fillText('速度↑', 4, 12);
+    c.fillText(`±${(CFG.velRes*dRows/2).toFixed(2)}m/s`, 4, H-6);   // 纵轴量程标注
+    c.fillStyle=useBg?'#8f8':'#ff8';
+    c.fillText(useBg?'已减背景·静物隐藏':'背景学习中…', W-128*(window.devicePixelRatio||1), 12);
+  },
+  ZOOM:2,   // 速度轴放大倍数: 2=显示±0.78m/s, 改1恢复全量程
+  // inferno 热成像配色: 黑→深紫→红→橙→黄白; 弱信号纯黑, 亮斑刺眼
+  _inferno(t){
+    const s=[[0,0,4],[87,16,110],[188,55,84],[249,142,9],[252,255,164]];
+    t=Math.min(1,Math.max(0,t));
+    const x=t*(s.length-1), i=Math.min(s.length-2, Math.floor(x)), f=x-i, a=s[i], b=s[i+1];
+    return [Math.round(a[0]+(b[0]-a[0])*f), Math.round(a[1]+(b[1]-a[1])*f), Math.round(a[2]+(b[2]-a[2])*f)];
+  }
+};
+
+/* ---------------- 模拟器 (生成 ICL1240 真实格式包流, 全链路无硬件调试) ---------------- */
+const Sim = {
+  running:false, timer:null,
+  sink:null,                            // 字节出口: App.init 接 demux; 测试可改接
+  X:0, vX:0, vert:0, vVert:0,          // 玩家状态
+  move:0, jumpT:0, crouchT:0, auto:false,
+  BODY:[ // [横向偏移, 身高, 权重] — 沿身高密布: 真实人体在距离维是连续反射脊线
+    [0,1.70,0.8],[0,1.58,0.75],[-0.13,1.48,0.7],[0.13,1.48,0.7],[0,1.38,0.85],
+    [-0.16,1.30,0.6],[0.16,1.30,0.6],[0,1.22,0.95],[0,1.12,1.0],[0,1.02,0.95],
+    [-0.09,0.92,0.7],[0.09,0.92,0.7],[0,0.80,0.6],[-0.07,0.65,0.5],[0.07,0.65,0.5],
+    [-0.06,0.45,0.4],[0.06,0.45,0.4]
+  ],
+  start(){
+    if(this.running) return; this.running=true;
+    let last=U.now();
+    this.timer=setInterval(()=>{
+      const now=U.now(), dt=(now-last)/1000; last=now;
+      this._step(dt);
+    }, 66); // ~15fps
+    Bus.emit('sys','模拟器已启动(ICL1240包流): 按 1=左移 2=右移 3=跳 4=蹲, 5=自动演示');
+  },
+  stop(){ clearInterval(this.timer); this.running=false; },
+  _step(dt){
+    // 玩家行为
+    if(this.auto){
+      const t=(U.now()/1000)%16;
+      if(t<3){this.move=0;} else if(t<5){this.move=-1;} else if(t<8){this.move=0;}
+      else if(t<9.2){ if(!this._j){this._doJump(); this._j=1;} }
+      else if(t<12){ this._j=0; if(!this._c){this._doCrouch();this._c=1;} }
+      else { this._c=0; if(t>13&&t<15)this.move=1; else this.move=0; }
+    }
+    const targetVx=this.move*1.2;
+    this.vX += (targetVx-this.vX)*Math.min(1,dt*8);
+    this.X = U.clamp(this.X + this.vX*dt, -1.6, 1.6);
+    // 跳跃抛物线
+    if(this.jumpT>0){
+      this.jumpT-=dt;
+      const ph=1-Math.max(this.jumpT,0)/0.7;
+      this.vert = Math.sin(ph*Math.PI)*0.5;
+    } else if(this.crouchT>0){
+      this.crouchT-=dt;
+      this.vert += (-0.45-this.vert)*Math.min(1,dt*10);
+    } else {
+      this.vert += (0-this.vert)*Math.min(1,dt*10);
+    }
+    // 目标列表 (典型斜装几何: 雷达高2.4m, 玩家距雷达水平1.75m)
+    // 静止时以呼吸(0.25Hz,2cm,胸部为主)保持可见, 高频抖动仅±6mm(贴近真实测量噪声)
+    const H=CFG.mountH, d0=1.75;
+    this.t=(this.t||0)+dt;
+    const targets=[];
+    for(const [dx,h,w] of this.BODY){
+      let he=h;
+      if(this.crouchT>0 && h>0.6) he=h-0.45*(h/1.7);   // 蹲主要降上半身
+      else he=h+this.vert;
+      const breathe=0.02*Math.sin(2*Math.PI*0.25*this.t)*(h/1.7);
+      const wx=this.X+dx+(Math.random()-0.5)*0.012;
+      const dz=H-he, dy=d0+breathe+(Math.random()-0.5)*0.012;
+      const r=Math.sqrt(wx*wx+dy*dy+dz*dz);
+      // 径向速度: 数值微分
+      const key=dx+'_'+h;
+      const prev=this._prevR&&this._prevR[key];
+      let v=0;
+      if(prev!==undefined) v=U.clamp((r-prev)/dt,-3,3);
+      (this._prevR=this._prevR||{})[key]=r;
+      const rb=r/CFG.rangeRes;
+      if(rb<2||rb>CFG.rangeBins-2) continue;
+      const vb=U.clamp(v/(CFG.velRes*CFG.velSign), -CFG.doppBins/2+2, CFG.doppBins/2-2);
+      // 相邻天线相位步进(与 Cloud 的 a*conj(b) 约定一致: 负号)
+      const sinT=U.clamp(wx/Math.sqrt(wx*wx+dy*dy),-0.95,0.95);
+      const dPhi=-2*Math.PI*(CFG.antGapMM/1000)*sinT/CFG.wavelength;
+      targets.push({rb, vb, dPhi, amp:2200+2600*w});
+    }
+    this._emitFrame(targets);
+  },
+  // 把一雷达帧编码成 ICL1240 真实包流: 64 chirp × 4 RX × 136B, chirp主序
+  _emitFrame(targets){
+    if(!this.sink) return;
+    const N=CFG.chirpsPerFrame, RX=CFG.rxCount, B=CFG.rangeBins, PK=4+B*4+4;
+    const out=new Uint8Array(N*RX*PK);
+    let o=0;
+    for(let c=0;c<N;c++){
+      for(let rx=0;rx<RX;rx++){
+        out[o]=0xAA; out[o+1]=0x80|(c>>4); out[o+2]=(c&0xF)<<4; out[o+3]=B-1;
+        const base=o+4;
+        for(let r=0;r<B;r++){
+          let I=(Math.random()-0.5)*300, Q=(Math.random()-0.5)*300;
+          for(const t of targets){
+            const drw=1-Math.abs(t.rb-r); if(drw<=0) continue;   // 距离维三角展宽
+            const fb=((Math.round(t.vb)%N)+N)%N;                 // 多普勒bin(fftshift前)
+            const ph=2*Math.PI*fb*c/N + t.dPhi*rx;
+            I+=t.amp*drw*Math.cos(ph); Q+=t.amp*drw*Math.sin(ph);
+          }
+          const ii=U.clamp(Math.round(I),-32768,32767), qq=U.clamp(Math.round(Q),-32768,32767);
+          out[base+r*4]=ii&0xFF; out[base+r*4+1]=(ii>>8)&0xFF;
+          out[base+r*4+2]=qq&0xFF; out[base+r*4+3]=(qq>>8)&0xFF;
+        }
+        out[o+PK-4]=0; out[o+PK-3]=0; out[o+PK-2]=(c*4)&0xFF; out[o+PK-1]=0x55;
+        o+=PK;
+      }
+    }
+    this.sink(out);
+  },
+  _doJump(){ if(this.jumpT<=0) this.jumpT=0.7; },
+  _doCrouch(){ this.crouchT=1.4; },
+  key(k){
+    if(k==='1'){ this.move=this.move===-1?0:-1; }
+    else if(k==='2'){ this.move=this.move===1?0:1; }
+    else if(k==='3'){ this._doJump(); }
+    else if(k==='4'){ this._doCrouch(); }
+    else if(k==='5'){ this.auto=!this.auto; Bus.emit('sys','自动演示 '+(this.auto?'开':'关')); }
+  }
+};
+
+/* ---------------- 输出: 事件日志 / JSONL / WebSocket ---------------- */
+const EvtLog = {
+  el:null, init(){ this.el=document.getElementById('evtLog'); if(this._q&&this._q.length){ const q=this._q; this._q=null; q.forEach(([t,m])=>this.add(t,m)); } },
+  add(type,msg){
+    if(!this.el){ (this._q=this._q||[]).push([type,msg]); return; }   // init 前的消息暂存, init 时回放
+    const d=document.createElement('div');
+    const t=new Date().toTimeString().slice(0,8);
+    d.innerHTML=`<span class="t">${t}</span><span class="${type}">${msg}</span>`;
+    this.el.appendChild(d);
+    while(this.el.children.length>300) this.el.removeChild(this.el.firstChild);
+    this.el.scrollTop=this.el.scrollHeight;
+  }
+};
+const EvtRec = {
+  on:false, buf:[],
+  toggle(btn){
+    this.on=!this.on;
+    btn.textContent=this.on?'停止录制事件':'开始录制事件';
+    if(this.on) this.buf=[];
+  },
+  push(e){ if(this.on) this.buf.push(JSON.stringify(e)); },
+  download(){
+    if(!this.buf.length){ EvtLog.add('sys','没有已录制的事件'); return; }
+    U.download('events_'+Date.now()+'.jsonl', new Blob([this.buf.join('\n')],{type:'text/plain'}));
+  }
+};
+const Ws = {
+  ws:null,
+  toggle(url,btn){
+    if(this.ws){ this.ws.close(); this.ws=null; btn.textContent='连接'; return; }
+    if(!url){ EvtLog.add('sys','请先填写 WebSocket 地址'); return; }
+    try{
+      this.ws=new WebSocket(url);
+      this.ws.onopen=()=>{ btn.textContent='断开'; EvtLog.add('sys','WebSocket 已连接 '+url); };
+      this.ws.onclose=()=>{ this.ws=null; btn.textContent='连接'; EvtLog.add('sys','WebSocket 已断开'); };
+      this.ws.onerror=()=>{ EvtLog.add('sys','WebSocket 连接失败'); };
+    }catch(e){ EvtLog.add('sys','WebSocket 错误: '+e.message); }
+  },
+  send(e){ if(this.ws && this.ws.readyState===1) this.ws.send(JSON.stringify(e)); }
+};
+
+/* ---------------- 原始流录制 / 回放 ---------------- */
+const RawRec = {
+  on:false, chunks:[], n:0, cap:12*1048576,   // v0.7.3: 6MB→12MB (DEV113P≈67KB/s, 覆盖67s剧本4.5MB+热身余量)
+  toggle(btn){
+    this.on=!this.on;
+    btn.textContent=this.on?'停止录制原始流':'开始录制原始流';
+    if(this.on){ this.chunks=[]; this.n=0; EvtLog.add('sys','开始录制原始串口数据…'); }
+    else EvtLog.add('sys',`录制结束, 共 ${this.chunks.reduce((s,c)=>s+c.length,0)} 字节, 点「下载原始流」保存`);
+  },
+  push(b){ if(this.on){ this.chunks.push(b.slice()); this.n+=b.length;
+    if(this.n>this.cap){ this.on=false; const btn=document.getElementById('btnRawRec'); if(btn) btn.textContent='开始录制原始流';
+      EvtLog.add('sys','原始样本已抓满 12MB, 自动停止 — 请点「下载原始流」导出发我分析'); } } },
+  download(){
+    if(!this.chunks.length){ EvtLog.add('sys','没有已录制的数据'); return; }
+    U.download('radar_raw_'+Date.now()+'.bin', new Blob(this.chunks,{type:'application/octet-stream'}));
+  }
+};
+const Replayer = {
+  async run(file, demux){
+    const buf=new Uint8Array(await file.arrayBuffer());
+    EvtLog.add('sys',`回放 ${file.name} (${buf.length} 字节)…`);
+    const CH=4096;
+    for(let off=0; off<buf.length; off+=CH){
+      demux.push(buf.slice(off,off+CH));
+      await new Promise(r=>setTimeout(r,20));
+    }
+    EvtLog.add('sys','回放完成');
+  }
+};
+
+/* ---------------- Hex 查看器 ---------------- */
+const HexView = {
+  el:null, lines:[], _flushT:0,
+  init(){ this.el=document.getElementById('hexBox'); },
+  add(label, bytes, max=96){
+    const s=U.hex(bytes.slice(0,max))+(bytes.length>max?' …':'');
+    this.lines.push(label+' ['+bytes.length+'B] '+s);
+    if(this.lines.length>40) this.lines.shift();
+    // DOM 刷新合并到 300ms 一次: 高频包流下逐包刷新会阻塞主线程, 导致串口缓冲溢出
+    if(!this._flushT) this._flushT=setTimeout(()=>{ this._flushT=0;
+      this.el.textContent=this.lines.join('\n');
+      this.el.scrollTop=this.el.scrollHeight;
+    },300);
+  }
+};
+
+/* ---------------- 主动配置脚本执行 ---------------- */
+/* 改写启动宏中的 chirp 休眠时长: 波形时序表经索引寄存器 f104(0x0101000N=第N项) + 值寄存器 f110 写入,
+   第 9 项 = ChirpStopTime, 原始值 800000(8000µs@100MHz)。帧周期=64×(休眠+60µs)+5000µs:
+   8000µs→520840µs(1.9帧/s), 4000µs→264840µs(3.8帧/s)。串口 1.5M 波特率传一帧数据需 ~232ms, 休眠<3500µs 无意义。 */
+function patchFrameTiming(bytes, idleUS){
+  if(!bytes || bytes.length<18 || idleUS===8000) return bytes;
+  if(bytes[0]!==0xFD||bytes[6]!==0x01||bytes[7]!==0x00) return bytes;   // 只处理写寄存器帧(0x0001)
+  const dataLen=(bytes[4]|(bytes[5]<<8))-2;
+  const cycles=Math.round(idleUS*100);                                   // 100MHz → 1µs=100
+  let out=null, idx=-1, done=false;
+  for(let off=10; off+8<=8+dataLen; off+=8){
+    const a=(bytes[off]|(bytes[off+1]<<8)|(bytes[off+2]<<16)|(bytes[off+3]*0x1000000))>>>0;
+    if(a===0x6000f104){
+      const v=(bytes[off+4]|(bytes[off+5]<<8)|(bytes[off+6]<<16)|(bytes[off+7]*0x1000000))>>>0;
+      if((v&0x00ffff00)===0x00010000) idx=v&0xff;   // 索引写: 0x??0100NN (高字节 0x10/0x01 两种); 0 等其他值为提交写, 保持 idx
+    }else if(a===0x6000f110 && idx===9 && !done){
+      const oldV=(bytes[off+4]|(bytes[off+5]<<8)|(bytes[off+6]<<16)|(bytes[off+7]*0x1000000))>>>0;
+      if(oldV===800000){
+        if(!out) out=bytes.slice();
+        out[off+4]=cycles&0xff; out[off+5]=(cycles>>8)&0xff; out[off+6]=(cycles>>16)&0xff; out[off+7]=(cycles>>>24)&0xff;
+        done=true;
+      }
+      idx=-1;
+    }
+  }
+  if(done) EvtLog.add('sys',`帧空闲 ${idleUS}µs: 启动宏时序表已改写 (预计 ${(1e6/(64*(idleUS+60)+5000)).toFixed(1)} 帧/s)`);
+  return out||bytes;
+}
+
+let _cfgBusy=false;
+async function runConfigScript(text){
+  if(_cfgBusy) return false;   // v0.4.6: 防多路定时器并发重入
+  _cfgBusy=true;
+  try{
+  EvtLog.add('sys','与雷达板握手(进入命令模式)…');
+  const hsOk=await CmdLink.enterCmdMode(3);
+  if(!hsOk){
+    // v0.4.4: 厂商日志实证——板子上电后约需20秒才会应答(厂商工具连点3次才成功)。
+    // 握手失败=板子还没醒或根本没连上, 盲发宏毫无意义, 直接中止交给自动重试。
+    EvtLog.add('err','握手失败: 板子无应答! 刚插上USB请等足60秒再点连接(板子启动慢); 否则拔USB等5秒重插, 或先用厂商工具验证板子');
+    return false;
+  }
+  EvtLog.add('sys','握手成功, 板子已应答');
+  // v0.4.5: 握手后先读版本探一针(厂商工具同款)——v0.4.4实测板子刚应答时前几帧常丢,
+  // 探针不通说明板子还没完全准备好, 直接中止等自动重试, 不拿残缺配置去启动雷达。
+  let probe=null;
+  for(let i=0;i<3 && !probe;i++){
+    probe=await CmdLink.request(0x0000,[],600);
+    if(!probe) await new Promise(r=>setTimeout(r,80));
+  }
+  if(!probe){ EvtLog.add('err','握手通了但读版本无应答: 板子还没准备好, 稍后将自动重试'); return false; }
+  // v0.4.6: 探针通过后再让板子稳800ms——0x12/0x01类命令要走SPI碰雷达芯片,
+  // 芯片没完全就绪时这类命令会随机丢失(纯MCU命令不受影响), 实测失败全部集中在这两类。
+  await new Promise(r=>setTimeout(r,800));
+  const lines=text.split('\n').map(s=>s.trim()).filter(s=>s && !s.startsWith('#'));
+  EvtLog.add('sys',`执行配置脚本 (${lines.length} 帧, 逐帧等应答, 失败最多重试10次)…`);
+  // v0.4.4: 与厂商工具一致——每帧都等ACK再发下一帧(厂商帧间隔仅15ms, 全部帧都有应答)。
+  // v0.4.5: 超时重试+失败即中止——配置残缺时发0xFE启动输出会让雷达失控打爆串口(15:34事故)。
+  // v0.4.6: 重试加到10次(厂商进命令模式都重试了10次才成功, 这板子就这脾气)。
+  const TOLERATE={0x16:1,0x20:1,0x11:1,0x05:1};  // 这4条在此固件本就会回错误码, 厂商工具同样忽略
+  for(let i=0;i<lines.length;i++){
+    const bytes=patchFrameTiming(U.parseHex(lines[i]), CFG.frameIdleUS);
+    if(!bytes.length) continue;
+    const cmd=bytes[6]|(bytes[7]<<8);
+    let resp=null;
+    for(let t=0;t<30;t++){
+      if(t>0 && (t<3 || t%5===0)) EvtLog.add('sys',`第${i+1}帧(0x${cmd.toString(16).toUpperCase()})第${t+1}次尝试…`);
+      resp=await CmdLink.sendRaw(bytes,700);
+      if(resp || TOLERATE[cmd]) break;
+      await new Promise(r=>setTimeout(r,60));
+    }
+    HexView.add('TX', bytes);
+    if(!resp){
+      if(TOLERATE[cmd]) continue;
+      const seen=CmdLink._lastTimeoutBytes;
+      // v0.4.7: 用等待期字节数一锤定音地区分「MCU真静默」还是「ACK被解析吞了」
+      EvtLog.add('err', seen>0
+        ? `宏第${i+1}帧(命令0x${cmd.toString(16).toUpperCase()})30次无应答, 但等待期间收到 ${seen} 字节——ACK可能解析失败, 请截图发我`
+        : `宏第${i+1}帧(命令0x${cmd.toString(16).toUpperCase()})30次无应答且链路完全静默——板子状态异常; 若这轮测试没拔过USB, 务必断电5秒重插再等60秒`);
+      return false;
+    }
+    if(resp.result!==0){
+      if(TOLERATE[cmd]) EvtLog.add('sys',`命令0x${cmd.toString(16).toUpperCase()} 回错误码0x${resp.result.toString(16).toUpperCase()}(固件预期, 忽略)`);
+      else{
+        EvtLog.add('err',`宏第${i+1}帧(命令0x${cmd.toString(16).toUpperCase()})失败: 结果0x${resp.result.toString(16).toUpperCase()}, 本轮中止——自动重试会继续`);
+        return false;
+      }
+    }
+    await new Promise(r=>setTimeout(r,15));   // 与厂商工具一致的15ms帧间隔
+  }
+  // v0.6.0: 低速模式必须在脚本跑完之后设——宏里有一帧 WRITE_SYS_CMD(type=1,val=1) 会把抽稀冲回全速。
+  // 0xFE后板子开始喷流, 但命令口始终监听, 此刻把type=1设为N立即生效, 帧率不变仅码率÷N。
+  if(CFG.downRate>1){
+    const dr=await CmdLink.request(0x0012,[0x01,0x00,CFG.downRate,0x00,0x00,0x00,0x00],700);
+    if(dr && dr.result===0) EvtLog.add('ok','低速模式已生效: 数据量÷'+CFG.downRate+', 帧率不变');
+    else EvtLog.add('err','低速模式设置'+(dr?('被拒(result='+dr.result+')'):'无应答')+'——按全速运行');
+  }
+  EvtLog.add('sys','配置脚本完成, 全部应答正常——绿灯应亮起, 数据马上来');
+  return true;
+  }finally{ _cfgBusy=false; }
+}
+
+/* ---------------- 应用装配 ---------------- */
+const App = {
+  demux:null, assembler:null, tracker:null, gesture:null,
+  connected:false, running:false, simMode:false,
+  cloudCount:0, fpsT:0,
+  init(){
+    this.demux=new StreamDemux();
+    this.assembler=new FrameAssembler();
+    this.tracker=new Tracker();
+    this.gesture=new GestureEngine();
+    CloudView.init(); RDView.init(); EvtLog.init(); HexView.init();
+    if(window.__earlyErrs && window.__earlyErrs.length) window.__earlyErrs.splice(0).forEach(t=>EvtLog.add('err',t));
+    this._wire();
+    this._loadCfg();
+    // v0.8.2: URL 参数, 支持一块板一个窗口(双板双实例):
+    //   ?board=icl1122&bridge=ws://127.0.0.1:8768&out=ws://127.0.0.1:8899/lr
+    {
+      const qp=new URLSearchParams(location.search);
+      if(qp.get('board') && $('selBoard')){
+        $('selBoard').value=qp.get('board');
+        $('selBoard').dispatchEvent(new Event('change'));
+        EvtLog.add('sys','按 URL 参数切换目标板: '+qp.get('board'));
+      }
+      if(qp.get('bridge') && $('pBridgeUrl')){
+        $('pBridgeUrl').value=qp.get('bridge'); CFG.bridgeUrl=qp.get('bridge');
+        EvtLog.add('sys','按 URL 参数设置桥接地址: '+qp.get('bridge'));
+      }
+      if(qp.get('out') && $('pWsUrl')){
+        $('pWsUrl').value=qp.get('out');
+        EvtLog.add('sys','按 URL 参数设置事件输出: '+qp.get('out')+' (记得点「连接」)');
+      }
+    }
+    // v0.8.0: 跳/蹲检测器(DEV113P)。与 GestureEngine 旧几何判据互斥; 事件统一走 gesture 总线
+    JCPanel.init();
+    JCDet.swapIQ=CFG.swapIQ;
+    JCDet.observeOnly=true;   // v1 阈值在回放中证伪; 定稿 v2 前只观察不发游戏事件
+    JCDet.onState=s=>JCPanel.state(s);
+    JCDet.onEvent=ev=>{ JCPanel.flash(ev.type); if(!ev.observe) Bus.emit('gesture',{type:ev.type,t:Date.now(),x:0,h:0,peak:ev.peak}); };
+    // 数据管线
+    Serial.onBytes=b=>{ RawRec.push(b); this.demux.push(b); };
+    Sim.sink=b=>this.demux.push(b);   // 模拟器字节流走同一解析管线
+    Bus.on('chip-packet',p=>{
+      if(!this._firstPkt && !this.simMode){ this._firstPkt=true; EvtLog.add('sys','收到第一个数据包！链路打通'); }
+      this._pktN=(this._pktN||0)+1;
+      if(this._pktN%100===1) HexView.add(p.type+' rx'+p.rx+' c'+p.idx+' (抽样1/100)', p.raw, 64);
+      this.assembler.feed(p);
+      // v0.8.0: 跳/蹲检测器平行通路(仅 DEV113P 4RX+32门; 自做TX奇偶解交织DFT, 不依赖显示管线)
+      if(p.type==='FFT1D' && CFG.rxCount===4 && CFG.rangeBins===32) JCDet.push(p);
+    });
+    Bus.on('rd-map',m=>{
+      if(!this._firstFrame && !this.simMode){ this._firstFrame=true; EvtLog.add('sys','拼出第一帧雷达图！数据通路完全正常'); }
+      RDView.setMap(m); Cloud.fromRDMap(m);
+    });
+    Bus.on('peaks',pl=>Cloud.fromPeaks(pl));
+    Bus.on('cloud',c=>{
+      this.cloudCount++;
+      if(!this.running) return;
+      const trk=this.tracker.update(c);
+      this.gesture.update(trk);
+    });
+    Bus.on('cmd-resp',r=>{
+      HexView.add('RESP type=0x'+r.type.toString(16)+' res='+r.result, r.raw);
+      if(r.result!==0) EvtLog.add('sys','命令响应: 0x'+r.type.toString(16).toUpperCase()+' 结果='+r.result);
+    });
+    Bus.on('sys',m=>EvtLog.add('sys',m));
+    Bus.on('serial-err',e=>{
+      const n=U.now();   // 溢出风暴时限流: 前2条立即显示, 之后每10秒最多1条
+      if((this._errLogN||0)<2 || n-(this._lastErrLog||0)>10000){
+        this._errLogN=(this._errLogN||0)+1; this._lastErrLog=n;
+        EvtLog.add('sys','串口错误: '+(e&&e.message||e)+' (累计溢出 '+Serial.overruns+' 次)');
+      }
+    });
+    // v0.4.5: 读通道彻底卡死(重建5次仍零字节) → 整体重开串口+重新下发配置, 最多自动救2次
+    Bus.on('serial-dead',async ()=>{
+      const $=id=>document.getElementById(id); // v0.5.8: 本处理器用了$('taConfig')却从未定义$——自动恢复从未真正跑通过的根因
+      if(!this.connected || this.simMode) return;
+      this._deadN=(this._deadN||0)+1;
+      if(this._deadN>2){
+        EvtLog.add('err','串口多次卡死, 自动恢复失败——请拔 USB 等 5 秒重插, 等 20 秒后点「连接串口」');
+        return;
+      }
+      EvtLog.add('err','串口读通道卡死, 自动重开并重新配置…(第'+this._deadN+'次)');
+      await new Promise(r=>setTimeout(r,1000));
+      try{
+        await Serial.reopen(CFG.baud);
+        EvtLog.add('sys','串口已重开 @'+CFG.baud);
+        if(CFG.mode==='active') await runConfigScript($('taConfig').value);
+      }catch(e){ EvtLog.add('err','自动重开失败: '+e.message); }
+    });
+    Bus.on('gesture',e=>{
+      EvtRec.push(e); Ws.send(e);
+      if(e.type==='track') return;
+      const names={left_start:'◀ 左移',right_start:'右移 ▶',move_stop:'回中',jump:'⤒ 跳跃!',crouch_start:'⤓ 下蹲',crouch_end:'起身'};
+      EvtLog.add(e.type.split('_')[0], names[e.type]||e.type);
+      this._poseFlash(e.type);
+    });
+    Bus.on('calibrated',()=>{ document.getElementById('kvCal').textContent='已标定'; });
+    Bus.on('track',t=>this._posePanel(t));
+    // 渲染循环 (v0.5.1: try/catch加固, 异常进日志且循环不死)
+    const loop=()=>{
+     try{
+      // v0.5.5: 渲染限帧30fps——弱机60fps画布占满主线程时, 串口泵来不及取驱动缓冲会overrun
+      const tD=U.now();
+      if(!this._loopOk || tD-(this._lastDraw||0)>=33){ this._lastDraw=tD;
+      CloudView.draw(Cloud, this.tracker, this.gesture);
+      RDView.draw();
+      if(!this._loopOk){ this._loopOk=true; EvtLog.add('sys','渲染循环正常 (v'+APP_VER+')'); }
+      }
+      const now=U.now();
+      if(now-this.fpsT>500){
+        // v0.5.7: 只要还在出帧就重置serial-dead自救额度——活会话永不放弃自救
+        if(this.assembler.stats.frames>(this._frmSeen||0)){ this._frmSeen=this.assembler.stats.frames; this._deadN=0; }
+        const dt=now-this.fpsT;
+        document.getElementById('bdFps').textContent=(this.cloudCount*1000/dt).toFixed(1)+' fps';
+        document.getElementById('bdPts').textContent=Cloud.points.length+' 点';
+        const bps=(this.demux.stats.bytes-(this._lastB||0))*1000/dt; this._lastB=this.demux.stats.bytes;
+        document.getElementById('bdPkts').textContent='包 '+this.demux.stats.chip+' · '+(bps/1024).toFixed(0)+'KB/s';
+        document.getElementById('bdBad').textContent='错包 '+this.demux.stats.bad;
+        document.getElementById('bdFrm').textContent='帧 '+this.assembler.stats.frames;
+        this.cloudCount=0; this.fpsT=now;
+      }
+     }catch(ex){
+      if((this._loopErrN||0)<3){ this._loopErrN=(this._loopErrN||0)+1; EvtLog.add('err','渲染循环异常: '+(ex&&ex.message)); }
+     }
+      requestAnimationFrame(loop);
+    };
+    this.fpsT=U.now(); loop();
+    EvtLog.add('sys','v'+APP_VER+' 就绪。无硬件时可把「工作模式」切到模拟器体验完整链路。');
+    // ?demo=1: 直接进入模拟器自动演示
+    if(new URLSearchParams(location.search).get('demo')){
+      document.getElementById('selMode').value='sim';
+      this.toggleConnect().then(()=>{ Sim.auto=true; });
+    }
+  },
+  _wire(){
+    const $=id=>document.getElementById(id);
+    $('btnHelp').onclick=()=>$('dlgHelp').showModal();
+    $('btnConn').onclick=()=>this.toggleConnect();
+    $('btnStart').onclick=()=>{
+      this.running=!this.running;
+      $('btnStart').textContent=this.running?'停止':'开始';
+      EvtLog.add('sys', this.running?'识别已启动':'识别已暂停(数据仍在接收)');
+    };
+    $('btnCal').onclick=()=>this.gesture.calibrate();
+    $('selMode').onchange=e=>{
+      CFG.mode=e.target.value;
+      const hints={
+        listen:'被动监听串口数据流。注意: DEV113P 板上单片机会在上位机关闭串口后停止雷达输出(绿灯灭), 此时监听无数据, 请改用主动配置。仅在雷达仍在输出时(如其他设备在发数据)可用。',
+        active:'连接后自动下发目标板启动宏(由上方「目标板」选择 DEV113P/DEV202H, 均从厂商日志提取)并启动雷达,完全脱离上位机。推荐使用。',
+        sim:'内置模拟器:生成 ICL1240 真实格式的虚拟玩家数据流,走完整解析链路。按 1/2/3/4=左/右/跳/蹲, 5=自动演示。'
+      };
+      document.getElementById('modeHint').textContent=hints[CFG.mode];
+    };
+    $('selBaud').onchange=e=>CFG.baud=+e.target.value;
+    // v0.7.1: 目标板切换 —— 联动芯片格式/波特率/启动脚本(手改过的脚本先询问)
+    $('selBoard').onchange=e=>{
+      const p=BOARD_PRESETS[e.target.value];
+      if(!p) return;
+      $('pChip').value=p.chip;
+      $('selBaud').value=String(p.baud);
+      if(p.rangeRes) $('pRangeRes').value=p.rangeRes;
+      CFG.chip=p.chip; CFG.baud=p.baud;
+      if(p.rangeRes) CFG.rangeRes=p.rangeRes;
+      if(p.rangeBins) CFG.rangeBins=p.rangeBins;   // DEV202H=8门 / DEV113P=32门
+      if(p.rxCount) CFG.rxCount=p.rxCount;         // DEV202H=2RX / DEV113P=4RX
+      if(this.demux) this.demux.profile=ChipProfiles[CFG.chip]||ChipProfiles.icl1122;
+      const ta=$('taConfig');
+      const isBuiltin=(ta.value===CFG_SCRIPTS.icl1240||ta.value===CFG_SCRIPTS.icl1112);
+      let swapped=false;
+      if(isBuiltin || confirm('当前启动脚本被手动修改过。\n确定=替换为「'+p.label+'」内置脚本\n取消=保留当前脚本')){
+        ta.value=CFG_SCRIPTS[e.target.value]; swapped=true;
+      }
+      EvtLog.add('sys','目标板: '+p.label+' → 芯片格式='+p.chip+', 波特率='+p.baud+(swapped?', 启动脚本已切换':', 脚本保留手改版'));
+    };
+    $('btnSaveCfg').onclick=()=>{ localStorage.setItem('rpc_cfgscript',$('taConfig').value); EvtLog.add('sys','配置脚本已保存'); };
+    $('btnResetCfg').onclick=()=>{ const bd=$('selBoard').value; $('taConfig').value=CFG_SCRIPTS[bd]||DEFAULT_CFG_SCRIPT; };
+    $('btnWs').onclick=e=>Ws.toggle($('pWsUrl').value.trim(), e.target);
+    $('btnEvtRec').onclick=e=>EvtRec.toggle(e.target);
+    $('btnEvtDl').onclick=()=>EvtRec.download();
+    $('btnRawRec').onclick=e=>RawRec.toggle(e.target);
+    $('btnRawDl').onclick=()=>RawRec.download();
+    $('fileReplay').onchange=e=>{ if(e.target.files[0]) Replayer.run(e.target.files[0], this.demux); };
+    $('btnClearLog').onclick=()=>{ document.getElementById('evtLog').innerHTML=''; };
+    window.addEventListener('keydown',e=>{ if(this.simMode) Sim.key(e.key); });
+    window.addEventListener('resize',()=>{ CloudView._resize(); RDView._resize(); });
+    // 参数持久化
+    document.querySelectorAll('#colL input,#colL select').forEach(el=>{
+      el.addEventListener('change',()=>{
+        loadParams();
+        this.demux.profile = ChipProfiles[CFG.chip] || ChipProfiles.icl1122;
+        this._saveCfg();
+      });
+    });
+  },
+  async toggleConnect(){
+    const $=id=>document.getElementById(id);
+    if(this.connected){ await this._disconnect(); return; }
+    CFG.mode=$('selMode').value; CFG.baud=+$('selBaud').value; loadParams();
+    if(CFG.mode==='sim'){
+      this.simMode=true; this.connected=true; this.running=true;
+      Sim.start();
+      this._uiState('模拟器运行中');
+      EvtLog.add('sys','提示: 站不到雷达前也能标定——直接点「标定站立位置」');
+      return;
+    }
+    try{
+      EvtLog.add('sys', CFG.transport==='bridge' ? ('正在连接桥接助手 '+CFG.bridgeUrl+' …') : '请选择雷达串口(通常带 USB Serial / FTDI 字样)…');
+      await Serial.connect(CFG.baud);
+      this.connected=true;
+      if(CFG.mode==='active'){
+        await runConfigScript($('taConfig').value);
+      }
+      this.running=true;
+      this._uiState('已连接 · '+(CFG.mode==='listen'?'仅监听':'主动配置'));
+      EvtLog.add('sys','串口已连接 @'+CFG.baud+' (v'+APP_VER+', 缓冲1MB), 等待数据…');
+      RawRec.chunks=[]; RawRec.n=0; RawRec.on=true;   // v0.5.0: 连接即自动抓原始样本(6MB自停), 「下载原始流」可导出
+      // v0.4.4: 心跳(每5秒报链路状态, 截图即可定位)——首包/首帧喜报在 Bus 回调里
+      this._firstPkt=this._firstFrame=false;
+      this._noPktWarned=false; this._deadN=0; this._errLogN=0;
+      clearInterval(this._hbT);
+      this._hbT=setInterval(()=>{
+        if(!this.connected||this.simMode){ clearInterval(this._hbT); return; }
+        const s=this.demux.stats;
+        const bps=(s.bytes-(this._hbB||0))/5; this._hbB=s.bytes;
+        EvtLog.add('sys',`心跳: 字节${s.bytes} 包${s.chip} 帧${this.assembler.stats.frames} 溢出${Serial.overruns} · ${(bps/1024).toFixed(1)}KB/s`);
+        // v0.4.5: 有字节但永远拼不出包 = 数据损坏/格式不符, 点名提示
+        if(s.bytes>0 && s.chip===0 && !this._noPktWarned){
+          this._noPktWarned=true;
+          EvtLog.add('err','有字节流入但拼不出数据包 — 请点「下载原始流」把样本发我分析');
+        }
+      },5000);
+      // v0.4.6: 零数据自动重试改为「持续敲门」: 5s/15s后每20s一轮, 直到数据到来。
+      // 这板子SPI命令就绪时间个体差异大(实测远超20秒), 一次赌运气不如一直敲——
+      // 用户连上后放着不管即可, 哪一轮板子彻底就绪了宏就一次打满。
+      let retryN=0;
+      const resend=async()=>{
+        if(!this.connected || this.simMode || CFG.mode!=='active' || !this.demux) return;
+        if(this.demux.stats.bytes>0) return;          // 数据已来, 停止敲门
+        retryN++;
+        if(retryN>2 && retryN%3===0) EvtLog.add('err','仍未就绪: 若已超过 2 分钟, 请拔 USB 等 5 秒重插→等足 60 秒→再点连接');
+        EvtLog.add('sys','第'+retryN+'轮自动重发启动宏…');
+        try{ await runConfigScript($('taConfig').value); }
+        catch(e){ EvtLog.add('err','宏重发失败: '+e.message); }
+      };
+      setTimeout(resend,5000);
+      setTimeout(resend,15000);
+      clearInterval(this._retryT);
+      this._retryT=setInterval(resend,20000);
+    }catch(e){
+      EvtLog.add('sys','连接失败: '+e.message);
+    }
+  },
+  async _disconnect(){
+    const $=id=>document.getElementById(id);
+    clearInterval(this._hbT);   // v0.4.4: 停心跳
+    clearInterval(this._retryT); // v0.4.6: 停自动重试
+    if(this.simMode){ Sim.stop(); this.simMode=false; }
+    await Serial.close();
+    this.connected=false; this.running=false;
+    $('btnConn').textContent='连接串口';
+    $('btnStart').disabled=true; $('btnCal').disabled=true;
+    $('btnStart').textContent='开始';
+    document.getElementById('bdMode').textContent='未连接';
+    document.getElementById('dotConn').className='dot';
+    document.getElementById('txtConn').textContent='未连接';
+    EvtLog.add('sys','已断开');
+  },
+  _uiState(modeTxt){
+    const $=id=>document.getElementById(id);
+    $('btnConn').textContent='断开';
+    $('btnStart').disabled=false; $('btnCal').disabled=false;
+    $('btnStart').textContent='停止';
+    document.getElementById('bdMode').textContent=modeTxt;
+    document.getElementById('dotConn').className='dot on';
+    document.getElementById('txtConn').textContent=modeTxt;
+  },
+  _posePanel(t){
+    const $=id=>document.getElementById(id);
+    $('kvX').textContent=t.active? (t.x-this.gesture.x0).toFixed(2)+' m':'—';
+    $('kvR').textContent=t.active? t.y.toFixed(2)+' m':'—';
+    $('kvN').textContent=t.active? t.n:'—';
+    $('kvH').textContent=(t.active&&this.gesture.calibrated)? (this.gesture.rBase-t.rMin).toFixed(2)+' m':'—';
+    if(!this._poseTxt) this._poseTxt='—';
+    $('txtPose').textContent=t.active? this._poseTxt : '无人';
+    $('txtPoseSub').textContent=t.active? '目标跟踪中':'等待目标进入';
+  },
+  _poseFlash(type){
+    const el=document.getElementById('txtPose');
+    const map={left_start:'左移 ◀',right_start:'右移 ▶',move_stop:'站立',jump:'跳跃!',crouch_start:'下蹲',crouch_end:'站立'};
+    this._poseTxt=map[type]||this._poseTxt||'站立';
+    el.textContent=this._poseTxt;
+    const card=document.getElementById('cardPose');
+    card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash');
+    const colors={jump:'var(--ok)',crouch_start:'var(--warn)',left_start:'var(--acc)',right_start:'var(--acc)'};
+    el.style.color=colors[type]||'var(--txt)';
+  },
+  _saveCfg(){
+    const ids=['selBoard','pChip','pInvAng','pRangeRes','pVelRes','pDoppBins','pAntGap','pMountH','pTilt','pFrameIdle','pDownRate','pTransport','pBridgeUrl','pSnr','pVmin','pCluR','pLatTh','pJumpTh','pSmooth','selBaud','selMode','pWsUrl'];
+    const o={}; ids.forEach(id=>{ const el=document.getElementById(id); if(el) o[id]=el.value; });
+    o._v = APP_VER; localStorage.setItem('rpc_params', JSON.stringify(o));
+  },
+  _loadCfg(){
+    try{
+      const o=JSON.parse(localStorage.getItem('rpc_params')||'{}');
+      if(o._v===APP_VER){   // 只恢复同版本存档, 旧版本参数(可能是其他芯片的)一律作废
+        Object.entries(o).forEach(([id,v])=>{ const el=document.getElementById(id); if(el) el.value=v; });
+      }
+    }catch(e){}
+    const bv=document.getElementById('bdVer'); if(bv) bv.textContent='v'+APP_VER+'+icl1240';
+    // v0.7.1: 目标板联动恢复(存档无 selBoard 时默认 icl1240 = 旧行为, 完全兼容)
+    const bd=document.getElementById('selBoard');
+    const preset=BOARD_PRESETS[bd?bd.value:'icl1240']||BOARD_PRESETS.icl1240;
+    if(bd && !BOARD_PRESETS[bd.value]) bd.value='icl1240';
+    document.getElementById('pChip').value=preset.chip;
+    // 用户保存过的脚本优先(沿用旧逻辑), 否则用目标板内置脚本(按 selBoard 键索引, 不是 preset.chip)
+    document.getElementById('taConfig').value=localStorage.getItem('rpc_cfgscript')||CFG_SCRIPTS[bd?bd.value:'icl1240']||DEFAULT_CFG_SCRIPT;
+    loadParams();
+    if(preset.rangeBins) CFG.rangeBins=preset.rangeBins;   // 无 UI 输入, 只能在此联动
+    if(preset.rxCount) CFG.rxCount=preset.rxCount;
+    if(this.demux) this.demux.profile = ChipProfiles[CFG.chip] || ChipProfiles.icl1122;
+  }
+};
+
+window.APP={App, Cloud, Sim, Bus, CFG, Serial, CmdLink, ChipProfiles, patchFrameTiming, CloudView};
+window.addEventListener('DOMContentLoaded', ()=>App.init());
+</script>
+</body>
+</html>
