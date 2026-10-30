@@ -628,9 +628,11 @@ python tools/radar_bridge.py --from udp --udp-port 8889 --parse json --port 8767
 |---|---|---|---|
 | [@gf199lin](https://github.com/gf199lin) | 25% | 游戏引擎、雷达接入、整合与发布 | 可运行游戏、`v1.0.0-mvp`、Release |
 | [@hwx-666](https://github.com/hwx-666) | 25% | 账号体系、主菜单与 UI | 登录/游客模式、HUD、结算页 |
-| [@jqz070803](https://github.com/jqz070803) | 25% | 雷达数据采集与校准 | 校准向导、校准参数记录、数据评估 |
-| [@chawaicha](https://github.com/chawaicha) | 25% | 测试、文档与演示 | 验收用例、缺陷记录、演示材料 |
+| [@jqz070803](https://github.com/jqz070803) | 25% | 雷达数据采集与帧解析 | 采集方案、原始帧验证、动作标注 |
+| [@chawaicha](https://github.com/chawaicha) | 25% | 雷达校准与数据评估 | 校准向导、阈值标定、复测与质量评估 |
 
+> 雷达数据采集与校准由 @jqz070803、@chawaicha 共同承担（合计 50%）；
+> 测试、文档与演示由全组共同完成，@gf199lin 统筹。
 > 贡献以 GitHub 记录为准：本人 commit、Issue 评论、PR 中的 `@mention`，三者缺一不可。
 
 协作方式：功能改动走 `feature/*` 分支 → Pull Request → Squash merge；任务与验收标准在 Issue 中登记。
