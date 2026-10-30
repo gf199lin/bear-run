@@ -93,7 +93,11 @@
     learnMargin: 0.6,       // 学到的阈值 = 峰值 × margin
     thFloor: 0.30,          // 自适应下限（再低就是在噪声里触发）
     thCeil: 0.50,           // 自适应上限（config 现值，属占位值）
-    disableTh: 2            // 不可信时写入的阈值（jump/crouch 字段 0~1，>=1 不可达 => 彻底停用）
+    disableTh: 2,           // 不可信时写入的阈值（jump/crouch 字段 0~1，>=1 不可达 => 彻底停用）
+    // 跳/蹲总开关（默认开启）：
+    //   true  = 探针判噪也不再停用，只提示；历史存档里的 disableTh 自动修复
+    //   false = 回到 v2 的"不可信就停用、回退键盘"
+    forceJC: true
   };
 
   function opts() {
@@ -141,13 +145,24 @@
       var lrOk = (cal.lrOk === true) && isFinite(Number(cal.x0)) &&
         (cal.sign === 1 || cal.sign === -1);
       return !!(lrOk || cal.jumpOk === true || cal.crouchOk === true ||
-        cal.keyboardOnly === true || cal.upVerdict === 'noisy');
+        cal.keyboardOnly === true || cal.upVerdict === 'noisy' || cal.jcForced === true);
+    },
+
+    /** 跳/蹲是否强制开启（CFG.RADAR.forceJC 优先，其次 RADAR.calib.forceJC，默认 true） */
+    isForceJC: function () {
+      var cfg = RR.CFG && RR.CFG.RADAR;
+      if (cfg && cfg.forceJC !== undefined) return cfg.forceJC !== false;
+      var o = cfg && cfg.calib;
+      if (o && o.forceJC !== undefined) return o.forceJC !== false;
+      return DEFAULTS.forceJC !== false;
     },
 
     /**
      * 把学到的跳/蹲阈值写回 CFG.RADAR（InputSource.js 里 R === CFG.RADAR，所以是热的）。
      *   jumpOk  -> clamp(峰值 × learnMargin, thFloor, thCeil)
      *   不可信  -> disableTh（>=1，字段 0~1 不可达 => 雷达跳/蹲彻底停用，回退键盘）
+     * forceJC=true 时，历史存档里的 disableTh 会被就地修复成出厂阈值，
+     * 避免"上一次校准判了不可信，之后每次进游戏跳/蹲都永远打不开"。
      * 原值存在模块变量 _thOrig 里，不写进存档对象。
      */
     applyThresholds: function (cal) {
@@ -155,6 +170,19 @@
       if (!cfg || !cal) return false;
       if (_thOrig === null) {
         _thOrig = { jump: num(cfg.jumpThreshold, 0.5), crouch: num(cfg.crouchThreshold, 0.5) };
+      }
+      var forceJC = Calibration.isForceJC();
+      if (forceJC) {
+        var repaired = false;
+        if (num(cal.jumpTh, 0) >= 1) {
+          cal.jumpTh = _thOrig.jump; cal.jumpOk = true; repaired = true;
+        }
+        if (num(cal.crouchTh, 0) >= 1) {
+          cal.crouchTh = _thOrig.crouch; cal.crouchOk = true; repaired = true;
+        }
+        if (cal.upVerdict === 'noisy') cal.upVerdict = 'noisy-forced';
+        if (cal.jumpOk || cal.crouchOk) cal.jcForced = true;
+        if (repaired) Calibration.save(cal);
       }
       if (isFinite(Number(cal.jumpTh))) cfg.jumpThreshold = num(cal.jumpTh, _thOrig.jump);
       if (isFinite(Number(cal.crouchTh))) cfg.crouchThreshold = num(cal.crouchTh, _thOrig.crouch);
@@ -248,10 +276,13 @@
         }
       } else parts.push('左右未标定(键盘)');
       if (!cal.keyboardOnly) {
-        parts.push(cal.jumpOk ? ('跳跃 ' + num(cal.jumpTh, 0).toFixed(2)) : '跳跃(键盘)');
-        parts.push(cal.crouchOk ? ('下蹲 ' + num(cal.crouchTh, 0).toFixed(2)) : '下蹲(键盘)');
+        var jOn = cal.jumpOk || (cal.jcForced === true && isFinite(Number(cal.jumpTh)));
+        var cOn = cal.crouchOk || (cal.jcForced === true && isFinite(Number(cal.crouchTh)));
+        parts.push(jOn ? ('跳跃 ' + num(cal.jumpTh, 0).toFixed(2) + (cal.jumpOk ? '' : '(强制)')) : '跳跃(键盘)');
+        parts.push(cOn ? ('下蹲 ' + num(cal.crouchTh, 0).toFixed(2) + (cal.crouchOk ? '' : '(强制)')) : '下蹲(键盘)');
       }
       if (cal.upVerdict === 'noisy') parts.push('上游跳蹲不可信');
+      if (cal.upVerdict === 'noisy-forced') parts.push('上游跳蹲噪声偏高(已强制开启)');
       if (cal.probe && cal.probe.frames) {
         parts.push('静站误报 ' + num(cal.probe.jumpEvents, 0) + '跳/' +
           num(cal.probe.crouchEvents, 0) + '蹲@' + num(cal.probe.frames, 0) + '帧');
@@ -641,7 +672,9 @@
         this.messageKind = 'warn';
         return;
       }
-      if (this.upVerdict === 'noisy' || this.probeVerdict === 'noisy') {
+      var forceJC = this.opts.forceJC !== false;
+      var noisyForced = (this.upVerdict === 'noisy' || this.probeVerdict === 'noisy') && forceJC;
+      if ((this.upVerdict === 'noisy' || this.probeVerdict === 'noisy') && !forceJC) {
         this.jumpOk = false;
         this.crouchOk = false;
         this.upVerdict = 'noisy';
@@ -681,8 +714,10 @@
         this._nextStep();
         return;
       }
-      this.message = '跳一下…';
-      this.messageKind = '';
+      this.message = noisyForced
+        ? '跳一下…（静站误报偏多，但跳/蹲已强制开启，按正常幅度跳即可）'
+        : '跳一下…';
+      this.messageKind = noisyForced ? 'warn' : '';
     }
 
     /** 第 5 步（蹲）：同 _stepJump，判据换成 crouch 字段 */
@@ -706,7 +741,9 @@
         this.messageKind = 'warn';
         return;
       }
-      if (this.upVerdict === 'noisy' || this.probeVerdict === 'noisy') {
+      var forceJC = this.opts.forceJC !== false;
+      var noisyForced = (this.upVerdict === 'noisy' || this.probeVerdict === 'noisy') && forceJC;
+      if ((this.upVerdict === 'noisy' || this.probeVerdict === 'noisy') && !forceJC) {
         this.upVerdict = 'noisy';
         this.crouchOk = false;
         this.message = '雷达下蹲信号不可信（静站误报太多），已停用，用键盘 ↓ 蹲。';
@@ -741,8 +778,10 @@
         this._nextStep();
         return;
       }
-      this.message = '蹲一下…';
-      this.messageKind = '';
+      this.message = noisyForced
+        ? '蹲一下…（静站误报偏多，但跳/蹲已强制开启，按正常幅度蹲即可）'
+        : '蹲一下…';
+      this.messageKind = noisyForced ? 'warn' : '';
     }
 
     // ---------- 帧事件钩子（由外部把 decoder 事件喂进来） ----------
@@ -883,7 +922,10 @@
     _composeResult(x0, sign, lrOk, jumpOk, crouchOk, sourceRadar) {
       var o = this.opts;
       var verdict = this.upVerdict || this.probeVerdict;
-      var noisy = verdict === 'noisy';
+      // forceJC：探针判噪只降级为提示，不再把跳/蹲写死停用
+      var forceJC = o.forceJC !== false;
+      var forcedNoisy = (verdict === 'noisy') && forceJC;
+      var noisy = (verdict === 'noisy') && !forceJC;
       var tested = !!this._jcTested;
 
       var jOk = !noisy && !!jumpOk;
@@ -891,13 +933,18 @@
       var jPeak = num(this.jumpPeak, 0), cPeak = num(this.crouchPeak, 0);
 
       var jTh, cTh;
-      if (noisy || (tested && !jOk)) jTh = o.disableTh;
+      if (noisy || (tested && !jOk && !forceJC)) jTh = o.disableTh;
       else if (jOk) jTh = clamp(jPeak * o.learnMargin, o.thFloor, o.thCeil);
-      else jTh = undefined;
+      else if (forceJC) {
+        // 强开：玩家确实试过就用他自身的峰值；没测到就保持出厂阈值（仍可触发）
+        jTh = jPeak > 0 ? clamp(jPeak * o.learnMargin, o.thFloor, o.thCeil) : o.thCeil;
+      } else jTh = undefined;
 
-      if (noisy || (tested && !cOk)) cTh = o.disableTh;
+      if (noisy || (tested && !cOk && !forceJC)) cTh = o.disableTh;
       else if (cOk) cTh = clamp(cPeak * o.learnMargin, o.thFloor, o.thCeil);
-      else cTh = undefined;
+      else if (forceJC) {
+        cTh = cPeak > 0 ? clamp(cPeak * o.learnMargin, o.thFloor, o.thCeil) : o.thCeil;
+      } else cTh = undefined;
 
       // ---- v3：量程（增益）校准 ----
       // sideA/sideB 是玩家"向左/向右走一步"时的 x（进向导时增益已归 1，所以是原始量程）。
@@ -932,8 +979,9 @@
           spuriousFrames: this.probe.spuriousFrames,
           rate: this.probe.frames ? this.probe.spuriousFrames / this.probe.frames : 0
         },
-        upVerdict: verdict,
+        upVerdict: forcedNoisy ? 'noisy-forced' : verdict,
         jcTested: tested,
+        jcForced: forceJC,
         source: sourceRadar ? (this.usedKeyboard ? 'mixed' : 'radar') : 'keyboard',
         unreliable: !lrOk,
         debug: { left: this.sideA, right: this.sideB, spread: this._spread() }
@@ -991,7 +1039,7 @@
       if (isFinite(Number(this.result.xGain))) this._setLiveGain(num(this.result.xGain, 1));
       // 左右和上下都没拿到证据 => 没有可保存的内容（下次还会自动引导）
       var r = this.result;
-      if (r.lrOk || r.jumpOk || r.crouchOk || r.keyboardOnly || r.upVerdict === 'noisy') {
+      if (r.lrOk || r.jumpOk || r.crouchOk || r.keyboardOnly || r.jcForced || r.upVerdict === 'noisy') {
         Calibration.save(r);
       } else {
         Calibration.clear();
