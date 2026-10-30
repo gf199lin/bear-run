@@ -41,13 +41,13 @@ goto menu
 :play
 cls
 echo.
-echo  [1/2] starting game page server on port 8801 ...
+echo  [1/2] starting local console (page + radar api) on port 8801 ...
 netstat -ano | findstr ":8801 " | findstr "LISTENING" >nul 2>&1
 if errorlevel 1 (
-  start "game-8801" /MIN cmd /k %PY% -m http.server 8801 --directory .
+  start "radar-console" /MIN cmd /k %PY% "radar-service\webcontrol.py"
   timeout /t 2 >nul
 ) else (
-  echo        port 8801 already in use - assuming the page server is running.
+  echo        port 8801 already in use - assuming the console is running.
 )
 echo.
 echo  [2/2] detecting radar and starting streams ...
@@ -65,7 +65,11 @@ echo.
 echo  opening the game page ...
 start "" "http://127.0.0.1:8801/index.html?input=radar&radar=ws://127.0.0.1:8766&radar2=ws://127.0.0.1:8767"
 echo.
-echo  Done. Close this window when finished.
+echo  Done. Look at the bottom-right corner of the game page:
+echo    radar panel  -  green dot = connected, grey = not connected
+echo    buttons      -  connect / disconnect radar, open point cloud
+echo.
+echo  Close this window when finished.
 echo  To stop the radar streams later use option [5].
 echo.
 pause
