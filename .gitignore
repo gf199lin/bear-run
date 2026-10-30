@@ -2,13 +2,29 @@
 # 熊二快跑 · Bear Run —— 不纳入版本控制的文件
 # ==========================================
 # 说明：被忽略的文件仍留在你本地，只是不会被提交到 GitHub。
-# 这样老师 clone 下来的仓库就是干净的游戏本体。
+# 这样老师 clone 下来的仓库就是干净的游戏本体 + 可直接运行的演示资产。
 
 # ---- 开发调试用页面（游戏本体不依赖，index.html 照常运行）----
 _*.html
 
-# ---- 雷达回放录制数据（体积大、且是本地游玩产物）----
-_radarreplay/
+# ---- 雷达回放数据 ----
+# 已确认可公开，作为 ?input=replay 的演示资产保留，不再忽略。
+# 后续新增的大体积录制文件请放到 radar-service/captures/（已忽略）。
+
+# ---- 依赖库（禁止提交）----
+node_modules/
+radar-agent/node_modules/
+radar-agent/runtime/
+venv/
+.venv/
+env/
+
+# ---- 构建产物 / 缓存 ----
+dist/
+build/
+.cache/
+__pycache__/
+*.pyc
 
 # ---- 操作系统自动生成的文件 ----
 Thumbs.db
@@ -20,13 +36,10 @@ desktop.ini
 .idea/
 *.swp
 
-# ---- 临时文件与日志 ----
+# ---- 本地工作区与临时文件 ----
+.deepworks/
 *.log
 tmp/
-
-# ---- Python 缓存（工具脚本运行产物）----
-__pycache__/
-*.pyc
 
 # ---- 雷达服务运行时产物（采集数据、推流日志、环境底噪基线）----
 radar-service/captures/
