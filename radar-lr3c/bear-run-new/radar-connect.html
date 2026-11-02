@@ -173,12 +173,22 @@
       <div class="metric"><b>上下 · confidence</b><i id="v2-conf">—</i><small id="v2-conf-th">阈值 —</small></div>
       <div class="metric"><b>上下 · 帧率 / 帧数</b><i id="v2-rate">—</i><small id="v2-frames">0 帧</small></div>
       <div class="metric"><b>上下 · 延迟</b><i id="v2-lat">—</i><small id="v2-last">还没收到帧</small></div>
+      <div class="metric"><b>上下 · 判据</b><i id="v2-reason">—</i><small id="v2-dev">pitch / 基线 / 偏离</small></div>
     </div>
 
     <canvas id="wave" width="1200" height="220"></canvas>
     <div class="hint">
       蓝线 = 左右雷达 x（−1 左 … +1 右）；橙线 = 上下雷达 jump（0~1）；紫虚线 = 上下雷达 crouch。
       黄虚线是 <code>enterThreshold</code> 车道线。某条线贴在水平线上不动 = 那一路没采到人 / 数值恒定。
+    </div>
+    <div class="hint">
+      <b>「上下 · 判据」</b>取自上下雷达帧的 <code>raw.reason</code>：
+      <code>up_peak_short_strong</code> = 判跳（上冲够强且≤3 帧）、
+      <code>down_trough_sustained</code> = 判蹲（下沉够深且持续）、
+      <code>ambiguous</code> = 动了但方向不明确（不出事件）、
+      <code>below_min_dev</code> = 没动。<br>
+      判据按「期望形态」写：跳应表现为<b>短促上冲</b>，蹲应表现为<b>持续下沉</b>；
+      帧率低于 5 Hz 时跳只能采到 1 帧，方向本就不稳。
     </div>
   </div>
 
@@ -536,6 +546,23 @@ raw         原始数据（可选），调试面板会展示</pre>
     var ts = num(f.ts, 0);
     if (ts > 1e12) S2.lat.push(Math.max(0, Date.now() - ts));
     if (S2.lat.length > 30) S2.lat.shift();
+
+    // 判据可视化：让"为什么判跳/蹲"在页面上可查
+    var rr = f.raw || {};
+    var elR = $('v2-reason'), elD = $('v2-dev');
+    if (elR) {
+      elR.textContent = rr.reason || '—';
+      elR.style.color = (rr.reason === 'up_peak_short_strong' ||
+                         rr.reason === 'down_trough_sustained')
+        ? 'var(--gold)' : '';
+    }
+    if (elD) {
+      var pv = (typeof rr.pitch === 'number') ? rr.pitch : '—';
+      var bv = (typeof rr.baseline === 'number') ? rr.baseline : '—';
+      var hv = (typeof rr.hi === 'number') ? (rr.hi >= 0 ? '+' : '') + rr.hi : '—';
+      var lv = (typeof rr.lo === 'number') ? (rr.lo >= 0 ? '+' : '') + rr.lo : '—';
+      elD.textContent = 'pitch ' + pv + ' / 基线 ' + bv + ' / hi ' + hv + ' lo ' + lv;
+    }
 
     // 双雷达时跳/蹲来自这一路 —— 静息误报自检也得看这一路
     if (S.still) stillTick(f);

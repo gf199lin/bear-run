@@ -1,0 +1,72 @@
+{
+ "rows": [
+  {
+   "tag": "seg-lr2/1",
+   "name": "seg_00.70.bin",
+   "signL": 1.0,
+   "thr": 0.38059409601389205,
+   "hitL": 4,
+   "totL": 8,
+   "hitR": 8,
+   "totR": 8,
+   "lat_med": 1.164999999999992
+  },
+  {
+   "tag": "seg-lr2/1",
+   "name": "seg_01.00.bin",
+   "signL": 1.0,
+   "thr": 0.6754175324732866,
+   "hitL": 4,
+   "totL": 8,
+   "hitR": 6,
+   "totR": 8,
+   "lat_med": 1.2950000000000017
+  },
+  {
+   "tag": "seg-lr2/jqz",
+   "name": "seg_00.70.bin",
+   "signL": 1.0,
+   "thr": 0.6269707219618728,
+   "hitL": 3,
+   "totL": 8,
+   "hitR": 2,
+   "totR": 8,
+   "lat_med": 1.554000000000002
+  },
+  {
+   "tag": "seg-lr2/jqz",
+   "name": "seg_01.00.bin",
+   "signL": 1.0,
+   "thr": 0.7121739334800563,
+   "hitL": 5,
+   "totL": 8,
+   "hitR": 8,
+   "totR": 8,
+   "lat_med": 1.2950000000000017
+  },
+  {
+   "tag": "oncehot-oncehot/lr",
+   "name": "seg_00.70.bin",
+   "signL": -1.0,
+   "thr": 1.282952995714663,
+   "hitL": 4,
+   "totL": 4,
+   "hitR": 0,
+   "totR": 4,
+   "lat_med": 1.4245000000000019
+  },
+  {
+   "tag": "oncehot-oncehot/lr",
+   "name": "seg_00.85.bin",
+   "signL": -1.0,
+   "thr": 0.8167260683877686,
+   "hitL": 4,
+   "totL": 4,
+   "hitR": 0,
+   "totR": 4,
+   "lat_med": 1.554000000000002
+  }
+ ],
+ "hit": 48,
+ "n": 80
+}

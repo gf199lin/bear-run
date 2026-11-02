@@ -59,7 +59,7 @@ set GAME_DIR=bear-run && set GAME_PORT=8770 && python tools\serve_bear_run.py   
 | 通道 | 端口 | 板子 | 角色 | 启动命令 |
 |---|---|---|---|---|
 | 左右换道 | 8766 | 1T2R (COM3) | `lr` | `python tools\bear_run_radar_launcher.py --no-open` |
-| 上下跳蹲 | 8767 | 2T4R (COM4) | `ud` | `python dual-radar-kit\tools\radar_live_ws.py --port COM4 --ws-port 8767 --role ud` |
+| 上下跳蹲 | 8767 | 2T4R (COM4) | `ud` | `python tools\jumpduck_ws.py --port COM4 --ws-port 8767` |
 
 两条桥可以同时跑，互不干扰（各自独立进程、独立串口）。
 
@@ -70,8 +70,11 @@ set GAME_DIR=bear-run && set GAME_PORT=8770 && python tools\serve_bear_run.py   
 8767  2T4R  1.9 fps  客户端=1  zero=-8.69
 ```
 
-> 8767 只跑通「链路 + 数据格式」，跳/蹲判定精度仍属 P0 未验证路径
-> （`docs/jump-duck-verification-plan.md`），且 2T4R 仅 1.9 Hz，手感粗。
+> 8767 用独立桥 `tools/jumpduck_ws.py`（**不要**再用 `radar_live_ws.py --role ud`：
+> 它经 `build_pipeline` 只拿到 2T4R 的前两个 RX，拿不到完整俯仰阵列）。
+> 跳/蹲判定精度仍属 P0 未验证路径：2026-11-02 的离线审计显示现有数据
+> 方向准确率 55.8%，模型 `usable=false`。程序用法与门槛见
+> `docs/jump-duck-recognizer.md`，数据结论见 `docs/jump-duck-data-audit.md`。
 
 ## 4. 数据协议
 
@@ -185,8 +188,18 @@ set GAME_DIR=bear-run && set GAME_PORT=8770 && python tools\serve_bear_run.py   
 说明该路数值恒为 0、没采到有效动作。
 
 **Q：跳/蹲没反应？**
-默认 `--role lr` 只驱动左右。跳/蹲仍属 P0 未验证路径（`docs/jump-duck-verification-plan.md`），
-要试可另起 8767 上下桥（§3），但不保证手感。
+默认 `--role lr` 只驱动左右。跳/蹲要另起 8767 上下桥：
+
+```bash
+python tools\jumpduck_ws.py --port COM4 --ws-port 8767
+```
+
+**默认判据是「期望形态」规则**（`--rule prior`，`models/jumpduck-prior.json`）：
+跳 = 短促上冲、蹲 = 持续下沉，用「幅度 + 持续帧数 + 两者比例」判定。
+动作窗口方向准确率 **57.5%**（LOSO），**静止误报 0%**；方向仍接近随机，
+所以 `usable=false`。链路能通、事件会出、联调台能看到 `raw.reason`，
+但方向不可信。要真正可用必须先重采满足 `EXPECTED_SPEC` 的原始帧，
+见 `docs/jump-duck-recognizer.md` §8。
 
 ## 9. 相关文件
 
@@ -196,7 +209,10 @@ set GAME_DIR=bear-run && set GAME_PORT=8770 && python tools\serve_bear_run.py   
 | `启动-雷达连游戏.cmd` | 旧入口（只起桥，会打开 https 页面，已不推荐） |
 | `tools/bear_run_radar_launcher.py` | 启动器：识别串口 + 起 WS + 开页面 |
 | `tools/serve_bear_run.py` | 本地 http 托管游戏页（绕 https 拦截） |
-| `dual-radar-kit/tools/radar_live_ws.py` | 真正的桥：点云 → 事件 → WS 帧 |
+| `dual-radar-kit/tools/radar_live_ws.py` | 左右桥：点云 → 事件 → WS 帧 |
+| `tools/jumpduck_ws.py` | 跳蹲桥：2T4R 原始帧 → 俯仰角 → 模型 → WS 帧（role=ud） |
+| `tools/jumpduck_capture.py` | 跳蹲原始帧采集（保存 4×RX 复数据 + 真值） |
+| `tools/train_jumpduck.py` | 跳蹲模型训练 + 留一会话验证 + 导出 |
 | `radar-pointcloud/radar_source.py` | 串口自动识别 + 2T4R 自动唤醒 |
 | `radar-pointcloud/radar_boot_2t4r.py` | 启动序列重放 |
 | `bear-run-new/` | 新版游戏源码（含 `radar-connect.html` 联调台） |
