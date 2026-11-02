@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """数据源: 串口实时 / 录制文件回放 / 合成。"""
+import os
 import time
 
 import numpy as np
@@ -46,7 +47,10 @@ BOARD_PROFILES = {
         'baud': 1500000,
         'vidpid': ('0403:6001',),
         'desc_hints': ('ftdi', 'ft232'),
-        'bins': 32, 'chirps': 64, 'rx': 4,
+        # chirps 必须与 Radar_Config.ini 的 ChirpsPerFrame 一致，否则一帧都凑不齐。
+        # 改了 ini 就设环境变量 RADAR_2T4R_CHIRPS=16，全链路（采集/回放/校准）自动跟随，
+        # 不必逐处改代码。见 docs/jump-duck-sampling-limit.md §5A。
+        'bins': 32, 'chirps': int(os.environ.get('RADAR_2T4R_CHIRPS', '64') or 64), 'rx': 4,
         'f0': 24.5005e9, 'bandwidth': 999e6, 'range_res': 0.1500,
         'ant_spacing': 5.900e-3, 'chirp_period': 520840e-6 / 64,
         'v_max': 0.376, 'v_res': 0.01175,
@@ -109,11 +113,18 @@ def probe_board(port=None, prefer=(DEFAULT_PORT,)):
     return None
 
 
-def make_protocol(board):
-    """按板型返回 (StreamParser, FrameAssembler) 实例。"""
+def make_protocol(board, chirps=None):
+    """按板型返回 (StreamParser, FrameAssembler) 实例。
+
+    chirps 只对 2T4R 有意义，且**必须与雷达 Radar_Config.ini 的
+    ChirpsPerFrame 一致**：DEV113P 组帧要求 `4 RX × chirps` 全部填满才出帧，
+    配置 16 而这里仍按 64 收，会一帧都凑不齐（全部记 dropped）。
+    见 docs/jump-duck-sampling-limit.md §5A。
+    """
     if board == '2t4r':
         from radar_protocol_dev113p import StreamParser as PS, FrameAssembler as FA
-        return PS(), FA()
+        n = int(chirps) if chirps else int(BOARD_PROFILES['2t4r']['chirps'])
+        return PS(), FA(chirps=n)
     from radar_protocol import StreamParser as PS, FrameAssembler as FA
     return PS(), FA()
 
@@ -123,15 +134,19 @@ def profile_for(board=None):
     return BOARD_PROFILES.get(board) or BOARD_PROFILES[DEFAULT_BOARD]
 
 
-def frame_period(board=None):
+def frame_period(board=None, chirps=None):
     """**雷达帧周期（秒）—— 全项目时间轴的唯一来源。**
 
     1T2R = 129.5e-3/64 × 64 = 0.1295 s；2T4R = 520840e-6/64 × 64 = 0.520840 s。
     ⚠ 采集 / 真值标注 / 离线分析三处必须用**同一板型**的同一个值：2T4R 若误用
       1T2R 的 0.1295 s，时间轴会整体偏快 4.02 倍（真值区间与数据的对齐直接作废）。
+
+    chirps 给定时按它算（改过 Radar_Config.ini 的 ChirpsPerFrame 之后必须传，
+    否则时间轴仍按旧的 64 帧算，慢 4 倍）。
     """
     p = profile_for(board)
-    return float(p['chirp_period']) * int(p['chirps'])
+    n = int(chirps) if chirps else int(p['chirps'])
+    return float(p['chirp_period']) * n
 
 
 def range_res(board=None):
