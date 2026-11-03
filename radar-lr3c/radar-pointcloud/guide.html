@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>左右移采集引导</title>
+<style>
+  :root{
+    --bg:#0a0e14; --fg:#e6edf6; --dim:#7c8a9e; --line:#1c2634;
+    --accent:#f59e0b;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg); color:var(--fg);
+    font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    display:flex; flex-direction:column; height:100vh; overflow:hidden;
+    transition:background .25s;
+  }
+  header{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:18px 28px; border-bottom:1px solid var(--line);
+    font-size:15px; color:var(--dim); letter-spacing:.03em;
+  }
+  header b{color:var(--fg); font-weight:600; font-variant-numeric:tabular-nums}
+  .chip{padding:3px 10px; border:1px solid var(--line); border-radius:999px; margin-left:8px}
+  main{
+    flex:1; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:10px; position:relative;
+  }
+  .ring{position:relative; width:min(46vh,340px); height:min(46vh,340px)}
+  .ring svg{transform:rotate(-90deg); width:100%; height:100%}
+  .ring .track{stroke:#16202d; stroke-width:10; fill:none}
+  .ring .bar{stroke:var(--accent); stroke-width:10; fill:none;
+    stroke-linecap:round; transition:stroke .25s}
+  .ring .inner{
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:2px;
+  }
+  .action{font-size:clamp(44px,7.2vh,96px); font-weight:800; letter-spacing:.02em;
+    line-height:1; transition:color .25s}
+  .secs{font-size:clamp(26px,4.2vh,52px); font-weight:300; color:var(--dim);
+    font-variant-numeric:tabular-nums}
+  .hint{
+    max-width:min(90vw,860px); text-align:center; font-size:clamp(15px,2vh,21px);
+    color:var(--dim); line-height:1.6; padding:0 20px; min-height:2.6em;
+  }
+  .hint b{color:var(--fg); font-weight:600}
+  footer{padding:16px 28px 22px; border-top:1px solid var(--line)}
+  .scale{position:relative; height:56px}
+  .scale .rail{position:absolute; left:0; right:0; top:26px; height:2px; background:var(--line)}
+  .scale .mid{position:absolute; top:12px; bottom:12px; width:2px; background:#3d5470;
+    left:50%; transform:translateX(-1px)}
+  .scale .mid::after{content:"中线"; position:absolute; top:-14px; left:50%;
+    transform:translateX(-50%); font-size:11px; color:#5b7a9e}
+  .scale .ptr{position:absolute; top:14px; width:6px; height:26px; border-radius:3px;
+    background:var(--accent); transform:translateX(-3px); transition:left .12s linear}
+  .scale .tick{position:absolute; top:22px; width:1px; height:10px; background:#243244}
+  .scale .tick span{position:absolute; top:14px; font-size:10px; color:#4b5c72;
+    transform:translateX(-50%)}
+  .readout{display:flex; gap:26px; font-size:14px; color:var(--dim);
+    margin-top:6px; font-variant-numeric:tabular-nums}
+  .readout b{color:var(--fg)}
+  .ok{color:#22c55e !important}
+  .bad{color:#ef4444 !important}
+  .err{position:absolute; bottom:16px; left:50%; transform:translateX(-50%);
+    color:#ef4444; font-size:15px}
+  .done .action{color:#22c55e}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    站位 <b id="dist">-</b> m
+    <span class="chip">中线 <b id="center">-</b></span>
+    <span class="chip">进度 <b id="prog">0/0</b></span>
+  </div>
+  <div>帧 <b id="frames">0</b> <span class="chip"><b id="fps">0</b> fps</span></div>
+</header>
+
+<main id="main">
+  <div class="ring">
+    <svg viewBox="0 0 240 240">
+      <circle class="track" cx="120" cy="120" r="110"></circle>
+      <circle class="bar" id="bar" cx="120" cy="120" r="110"
+              stroke-dasharray="691.15" stroke-dashoffset="691.15"></circle>
+    </svg>
+    <div class="inner">
+      <div class="action" id="action">启动中</div>
+      <div class="secs" id="secs">—</div>
+    </div>
+  </div>
+  <div class="hint" id="hint">正在连接采集器…</div>
+</main>
+
+<footer>
+  <div class="scale" id="scale">
+    <div class="rail"></div>
+    <div class="mid"></div>
+    <div class="ptr" id="ptr" style="left:50%"></div>
+  </div>
+  <div class="readout">
+    <div>方位角 <b id="az">—</b>°</div>
+    <div>偏离中线 <b id="dev">—</b>°</div>
+    <div>横向 <b id="px">—</b> m</div>
+    <div>距离 <b id="r">—</b> m</div>
+  </div>
+</footer>
+<div class="err" id="err"></div>
+
+<script>
+const C = 2 * Math.PI * 110;
+const PHASE = {
+  boot:   {color:'#64748b', word:'启动中'},
+  lead:   {color:'#64748b', word:'站定'},
+  prep:   {color:'#f59e0b', word:'准备'},
+  move:   {color:'#22c55e', word:'移动'},
+  settle: {color:'#6366f1', word:'回中'},
+  rest:   {color:'#a855f7', word:'静止'},
+  other:  {color:'#64748b', word:'进行中'},
+  done:   {color:'#22c55e', word:'完成'}
+};
+
+const el = id => document.getElementById(id);
+let scaleDrawn = false;
+
+function drawScale(center) {
+  const s = el('scale');
+  s.querySelectorAll('.tick').forEach(n => n.remove());
+  const lo = center - 60, hi = center + 60;
+  for (let d = lo; d <= hi; d += 15) {
+    const pct = (d - lo) / (hi - lo) * 100;
+    const t = document.createElement('div');
+    t.className = 'tick';
+    t.style.left = pct + '%';
+    t.innerHTML = '<span>' + Math.round(d) + '</span>';
+    s.appendChild(t);
+  }
+  scaleDrawn = true;
+}
+
+function paint(s) {
+  const ph = PHASE[s.phase] || PHASE.other;
+  document.documentElement.style.setProperty('--accent', ph.color);
+
+  let word = ph.word;
+  if (s.phase === 'move') word = s.action === 'LEFT' ? '← 左移' : (s.action === 'RIGHT' ? '右移 →' : '移动');
+  el('action').textContent = word;
+
+  const remain = s.remain || 0;
+  const dur = s.dur || 0;
+  el('secs').textContent = s.done ? '已完成' : remain.toFixed(1) + ' s';
+  const frac = dur > 0 ? Math.max(0, Math.min(1, remain / dur)) : 0;
+  el('bar').setAttribute('stroke-dashoffset', String(C * (1 - frac)));
+
+  el('hint').textContent = s.text || '';
+  el('dist').textContent = s.dist ? s.dist.toFixed(2) : '-';
+  el('center').textContent = (s.center >= 0 ? '+' : '') + s.center.toFixed(1);
+  el('prog').textContent = (s.move_no || 0) + '/' + (s.move_total || 0);
+  el('frames').textContent = s.frames || 0;
+  el('fps').textContent = s.fps || 0;
+
+  if (!scaleDrawn) drawScale(s.center || 0);
+  const lo = (s.center || 0) - 60, hi = (s.center || 0) + 60;
+  if (s.az !== null && s.az !== undefined) {
+    el('az').textContent = (s.az >= 0 ? '+' : '') + s.az.toFixed(1);
+    el('ptr').style.left = Math.max(0, Math.min(100, (s.az - lo) / (hi - lo) * 100)) + '%';
+    el('dev').textContent = (s.dev >= 0 ? '+' : '') + s.dev.toFixed(1);
+    el('px').textContent = (s.px >= 0 ? '+' : '') + s.px.toFixed(2);
+    el('r').textContent = s.r.toFixed(2);
+    const onLine = Math.abs(s.dev) <= 8;
+    el('dev').className = onLine ? 'ok' : 'bad';
+  } else {
+    el('az').textContent = '—';
+    el('dev').textContent = '—';
+    el('px').textContent = '—';
+    el('r').textContent = '—';
+  }
+
+  el('err').textContent = s.err || '';
+  document.body.classList.toggle('done', !!s.done);
+}
+
+async function loop() {
+  try {
+    const r = await fetch('/state', {cache: 'no-store'});
+    paint(await r.json());
+  } catch (e) {
+    el('hint').textContent = '与采集器的连接已断开（采集可能已结束）';
+  }
+  setTimeout(loop, 150);
+}
+loop();
+</script>
+</body>
+</html>

@@ -35,6 +35,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 from radar_dsp import PointCloudProcessor          # noqa: E402
 from radar_source import SerialSource, ReplaySource, build_pipeline   # noqa: E402
 import radar_actions as ra                          # noqa: E402
+import radar_center                                 # noqa: E402
 
 ESC = '\033'
 GREEN = ESC + '[92m'
@@ -85,6 +86,7 @@ class Board(object):
     def __init__(self, args, color=True):
         self.args = args
         self.color = color
+        self.center = float(getattr(args, 'center_az', 0.0) or 0.0)
         self.rows = []          # (t, frame, az, px, r_mean, npts)
         self.frames = 0
         self.det_frames = 0
@@ -130,8 +132,9 @@ class Board(object):
             return
         if v['az'] is None:
             return
-        if self.best is None or abs(v['az']) < self.best[0]:
-            self.best = (abs(v['az']), v['az'], time.time() - (self.t0 or 0))
+        d = v['az'] - self.center
+        if self.best is None or abs(d) < self.best[0]:
+            self.best = (abs(d), d, time.time() - (self.t0 or 0))
 
     def _emit(self, lines):
         text = '\n'.join(lines) + '\n'
@@ -154,7 +157,8 @@ class Board(object):
         add = o.append
         add(CLEAR if self.color else '')
         add(BOLD + '=' * 68 + OFF)
-        add(BOLD + '   对准实时助手' + OFF + GREY + '  —— 调雷达朝向，让静息方位角回到 0 附近' + OFF)
+        add(BOLD + '   对准实时助手' + OFF + GREY
+            + '  —— 让读数回到「最佳中线」，不是回到法线' + OFF)
         src = ('回放 ' + os.path.basename(a.replay)) if a.replay else ('实机 ' + a.port)
         add('   %s   %s帧 %d' % (src, (stats or {}).get('board', '') and
                                   '[%s] ' % stats['board'] or '', self.frames))
@@ -164,7 +168,8 @@ class Board(object):
         if v is None:
             add(YELLOW + BOLD + '   预热中：目标还没站稳，或自动选带还没锁定（约需 30 帧 ≈ 4 s）' + OFF)
             add('')
-            add(GREY + '   让一个人站在雷达正前方的主站位（0.70 m），站稳不要动。' + OFF)
+            add(GREY + '   让人站到信号最好的那个位置（最佳中线 %+.1f 度），站稳不要动。'
+                % self.center + OFF)
             add(GREY + '   这一步只调朝向，不要一边看屏幕一边晃身体。' + OFF)
             add('')
             add(BOLD + '=' * 68 + OFF)
@@ -175,25 +180,31 @@ class Board(object):
         def mark(ok):
             return (GREEN + '  [ 达标 ]' + OFF) if ok else (RED + '  [ 不达标 ]' + OFF)
 
-        ok_az = abs(v['az']) <= a.target_az
-        ok_px = abs(v['px']) <= a.target_px
+        d_az = v['az'] - self.center
+        px = (v['r_mean'] * math.sin(math.radians(d_az))
+              if v['r_mean'] is not None else v['px'])
+        ok_az = abs(d_az) <= a.target_az
+        ok_px = abs(px) <= a.target_px
         ok_rt = v['rate'] >= 0.80
 
-        add('  静息方位角 az   %s%+7.1f 度%s   目标 |az| <= %-3.0f 度  %s'
-            % (BOLD, v['az'], OFF, a.target_az, mark(ok_az)))
-        add('  静息横向  px   %s%+7.2f m %s   目标 |px| <  %-.2f m %s'
-            % (BOLD, v['px'], OFF, a.target_px, mark(ok_px)))
+        add('  偏离最佳中线   %s%+7.1f 度%s   目标 |偏| <= %-3.0f 度  %s'
+            % (BOLD, d_az, OFF, a.target_az, mark(ok_az)))
+        add(GREY + '    最佳中线 %+.1f 度 ｜ 原始读数 %+.1f 度'
+            % (self.center, v['az']) + OFF)
+        add('  横向偏差  px   %s%+7.2f m %s   目标 |px| <  %-.2f m %s'
+            % (BOLD, px, OFF, a.target_px, mark(ok_px)))
         add('  目标检出率      %s%6.0f %%  %s   目标 >= 80 %%     %s'
             % (BOLD, v['rate'] * 100, OFF, mark(ok_rt)))
         add('')
         add('  距离 r_mean     %s     点数 %s'
             % ('%.2f m' % v['r_mean'] if v['r_mean'] is not None else '  —  ',
                '%.0f' % v['npts'] if v['npts'] is not None else '—'))
-        add('  最近 %.0f s 的 az 区间  %+.1f ~ %+.1f 度（10~90 分位，%d/%d 帧有目标）'
-            % (a.window, v['az_lo'], v['az_hi'], v['n'], v['total']))
+        add('  最近 %.0f s 的偏离区间  %+.1f ~ %+.1f 度（10~90 分位，%d/%d 帧有目标）'
+            % (a.window, v['az_lo'] - self.center, v['az_hi'] - self.center,
+               v['n'], v['total']))
         if self.best is not None:
-            add(GREY + '  本次最稳的 |az| = %.1f 度（该窗口 az=%+.1f 度）'
-                % (self.best[0], self.best[1]) + OFF)
+            add(GREY + '  本次最稳的偏离 = %.1f 度（该窗口 %+.1f 度，中心 %+.1f 度）'
+                % (self.best[0], self.best[1], self.center) + OFF)
         add('')
         add(BOLD + '-' * 68 + OFF)
 
@@ -202,10 +213,10 @@ class Board(object):
         else:
             add(RED + REV + BOLD + '  >>>>>>>>>>   还不够，继续调    <<<<<<<<<<  ' + OFF)
             if not ok_az:
-                add('   方位角 %+.0f 度 → 把雷达绕垂直轴朝「人体所在的那一侧」转约 %.0f 度，'
-                    % (v['az'], abs(v['az'])))
-                add(GREY + '   转向不确定就先转 5 度试：数字变小 = 对了，变大 = 反过来转。' + OFF)
-                add(GREY + '   或者反过来把人横向挪 %.2f m，效果一样。' % abs(v['px']) + OFF)
+                add('   偏离 %+.0f 度 → 把雷达绕垂直轴往读数减小的方向转约 %.0f 度，'
+                    % (d_az, abs(d_az)))
+                add(GREY + '   转向不确定就先转 5 度试：偏离变小 = 对了，变大 = 反过来转。' + OFF)
+                add(GREY + '   或者反过来把人横向挪 %.2f m，效果一样。' % abs(px) + OFF)
             if not ok_rt:
                 add('   检出率 %.0f%%：人可能还在视场边缘/杂波里；先把 az 调进去再看这一项。'
                     % (v['rate'] * 100))
@@ -227,14 +238,28 @@ def main(argv=None):
     ap.add_argument('--target-az', type=float, default=10.0)
     ap.add_argument('--target-px', type=float, default=0.20)
     ap.add_argument('--window', type=float, default=5.0, help='判定用的滚动窗口（秒）')
+    ap.add_argument('--board', default='1t2r', choices=('1t2r', '2t4r'))
+    ap.add_argument('--center-az', type=float, default=None,
+                    help='最佳中线（原始 az 读数）；留空读 center.json，再缺省 0')
+    ap.add_argument('--angle-max', type=float, default=None,
+                    help='测角上限；中线贴近视场边界时需放宽，留空按 center.json/自动')
+    ap.add_argument('--save-center', action='store_true',
+                    help='退出时把窗口内的稳定读数存为最佳中线')
     ap.add_argument('--mono', action='store_true', help='不开颜色/不清屏（写日志用）')
     args = ap.parse_args(argv)
+
+    cen = radar_center.resolve(args.board, args.center_az, args.angle_max)
+    args.center_az = cen['az_deg']
+    args.angle_max = cen['angle_max']
+    if cen['az_deg'] or cen['angle_max'] != 45.0:
+        print('最佳中线 %+.1f 度，测角上限 %.0f 度（来源 center.json / 参数）'
+              % (cen['az_deg'], cen['angle_max']))
 
     color = sys.stdout.isatty() and not args.mono
     if color:
         enable_vt()
 
-    proc = PointCloudProcessor()
+    proc = PointCloudProcessor(angle_max=args.angle_max)
     rec = ra.ActionRecognizer(band='auto', crit='drift', top_k=1, min_pts=1)
     board = Board(args, color=color)
 
@@ -271,11 +296,19 @@ def main(argv=None):
     if v is None:
         print('没拿到可用窗口（目标太少）。换个站位/角度再来一次。')
     else:
-        print('结束：窗口内 az=%+.1f 度  px=%+.2f m  检出率 %.0f%%'
-              % (v['az'], v['px'], v['rate'] * 100))
+        d = v['az'] - board.center
+        print('结束：偏离最佳中线 %+.1f 度（原始 %+.1f 度，中心 %+.1f 度）  检出率 %.0f%%'
+              % (d, v['az'], board.center, v['rate'] * 100))
         if board.best is not None:
-            print('本次最稳的 |az| = %.1f 度' % board.best[0])
-    print('判定标准：|az| <= %.0f 度、|px| < %.2f m、检出率 >= 80%%'
+            print('本次最稳的偏离 = %.1f 度' % board.best[0])
+        if args.save_center:
+            px = (v['r_mean'] * math.sin(math.radians(d))
+                  if v['r_mean'] is not None else v['px'])
+            radar_center.save(args.board, v['az'], args.angle_max, px_ref=px,
+                              note='align_assist 对准结果（%s）'
+                                   % time.strftime('%Y-%m-%d %H:%M'))
+            print('已把中心 %+.1f 度写入 center.json（px_ref %+.2f m）' % (v['az'], px))
+    print('判定标准：偏离 |d| <= %.0f 度、|px| < %.2f m、检出率 >= 80%%'
           % (args.target_az, args.target_px))
     return 0
 
