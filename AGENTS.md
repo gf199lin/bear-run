@@ -108,3 +108,15 @@ outputs/       # 面向用户的产物（报告、图表、演示材料）
 **一次提交只讲一件事**。跨主题就拆成多个 commit，不要一个 commit 塞进算法、工具、文档、数据四类东西。
 
 **提交前跑最小验证**：改动的 Python 至少 `py_compile` 通过；涉及识别的改动要给出 `tools/lane_eval.py` 的实测数字，不能只写「应该更好了」。
+
+## 远端仓库与推送（2026-11-03 实测）
+
+- 远端：`https://github.com/gf199lin/bear-run.git`，默认分支 **`main`（211 个提交，整合仓库）**：游戏在根，雷达在 `radar-service/`。
+- **本目录是独立历史**（无共同祖先，雷达代码在根 `radar-pointcloud/`），且比远端 `radar-service/radar-pointcloud/` **新**（`radar_actions.py` 1267 行 vs 1003 行）。
+- **禁止** `git push origin master` 或对 `main` 强推——会覆盖远端 211 个提交。本目录的成果推独立分支：
+
+  ```
+  git push -u origin master:radar-lr3c
+  ```
+
+- **直连可用，不需要代理**。`curl` 测 `github.com` 会报 `http=000`，那是 OpenSSL 侧的假阴性；git 走 Windows schannel 正常。判断网络以 `git ls-remote origin` 为准，不要以 `curl` 为准，也不要因此去开梯子。
