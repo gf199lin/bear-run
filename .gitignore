@@ -30,3 +30,17 @@ ONELAB*/
 
 # clone 元数据备份（只为保留可还原性，不入库）
 bear-run-new/.git-clone-backup/
+
+# ---------- 缓存与旧版目录副本 ----------
+cache/
+radar-kit-1030/
+radar-runner-1030/
+
+# 内容不明的零散文件（根目录遗留，非项目内容）
+/Bear
+
+# ---------- 扫参中间产物：只留关键结论 json ----------
+# 门限/窗口/延迟扫描的每一步结果，靠上面的脚本可复现，不逐个入库
+outputs/lane-eval/lat*.json
+outputs/lane-eval/scan-*.json
+outputs/lane-eval/smoke.json
