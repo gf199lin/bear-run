@@ -30,7 +30,7 @@ import radar_source as rs  # noqa: E402
 rs.sniff_board_from_file = lambda path, scan=262144: '1t2r'
 
 import label_tool as lt  # noqa: E402
-from regress_drift import run_events_auto  # noqa: E402
+from regress_drift import run_events_auto, run_events  # noqa: E402
 
 FRAME_PERIOD = 0.1295
 PRE = POST = 0.5
@@ -41,10 +41,15 @@ SETS = [
 ]
 
 
-def find_pairs():
+def find_pairs(dirs=None):
     out = []
-    for rel, tag in SETS:
-        base = os.path.join(ROOT, '.deepworks', 'tmp', rel)
+    if dirs:
+        bases = [(d if os.path.isabs(d) else os.path.join(ROOT, d),
+                  os.path.basename(os.path.normpath(d))) for d in dirs]
+    else:
+        bases = [(os.path.join(ROOT, '.deepworks', 'tmp', rel), tag)
+                 for rel, tag in SETS]
+    for base, tag in bases:
         for p in sorted(glob.glob(os.path.join(base, '**', '*.bin'), recursive=True)):
             lab = os.path.splitext(p)[0] + '.labels.jsonl'
             if os.path.exists(lab):
@@ -76,15 +81,63 @@ def evaluate(path, labels, evs):
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser(description='左右移段级评估（方向正确率/延迟/误报）')
+    ap.add_argument('--dir', action='append', default=[],
+                    help='数据目录，可多次；相对项目根或绝对路径。'
+                         '留空 = 旧数据 seg-lr2 / oncehot')
+    ap.add_argument('--out', default='baseline-xbase.json',
+                    help='outputs/lane-eval/ 下的输出文件名')
+    ap.add_argument('--band', default=None,
+                    help='固定距离带，例如 0.90,1.80；留空 = 自动选带')
+    ap.add_argument('--thr-left', type=float, default=None,
+                    help='覆盖 xbase 左触发门限（默认 0.14）')
+    ap.add_argument('--thr-right', type=float, default=None,
+                    help='覆盖 xbase 右触发门限（默认 0.18）')
+    ap.add_argument('--xbase-win', type=float, default=None,
+                    help='覆盖 xbase 判决窗口（秒，默认 0.80）——延迟的主要来源')
+    ap.add_argument('--base-win', type=float, default=None,
+                    help='覆盖 xbase 基线窗口（秒，默认 40）')
+    ap.add_argument('--confirm', type=int, default=None,
+                    help='覆盖触发确认帧数')
+    ap.add_argument('--min-interval', type=float, default=None,
+                    help='覆盖最小切换间隔（秒，默认 0.5）')
+    args = ap.parse_args()
+
+    pairs = find_pairs(args.dir)
+    if not pairs:
+        print('没找到带 labels.jsonl 的 .bin。检查 --dir 是否指向采集输出目录。')
+        return 1
+
     rows = []
     agg = dict(hitL=0, totL=0, hitR=0, totR=0, fp=0, dup=0, lat=[])
-    for tag, path, labp in find_pairs():
+    for tag, path, labp in pairs:
         stem = os.path.splitext(os.path.basename(path))[0]
         d = os.path.dirname(path)
         labels = lt.load_labels(labp)
         try:
-            evs, span, rec = run_events_auto(path, crit='xbase',
-                                             top_k=1, min_pts=1, board='1t2r')
+            extra = {}
+            if args.thr_left is not None:
+                extra['xbase_thr_left'] = args.thr_left
+            if args.thr_right is not None:
+                extra['xbase_thr_right'] = args.thr_right
+            if args.xbase_win is not None:
+                extra['xbase_win'] = args.xbase_win
+            if args.base_win is not None:
+                extra['xbase_base_win'] = args.base_win
+            if args.confirm is not None:
+                extra['confirm'] = args.confirm
+            if args.min_interval is not None:
+                extra['min_interval'] = args.min_interval
+            if args.band:
+                b = tuple(float(x) for x in args.band.split(','))
+                evs, span, rec = run_events(path, crit='xbase', top_k=1,
+                                            min_pts=1, band=b, board='1t2r',
+                                            extra=extra)
+            else:
+                evs, span, rec = run_events_auto(path, crit='xbase',
+                                                 top_k=1, min_pts=1, board='1t2r',
+                                                 extra=extra)
         except Exception as e:  # noqa: BLE001
             print('!! %s: %s' % (stem, e))
             continue
@@ -127,10 +180,10 @@ def main():
 
     out = os.path.join(ROOT, 'outputs', 'lane-eval')
     os.makedirs(out, exist_ok=True)
-    with open(os.path.join(out, 'baseline-xbase.json'), 'w', encoding='utf-8') as f:
+    with open(os.path.join(out, args.out), 'w', encoding='utf-8') as f:
         json.dump(dict(rows=rows, agg=agg, latencies=agg['lat']), f,
                   ensure_ascii=False, indent=1)
-    print('已写 outputs/lane-eval/baseline-xbase.json')
+    print('已写 outputs/lane-eval/%s' % args.out)
 
 
 if __name__ == '__main__':
