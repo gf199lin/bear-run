@@ -2212,6 +2212,11 @@ html, body {
     LANE_WIDTH: 2.15,
     LANES: [-2.15, 0, 2.15],
     LANE_TOLERANCE: 0.92,
+    // 雷达的左右和玩家视角是相反的（现场实测 2026-11-03）：
+    // 人往自己左手边走，雷达判成 right。这里统一翻转一次，
+    // 只作用于雷达输入源，键盘/触屏不受影响。
+    // 现场若发现又反了，把它改成 false 即可（不用改代码逻辑）。
+    MIRROR_LR: true,
 
     // ---------- 玩家 ----------
     PLAYER: {
@@ -3659,6 +3664,19 @@ html, body {
       if (this.onEvent) this.onEvent(type);
     }
 
+    /**
+     * 雷达专用出口：按 CFG.MIRROR_LR 翻转左右。
+     * 只给雷达各输入源（单板 / 双板 / mock / replay）调用；
+     * 键盘和触屏走 InputManager.emit，不经过这里，所以不会被翻。
+     */
+    emitAction(type) {
+      if (RR.CFG.MIRROR_LR !== false &&
+          (type === 'left' || type === 'right')) {
+        type = (type === 'left') ? 'right' : 'left';
+      }
+      this.emit(type);
+    }
+
     getStatusText() {
       return this.connected ? '已就绪' : '未连接';
     }
@@ -3986,7 +4004,7 @@ html, body {
 
       var events = this.decoder.push(frame, now);
       this.lastLane = this.decoder.lane;
-      for (var i = 0; i < events.length; i++) this.emit(events[i]);
+      for (var i = 0; i < events.length; i++) this.emitAction(events[i]);
 
       var avg = this.decoder.averageInterval;
       this.frameRate = avg > 0 ? 1000 / avg : 0;
@@ -4241,7 +4259,7 @@ html, body {
         ? { left: 1, right: 1 }
         : { jump: 1, slide: 1 };
       for (var i = 0; i < events.length; i++) {
-        if (allow[events[i]]) this.emit(events[i]);
+        if (allow[events[i]]) this.emitAction(events[i]);
       }
       this._rebuildMerged();
     }
@@ -4444,7 +4462,7 @@ html, body {
       this.lastRaw = frame;
       var events = this.decoder.push(frame, performance.now());
       this.lastLane = this.decoder.lane;
-      for (var i = 0; i < events.length; i++) this.emit(events[i]);
+      for (var i = 0; i < events.length; i++) this.emitAction(events[i]);
 
       var avg = this.decoder.averageInterval;
       this.frameRate = avg > 0 ? 1000 / avg : 0;
@@ -4675,7 +4693,7 @@ html, body {
           if (events[i] === 'jump') this.stats.jump++;
           else if (events[i] === 'slide') this.stats.slide++;
           else this.stats.lane++;
-          this.emit(events[i]);
+          this.emitAction(events[i]);
         }
         this.stats.frames++;
         this._idx++;
