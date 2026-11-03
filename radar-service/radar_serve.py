@@ -183,7 +183,10 @@ def _scan_stray_procs():
         if not cmd:
             continue
         mine = (here in cmd) or ('radar-service' in cmd)
-        if mine and ('radar_live_ws.py' in cmd or 'webcontrol.py' in cmd):
+        # ★ 只扫推流子进程。webcontrol.py 是常驻的页面服务（8801），
+        #   杀掉它页面就打不开（「127.0.0.1 拒绝连接」就是这么来的），
+        #   它也不占串口，不需要在起推流前清理。
+        if mine and 'radar_live_ws.py' in cmd:
             try:
                 out.append(int(row.get('ProcessId')))
             except Exception:
