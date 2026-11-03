@@ -395,6 +395,14 @@ def cmd_serve(args):
         ac.say(ac.BAD, '缺少 tools/radar_live_ws.py —— 压缩包没解压完整，请整包重新解压。')
         return 2
 
+    # 上一次的推流没关掉时，串口会被「自己」占住：START-RADAR 的窗口关了，
+    # 但 CREATE_NO_WINDOW 起的子进程还在跑。以前第二次启动就会报
+    # PermissionError(13) 并误显示成「端口不存在」。这里先按 pidfile 清一次。
+    if load_pids():
+        ac.say(ac.INFO, '检测到上一次的推流进程，先清理，避免串口被自己占住。')
+        stop_previous()
+        time.sleep(1.5)
+
     streaming, problems = find_streaming(
         auto_boot=not getattr(args, 'no_boot_2t4r', False))
 

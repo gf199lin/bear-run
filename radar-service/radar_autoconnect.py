@@ -551,13 +551,17 @@ def check_one(port, board_hint=None, seconds=2.5, verbose=True):
             r['error'] = err
             low = err.lower()
             if i == 0:          # 第一个波特率的报错最能说明端口状态
-                if ('filenotfound' in low or '找不到' in err
-                        or 'cannot find' in low or 'could not open port' in low):
-                    r.update(status='missing', error=err)
-                    return r
+                # 注意顺序：Windows 的占用错误文本是
+                #   SerialException("could not open port 'COM3': PermissionError(13, '拒绝访问。'...)")
+                # 同时含 "could not open port" 和 "拒绝访问"，必须先判占用，
+                # 否则会把「被别的进程占用」误报成「设备没插」。
                 if ('permission' in low or '拒绝访问' in err
                         or 'being used' in low or 'access is denied' in low):
                     r.update(status='busy', error=err)
+                    return r
+                if ('filenotfound' in low or '找不到' in err
+                        or 'cannot find' in low or 'could not open port' in low):
+                    r.update(status='missing', error=err)
                     return r
             # 打开后立刻出错（如被顶掉）-> 不再试其它波特率
             if 'Permission' in err or '拒绝访问' in err:
