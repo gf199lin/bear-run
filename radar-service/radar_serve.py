@@ -513,6 +513,11 @@ def cmd_serve(args):
                '--role', p['role'],
                '--ws-port', str(p['ws_port']),
                '--log', log]
+        # 左右反向默认交给游戏端（index.html 的 CFG.MIRROR_LR=true），
+        # 这里**默认不翻**，否则两层叠加会翻两次又变回反的。
+        # 只有游戏端是旧版、没有 MIRROR_LR 时，才手动加 --flip-lr 兜底。
+        if p['role'] == 'lr' and getattr(args, 'flip_lr', False):
+            cmd.append('--flip-lr')
         kwargs = {}
         if os.name == 'nt':
             kwargs['creationflags'] = 0x08000000  # CREATE_NO_WINDOW
@@ -623,6 +628,10 @@ def main(argv=None):
     ap.add_argument('--board-ud', default=None, choices=['1t2r', '2t4r'])
     ap.add_argument('--no-boot-2t4r', action='store_true',
                     help='不自动唤醒 2T4R（默认：识别到 2T4R 无数据时自动重放启动序列）')
+    ap.add_argument('--flip-lr', action='store_true',
+                    help='在推流层翻转左右。默认关闭：游戏端 index.html 已用 '
+                         'CFG.MIRROR_LR 翻过一次，两层同时开会翻两次。'
+                         '只有用旧版游戏页面时才需要加。')
     args = ap.parse_args(argv)
     args.func = cmd_serve
     return cmd_serve(args)
