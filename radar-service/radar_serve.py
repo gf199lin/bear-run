@@ -287,8 +287,71 @@ def probe_ws(port, seconds=5.0, want=6):
 # --------------------------------------------------------------------------
 # 命令
 # --------------------------------------------------------------------------
-def find_streaming(verbose=True):
-    """枚举 + 实测，返回 (streaming, problems)。"""
+def wake_2t4r(port, verbose=True):
+    """对 2T4R 端口重放一次启动序列（插上就自动出流的关键一步）。
+
+    2T4R（DEV113P）上电是待机状态，必须收完「握手 + 写段配置」才开始出流；
+    1T2R 上电自跑，所以本函数只应在指纹已判定为 2t4r 时调用。
+    返回 dict(sent, acks, no_ack, elapsed) 或 None。
+    """
+    try:
+        import serial
+        from radar_boot_2t4r import load_seq, send_boot, find_seq_path
+    except Exception as e:
+        if verbose:
+            print('  无法加载 2T4R 启动模块：%s' % e)
+        return None
+    path = find_seq_path()
+    try:
+        _obj, frames = load_seq(path)
+    except SystemExit as e:
+        if verbose:
+            print('  %s' % e)
+        return None
+    try:
+        ser = serial.Serial(port, 1500000, timeout=0.05)
+    except Exception as e:
+        if verbose:
+            print('  打不开 %s：%s' % (port, e))
+        return None
+    try:
+        # FT232 的命令转发受 DTR/RTS 门控（厂商实测），必须显式拉高
+        for attr in ('dtr', 'rts'):
+            try:
+                setattr(ser, attr, True)
+            except Exception:
+                pass
+        time.sleep(0.15)
+        ser.reset_input_buffer()
+        # 已经在出流就别动它：重放会重置芯片，反而打断正常输出
+        time.sleep(0.35)
+        if (ser.in_waiting or 0) >= 512:
+            if verbose:
+                print('  2T4R 已在出流，跳过启动序列')
+            return {'sent': 0, 'acks': 0, 'no_ack': 0, 'elapsed': 0.0,
+                    'skipped': True}
+        res = send_boot(ser, frames, gap=0.03, ack_timeout=0.12)
+    except Exception as e:
+        if verbose:
+            print('  %s 启动序列发送失败：%s' % (port, e))
+        return None
+    finally:
+        try:
+            ser.close()
+        except Exception:
+            pass
+    if verbose:
+        print('  已发送启动序列：%d 帧，回包 %d，无回包 %d，用时 %.2fs'
+              % (res['sent'], res['acks'], res['no_ack'], res['elapsed']))
+    return res
+
+
+def find_streaming(verbose=True, auto_boot=True):
+    """枚举 + 实测，返回 (streaming, problems)。
+
+    对「指纹是 2T4R 但没出帧」的口，先自动重放启动序列再测一次；
+    这样插上两块板后直接跑 radar_serve.py 就能都连上，不需要人工唤醒。
+    """
     ports = ac.discover()
     if verbose:
         print('  发现 %d 个串口，逐个试开（只读，不发命令）...' % len(ports))
@@ -299,6 +362,13 @@ def find_streaming(verbose=True):
         if verbose:
             print('    %-8s (%s) ...' % (port, hint or '板型待定'), end='', flush=True)
         r = ac.check_one(port, board_hint=hint, seconds=2.0, verbose=False)
+        if (r['status'] != 'streaming' and auto_boot and hint == '2t4r'
+                and r['status'] in ('no_data', 'unknown')):
+            if verbose:
+                print(' 2T4R 未出流，自动唤醒...')
+            wake_2t4r(port, verbose=verbose)
+            r = ac.check_one(port, board_hint='2t4r', seconds=5.0,
+                             verbose=False)
         if r['status'] == 'streaming':
             streaming.append({'port': port, 'board': r['board'],
                               'baud': r['baud'], 'fps': r['fps']})
@@ -325,7 +395,8 @@ def cmd_serve(args):
         ac.say(ac.BAD, '缺少 tools/radar_live_ws.py —— 压缩包没解压完整，请整包重新解压。')
         return 2
 
-    streaming, problems = find_streaming()
+    streaming, problems = find_streaming(
+        auto_boot=not getattr(args, 'no_boot_2t4r', False))
 
     if not streaming:
         ac.say(ac.BAD, '没有一块板在出帧，无法推流。')
@@ -462,7 +533,7 @@ def cmd_serve(args):
         print('  游戏地址后面接：%s' % q)
         print('  （把这段拼到你本机的 index.html 后面，或用联调台手动填上面的地址）')
         print('')
-        print('  停止推流：python radar_serve.py --stop')
+        print('  停止推流：python radar_serve.py stop')
     else:
         ac.say(ac.BAD, '推流进程起来了，但自检没收到帧。')
         print('        1) 看 logs 目录里最新日志的 [serial] 行，确认串口是打开还是报错')
@@ -481,7 +552,7 @@ def main(argv=None):
     ac._init_stdout()
     # 允许 `radar_serve.py stop` 这种子命令写法
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] == 'stop':
+    if argv and argv[0] in ('stop', '--stop'):
         return cmd_stop(None)
     ap = argparse.ArgumentParser(prog='radar_serve', description='自动识别两块雷达并启动 WebSocket 推流')
     ap.add_argument('--dry-run', action='store_true')
@@ -494,6 +565,8 @@ def main(argv=None):
     ap.add_argument('--port-ud', default=None)
     ap.add_argument('--board-lr', default=None, choices=['1t2r', '2t4r'])
     ap.add_argument('--board-ud', default=None, choices=['1t2r', '2t4r'])
+    ap.add_argument('--no-boot-2t4r', action='store_true',
+                    help='不自动唤醒 2T4R（默认：识别到 2T4R 无数据时自动重放启动序列）')
     args = ap.parse_args(argv)
     args.func = cmd_serve
     return cmd_serve(args)

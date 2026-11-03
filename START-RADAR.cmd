@@ -95,6 +95,11 @@ echo.
 echo.
 %PY% "radar-service\radar_autoconnect.py" check
 echo.
+echo  Note: check is read-only. A 2T4R board stays silent until it is woken,
+echo        so "port open, 0 bytes" is expected here. To see the full
+echo        auto-detect + wake-up flow without starting streams, run:
+echo          py "radar-service\radar_serve.py" --dry-run
+echo.
 echo  Full report: open the radar-service folder and run the check .cmd there.
 echo.
 pause

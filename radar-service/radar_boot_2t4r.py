@@ -54,19 +54,45 @@ if HERE not in sys.path:
 HEAD = b'\xfd\xfc\xfb\xfa'
 TAIL = b'\x04\x03\x02\x01'
 
-DEFAULT_SEQ = os.path.join(
-    os.path.dirname(HERE), '.deepworks', 'tmp', 'boot_seq_2t4r.json')
+# 启动序列含厂商寄存器配置，按保密要求**不入库**（.gitignore 已覆盖）。
+# 换电脑 / 换部署目录后按下面的顺序查找；也可用环境变量 RADAR_BOOT_SEQ 指定。
+SEQ_NAME = 'boot_seq_2t4r.json'
+SEQ_ENV = 'RADAR_BOOT_SEQ'
+SEQ_CANDIDATES = [
+    os.path.join(HERE, SEQ_NAME),                                   # 直接放 radar-service 里
+    os.path.join(HERE, '.deepworks', 'tmp', SEQ_NAME),              # 部署目录内
+    os.path.join(os.path.dirname(HERE), '.deepworks', 'tmp', SEQ_NAME),
+    os.path.join(os.path.dirname(os.path.dirname(HERE)),
+                 '.deepworks', 'tmp', SEQ_NAME),
+]
+
+
+def find_seq_path():
+    """按 环境变量 → 4 个常规位置 的顺序返回第一个存在的序列文件。"""
+    env = os.environ.get(SEQ_ENV)
+    if env:
+        return env
+    for p in SEQ_CANDIDATES:
+        if os.path.isfile(p):
+            return p
+    return SEQ_CANDIDATES[2]        # 都不存在时返回最常用的位置，便于报错指向
+
+
+DEFAULT_SEQ = find_seq_path()
 
 SEC_NAME = {0x0000: 'EnvSetup', 0x0001: 'Stop', 0x0002: 'Config',
             0x0003: 'Start', 0x0004: 'Clear', 0x0010: 'ModCal'}
 
 
-def load_seq(path):
+def load_seq(path=None):
+    path = path or find_seq_path()
     if not os.path.isfile(path):
         raise SystemExit(
             '找不到启动序列文件:\n  %s\n\n'
-            '先运行提取脚本（从厂商 ONELAB 日志生成）:\n'
-            '  python tools/extract_vendor_boot.py\n' % path)
+            '把 boot_seq_2t4r.json 放到 radar-service\\ 目录，'
+            '或设环境变量 %s 指向它。\n'
+            '文件可从厂商 ONELAB 日志生成（不入库）:\n'
+            '  python tools/extract_vendor_boot.py\n' % (path, SEQ_ENV))
     with open(path, 'r', encoding='utf-8') as f:
         obj = json.load(f)
     frames = [bytes.fromhex(x['raw']) for x in obj.get('frames', [])]
@@ -133,6 +159,37 @@ def parse_ack_safe(raw):
         return None
 
 
+def send_boot(ser, frames, gap=0.03, ack_timeout=0.12, log=None):
+    """在**已打开**的串口上重放启动序列。
+
+    与 do_send() 的区别：不负责打开/关闭串口、不打印长表格、
+    返回结构化结果，便于 SerialSource / radar_serve 自动唤醒时复用。
+
+    返回 dict(sent, skipped, acks, no_ack, elapsed)。
+    ACK 只作中性计数，不做 OK/FAIL 判定（回包语义不统一）。
+    """
+    say = log or (lambda _m: None)
+    sent = skipped = acks = no_ack = 0
+    t0 = time.time()
+    for i, raw in enumerate(frames):
+        ok, desc = check_frame(raw)
+        if not ok:
+            skipped += 1
+            say('[boot] 跳过第 %d 帧（结构不合格）: %s' % (i, desc))
+            continue
+        ser.write(raw)
+        ser.flush()
+        sent += 1
+        if ack_timeout > 0:
+            if read_ack(ser, ack_timeout):
+                acks += 1
+            else:
+                no_ack += 1
+        time.sleep(gap)
+    return {'sent': sent, 'skipped': skipped, 'acks': acks,
+            'no_ack': no_ack, 'elapsed': time.time() - t0}
+
+
 def verify_stream(ser, seconds):
     """发完后读 seconds 秒，用 DEV113P 解析器统计出流情况。"""
     import radar_protocol_dev113p as P
@@ -167,9 +224,9 @@ def do_dry_run(obj, frames):
         ok, desc = check_frame(raw)
         if not ok:
             bad += 1
-            desc = '✘ ' + desc
+            desc = '[FAIL] ' + desc
         else:
-            desc = '✔ ' + desc
+            desc = '[OK] ' + desc
         print('  %2d  %3d B  %s' % (i, len(raw), desc))
 
     print('\n  结构校验: %d/%d 通过' % (len(frames) - bad, len(frames)))
@@ -204,6 +261,14 @@ def do_send(obj, frames, args):
     no_ack = 0
     fail_cnt = 0
     try:
+        # FT232 的命令转发受 DTR/RTS 门控：不显式拉高时端口能开、
+        # 命令也可能有回包，但芯片不出流（2026-11-03 实测）。
+        for attr in ('dtr', 'rts'):
+            try:
+                setattr(ser, attr, True)
+            except Exception:
+                pass
+        time.sleep(0.15)
         ser.reset_input_buffer()
         pre = ser.read(ser.in_waiting or 0)
         print('  发送前缓冲: %d 字节（若明显 >0 说明已经在出流）\n' % len(pre))
@@ -271,15 +336,21 @@ def do_verify(args):
     print('  有效帧     : %d' % st['frames'])
     print('  坏包/坏校验: %d / %d' % (st['bad'], st['bad_checksum']))
     if st['frames'] == 0:
-        print('\n  ✘ 没有解析到 DEV113P 帧 —— 启动未生效')
+        print('\n  [FAIL] 没有解析到 DEV113P 帧 —— 启动未生效')
         print('    可尝试：拔插 USB 后重跑 --send；或临时用 ONELAB 唤醒一次')
         return 1
     fps = st['frames'] / args.verify_seconds
-    print('\n  ✔ 出流正常：%.2f 包/s' % fps)
+    print('\n  [OK] 出流正常：%.2f 包/s' % fps)
     return 0
 
 
 def main():
+    # Windows 控制台默认 GBK，直接打印中文/符号会 UnicodeEncodeError 崩溃
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
     ap = argparse.ArgumentParser(
         description='纯 Python 启动 2T4R(DEV113P)：重放厂商 ONELAB 启动序列')
     ap.add_argument('--seq', default=DEFAULT_SEQ,
