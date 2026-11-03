@@ -1,0 +1,1494 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>雷达数据体检台 · 双路</title>
+<link rel="icon" href="data:,">
+<style>
+  :root{
+    --ink:#eef2f7; --dim:#94a3b8; --line:rgba(148,163,184,.22);
+    --card:#111a26; --bg:#0a1017; --acc:#38bdf8; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg) radial-gradient(circle at 50% -10%, #14324a 0%, #0a1017 55%) fixed;
+    color:var(--ink); font:14px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    padding:16px 12px 60px; min-height:100vh;
+  }
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 4px;letter-spacing:.4px}
+  h1 span{color:var(--acc)}
+  .sub{color:var(--dim);font-size:12.5px;margin-bottom:14px}
+  .sub a{color:var(--acc);text-decoration:none}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin-bottom:12px}
+  .card > h2{font-size:14px;margin:0 0 10px;color:var(--acc);font-weight:600;display:flex;align-items:center;gap:8px}
+  .card > h2 em{font-style:normal;color:var(--dim);font-size:11.5px;font-weight:400}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  label.f{display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--dim);flex:1 1 130px}
+  input[type=text],input[type=number],select{
+    padding:8px 10px;border-radius:8px;border:1px solid var(--line);
+    background:#0b131c;color:var(--ink);font:13px/1.4 ui-monospace,Consolas,monospace;
+  }
+  input[type=text]:focus,input[type=number]:focus,select:focus{outline:none;border-color:var(--acc)}
+  button{
+    padding:8px 14px;border-radius:8px;border:1px solid var(--line);
+    background:rgba(56,189,248,.10);color:var(--ink);font:600 13px/1 inherit;cursor:pointer;
+  }
+  button:hover{background:rgba(56,189,248,.20)}
+  button.primary{background:var(--acc);color:#04121c;border-color:var(--acc)}
+  button.primary:hover{background:#7dd3fc}
+  button.ghost{background:transparent;color:var(--dim)}
+  button.tiny{padding:5px 9px;font-size:11.5px;font-weight:500}
+  button[disabled]{opacity:.4;cursor:not-allowed}
+  .dot{width:9px;height:9px;border-radius:50%;background:#64748b;flex:0 0 auto}
+  .dot.ok{background:var(--ok);box-shadow:0 0 7px rgba(74,222,128,.7)}
+  .dot.pending{background:var(--warn)}
+  .dot.err{background:var(--bad)}
+  .st{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--dim);margin-top:7px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:8px}
+  .m{background:rgba(0,0,0,.26);border:1px solid rgba(148,163,184,.12);border-radius:9px;padding:8px 10px}
+  .m b{display:block;font-size:11px;color:var(--dim);font-weight:500}
+  .m i{font-style:normal;font:700 19px/1.25 ui-monospace,Consolas,monospace}
+  .m small{display:block;color:var(--dim);font-size:10.5px;margin-top:1px}
+  canvas{width:100%;height:104px;display:block;background:rgba(0,0,0,.32);border-radius:9px;margin-top:8px}
+  .hint{color:var(--dim);font-size:12px;margin-top:7px}
+  .kv{font:12px/1.7 ui-monospace,Consolas,monospace;color:var(--dim);white-space:pre-wrap;word-break:break-all}
+  .flow{background:rgba(0,0,0,.22);border-radius:9px;padding:11px 13px;margin-top:8px}
+  .flow .now{font-size:15.5px;font-weight:600;margin-bottom:2px}
+  .flow .meta{color:var(--dim);font-size:12px}
+  .bar{height:7px;border-radius:4px;background:rgba(148,163,184,.18);overflow:hidden;margin:9px 0 4px}
+  .bar > i{display:block;height:100%;background:var(--acc);width:0;transition:width .2s}
+  .steps{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+  .steps span{font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
+  .steps span.done{border-color:rgba(74,222,128,.5);color:var(--ok)}
+  .steps span.cur{border-color:var(--acc);color:var(--acc)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+  th,td{text-align:left;padding:6px 7px;border-bottom:1px solid rgba(148,163,184,.12);vertical-align:top}
+  th{color:var(--dim);font-weight:500;white-space:nowrap}
+  td.num{font-family:ui-monospace,Consolas,monospace;white-space:nowrap}
+  .tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:700;white-space:nowrap}
+  .tag.pass{background:rgba(74,222,128,.18);color:var(--ok)}
+  .tag.warn{background:rgba(251,191,36,.18);color:var(--warn)}
+  .tag.fail{background:rgba(248,113,113,.18);color:var(--bad)}
+  .tag.na{background:rgba(148,163,184,.16);color:var(--dim)}
+  .verdict{margin-top:10px;padding:10px 12px;border-radius:9px;font-size:13px;display:none}
+  .verdict.show{display:block}
+  .verdict.ok{background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.4)}
+  .verdict.warn{background:rgba(251,191,36,.10);border:1px solid rgba(251,191,36,.4)}
+  .verdict.err{background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.4)}
+  pre{background:rgba(0,0,0,.35);border-radius:9px;padding:10px 12px;overflow:auto;font-size:11.5px;margin:8px 0 0;max-height:320px}
+  .foot{color:var(--dim);font-size:11.5px;text-align:center;margin-top:20px}
+  summary{cursor:pointer;color:var(--acc);font-size:12.5px}
+  details{margin-top:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>雷达数据体检台 <span>· 双路</span></h1>
+  <div class="sub">
+    <a href="./index.html" style="margin-right:12px">← 返回游戏主页</a>
+    录原始帧 → 按标准动作打点 → 自动出指标。判定口径与游戏内校准探针一致（帧率 ≥20Hz、静息噪声 ≤0.18、误报 ≤6%）。<br>
+    页面本身不发任何数据；报告和 CSV 都在本地生成，导出后发给游戏组。<br>
+    <span style="color:#fbbf24">注意：线上 HTTPS 页面会被浏览器拦截 ws:// 连接。要在 Pages 上打开本页，请改为本地双击文件，或用 <code>python -m http.server</code> 起 http 访问。</span>
+  </div>
+
+  <!-- 1. 连接 -->
+  <div class="card">
+    <h2>① 连接两路雷达 <em>一左一右 / 一上下，按游戏实际分工连</em></h2>
+    <div class="row">
+      <label class="f">左右雷达（x）<input id="url-lr" type="text" spellcheck="false" placeholder="ws://192.168.1.7:8766"></label>
+      <button id="btn-lr" class="primary" type="button" style="align-self:flex-end">连接</button>
+      <button id="btn-lr-off" class="ghost" type="button" style="align-self:flex-end" disabled>断开</button>
+    </div>
+    <div class="st"><span id="dot-lr" class="dot"></span><span id="st-lr">左右雷达未连接</span></div>
+
+    <div class="row" style="margin-top:10px">
+      <label class="f">上下雷达（jump / crouch）<input id="url-ud" type="text" spellcheck="false" placeholder="ws://192.168.1.7:8767"></label>
+      <button id="btn-ud" class="primary" type="button" style="align-self:flex-end">连接</button>
+      <button id="btn-ud-off" class="ghost" type="button" style="align-self:flex-end" disabled>断开</button>
+    </div>
+    <div class="st"><span id="dot-ud" class="dot"></span><span id="st-ud">上下雷达未连接</span></div>
+
+    <div class="hint">
+      只想测一路也行：留空另一路即可。地址会被记住（localStorage）；本页用 <code>file://</code> 双击也能连 ws，
+      但换机器/手机访问请用 <code>python -m http.server</code> 起 http。
+    </div>
+  </div>
+
+  <!-- 2. 现场信息 -->
+  <div class="card">
+    <h2>② 现场信息 <em>这些不填，报告就没法判断是硬件还是算法问题</em></h2>
+    <div class="row">
+      <label class="f">受试者代号<input id="m-subject" type="text" placeholder="A"></label>
+      <label class="f">站距 (m)<input id="m-dist" type="number" step="0.05" placeholder="0.85"></label>
+      <label class="f">板高 (m)<input id="m-height" type="number" step="0.05" placeholder="1.20"></label>
+      <label class="f">俯仰角 (°)<input id="m-pitch" type="number" step="1" placeholder="0"></label>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label class="f">两板间距 (m)<input id="m-gap" type="number" step="0.05" placeholder="0.30"></label>
+      <label class="f">两板夹角 (°)<input id="m-angle" type="number" step="1" placeholder="0"></label>
+      <label class="f">x 量纲
+        <select id="m-unit">
+          <option value="norm">归一化 [-1,1]</option>
+          <option value="meter">米</option>
+          <option value="other">其它 / 未知</option>
+        </select>
+      </label>
+      <label class="f">备注<input id="m-note" type="text" placeholder="雷达型号 / 固件 / 采集人"></label>
+    </div>
+    <div class="hint">板高、俯仰角、两板相对位置必须实测填实数。历史上「左右不可分」就是板没瞄准人 + 几何没测导致的。</div>
+  </div>
+
+  <!-- 3. 实时 -->
+  <div class="card">
+    <h2>③ 实时 <em>先确认线在动，再开始体检</em></h2>
+    <div class="grid">
+      <div class="m"><b>左右 帧率</b><i id="l-hz">—</i><small id="l-hz-n">0 帧</small></div>
+      <div class="m"><b>x</b><i id="l-x">—</i><small id="l-x-n">原始值</small></div>
+      <div class="m"><b>间隔 p95</b><i id="l-iv">—</i><small id="l-gap">超时 0 次</small></div>
+      <div class="m"><b>延迟 p50</b><i id="l-lat">—</i><small>ts 与本地时钟差</small></div>
+      <div class="m"><b>上下 帧率</b><i id="u-hz">—</i><small id="u-hz-n">0 帧</small></div>
+      <div class="m"><b>jump / crouch</b><i id="u-jc">—</i><small id="u-h">height —</small></div>
+      <div class="m"><b>间隔 p95</b><i id="u-iv">—</i><small id="u-gap">超时 0 次</small></div>
+      <div class="m"><b>延迟 p50</b><i id="u-lat">—</i><small>ts 与本地时钟差</small></div>
+    </div>
+    <canvas id="cv-x" width="1200" height="210"></canvas>
+    <div class="hint">蓝线 = 左右雷达 x（自适应量程，灰线为中位基线）；橙线 = jump，紫线 = crouch（0~1）。</div>
+    <canvas id="cv-j" width="1200" height="210"></canvas>
+  </div>
+
+  <!-- 4. 流程 -->
+  <div class="card">
+    <h2>④ 标准动作流程 <em>约 2.5 分钟，别跳步；跳过的步骤报告里会标 NA</em></h2>
+    <div class="flow">
+      <div class="now" id="fl-title">未开始</div>
+      <div class="meta" id="fl-hint">点「开始体检」后，按提示做完每一步。每一步开始前先就位，再点「记录这一次」。</div>
+      <div class="bar"><i id="fl-bar"></i></div>
+      <div class="steps" id="fl-steps"></div>
+      <div class="row" style="margin-top:10px">
+        <button id="btn-flow-start" class="primary" type="button">开始体检</button>
+        <button id="btn-flow-rec" type="button" disabled>记录这一次</button>
+        <button id="btn-flow-skip" class="ghost" type="button" disabled>跳过本步</button>
+        <button id="btn-flow-stop" class="ghost" type="button" disabled>结束并出报告</button>
+        <span class="hint" id="fl-count" style="margin:0"></span>
+      </div>
+    </div>
+    <details>
+      <summary>不想按流程？用自由打点</summary>
+      <div class="row" style="margin-top:8px">
+        <button class="tiny" type="button" data-free="静息" data-ms="10000">静息 10 秒</button>
+        <button class="tiny" type="button" data-free="左" data-ms="1600">左 1.6 秒</button>
+        <button class="tiny" type="button" data-free="右" data-ms="1600">右 1.6 秒</button>
+        <button class="tiny" type="button" data-free="跳" data-ms="1600">跳 1.6 秒</button>
+        <button class="tiny" type="button" data-free="蹲" data-ms="1600">蹲 1.6 秒</button>
+        <button class="tiny ghost" id="btn-free-stop" type="button">结束并出报告</button>
+      </div>
+      <div class="hint">自由打点没有 20/40/60cm 档位，报告里只出方向/噪声/误报，不出线性度。</div>
+    </details>
+  </div>
+
+  <!-- 3.5 干扰自检 -->
+  <div class="card">
+    <h2>③·5 双雷达干扰自检 <em>可选，约 1 分钟；先确认真的是两台雷达</em></h2>
+    <div class="hint">
+      顺序：① 只连左右雷达（把上下雷达断开/断电）→ 站中间别动 → 点「采单台 20 秒」；
+      ② 连上上下雷达，保持同一站位 → 点「采双台 20 秒」；③ 点「对比」。<br>
+      有干扰会表现为：静息噪声变大、x 出现固定幅度的跳变、左右路帧率下降。
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="btn-if-single" type="button">采「单台」20 秒</button>
+      <button id="btn-if-both" type="button">采「双台」20 秒</button>
+      <button id="btn-if-cmp" class="primary" type="button" disabled>对比</button>
+      <span class="hint" id="if-st" style="margin:0"></span>
+    </div>
+    <div id="if-res" class="hint" style="margin-top:8px"></div>
+  </div>
+
+  <!-- 5. 报告 -->
+  <div class="card">
+    <h2>⑤ 报告 <em>先看结论，再导出</em></h2>
+    <div id="rep-empty" class="hint">还没有数据。点上面「开始体检」。</div>
+    <div id="rep-body" style="display:none">
+      <div class="verdict" id="rep-verdict"></div>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" id="btn-dl-json" type="button">下载 JSON 报告</button>
+        <button id="btn-dl-csv" type="button">下载逐帧 CSV</button>
+        <button id="btn-copy" type="button">复制文字摘要</button>
+      </div>
+      <table id="rep-checks"></table>
+      <h3 style="font-size:13px;color:var(--acc);margin:16px 0 0">逐档位统计</h3>
+      <table id="rep-bins"></table>
+      <h3 style="font-size:13px;color:var(--acc);margin:16px 0 0">通道与同步</h3>
+      <table id="rep-ch"></table>
+      <details>
+        <summary>原始摘要（可直接贴群里）</summary>
+        <pre id="rep-text"></pre>
+      </details>
+    </div>
+  </div>
+
+  <div class="foot">
+    体检台只读不改：不写校准存档、不改游戏配置。导出文件在浏览器下载目录。
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var STALE_MS = 500;
+  var MAX_FRAMES = 200000;
+  var TH = {
+    hzPass: 20, hzWarn: 10,
+    ivRatioMax: 2.5,
+    baseStdMax: 0.18,
+    stepDelta: 0.35,
+    sepMin: 4,
+    linCv: 0.30,
+    satMax: 0.05,
+    recenter: 2.0,
+    spurRate: 0.06,
+    spurEvents: 2,
+    hitRate: 0.80,
+    latP95: 300,
+    syncP95: 120
+  };
+  var FLOW = [
+    { key: 'base',    tag: '静息', cm: 0,    ms: 10000, reps: 1, title: '静息基线：站中间别动、别跳别蹲', hint: '双手自然下垂，保持 10 秒。用来量零点噪声和误报。' },
+    { key: 'left20',  tag: '左',   cm: -20,  ms: 1600,  reps: 3, title: '向左走 20cm', hint: '往左一小步，站定后再点记录。做 3 次，每次回到中间再走。' },
+    { key: 'left40',  tag: '左',   cm: -40,  ms: 1600,  reps: 3, title: '向左走 40cm', hint: '比上一次再远一点。做 3 次。' },
+    { key: 'left60',  tag: '左',   cm: -60,  ms: 1600,  reps: 3, title: '向左走 60cm', hint: '接近探测区边缘。做 3 次；若这档 x 不再增大，就是饱和/出视场。' },
+    { key: 'right20', tag: '右',   cm: 20,   ms: 1600,  reps: 3, title: '向右走 20cm', hint: '对称做，仍做 3 次。' },
+    { key: 'right40', tag: '右',   cm: 40,   ms: 1600,  reps: 3, title: '向右走 40cm', hint: '做 3 次。' },
+    { key: 'right60', tag: '右',   cm: 60,   ms: 1600,  reps: 3, title: '向右走 60cm', hint: '做 3 次。右侧这档历史上最容易出视场。' },
+    { key: 'jump',    tag: '跳',   cm: null, ms: 1800,  reps: 5, title: '原地起跳', hint: '正常起跳、别助跑。做 5 次，每次落地站稳再点。' },
+    { key: 'crouch',  tag: '蹲',   cm: null, ms: 1800,  reps: 5, title: '原地下蹲', hint: '正常下蹲。做 5 次。' },
+    { key: 'base2',   tag: '静息', cm: 0,    ms: 8000,  reps: 1, title: '再站定一次（回中检查）', hint: '回到原位站 8 秒，看 x 能不能回到基线。' }
+  ];
+
+  function $(id) { return document.getElementById(id); }
+  function nowMs() {
+    return (window.performance && window.performance.now) ? window.performance.now() : Date.now();
+  }
+  function numOr(v, d) { var n = Number(v); return isFinite(n) ? n : d; }
+  function fmt(v, d) { return (v === null || v === undefined || !isFinite(v)) ? '—' : Number(v).toFixed(d); }
+
+  var state = {
+    lr: newChan('lr'),
+    ud: newChan('ud'),
+    rec: { on: false, t0: 0, frames: [], marks: [], dropped: 0 },
+    live: { lr: [], ud: [] },
+    flow: { on: false, i: 0, rep: 0, sampling: false, timer: null, tick: null, t0: 0 },
+    result: null
+  };
+  // 干扰自检用独立缓冲区，不动体检数据
+  var interf = { single: null, both: null, active: false, buf: [], timer: null, tick: null };
+
+  function newChan(role) {
+    return {
+      role: role, ws: null, connected: false, frames: 0,
+      last: null, lastAt: 0, ivs: [], gaps: 0, badJson: 0, lat: null, lastRec: null
+    };
+  }
+
+  // ---------------- 连接 ----------------
+  function setStatus(role, text, cls) {
+    $('dot-' + role).className = 'dot' + (cls ? ' ' + cls : '');
+    $('st-' + role).textContent = text;
+  }
+
+  function connect(role) {
+    var url = ($('url-' + role).value || '').trim();
+    if (!url) { setStatus(role, '先填地址', 'err'); return; }
+    if (location.protocol === 'https:' && url.indexOf('ws://') === 0) {
+      setStatus(role, 'HTTPS 页面禁止连 ws://，请用本地 http/file 打开本页', 'err');
+      return;
+    }
+    var c = state[role];
+    disconnect(role, true);
+    c.badJson = 0;
+    setStatus(role, '连接中…', 'pending');
+    try { c.ws = new WebSocket(url); } catch (e) { setStatus(role, '地址无效', 'err'); return; }
+
+    c.ws.onopen = function () {
+      c.connected = true;
+      setStatus(role, '已连接 · 等待数据', 'ok');
+      remember();
+    };
+    c.ws.onmessage = function (ev) {
+      var data;
+      try { data = JSON.parse(ev.data); } catch (e) { c.badJson++; return; }
+      if (Object.prototype.toString.call(data) === '[object Array]') {
+        for (var i = 0; i < data.length; i++) onFrame(role, data[i]);
+      } else {
+        onFrame(role, data);
+      }
+    };
+    c.ws.onerror = function () { setStatus(role, '连接错误（地址/端口/防火墙）', 'err'); };
+    c.ws.onclose = function () {
+      c.connected = false; c.ws = null;
+      setStatus(role, '已断开', 'err');
+    };
+    $('btn-' + role + '-off').disabled = false;
+  }
+
+  function disconnect(role, quiet) {
+    var c = state[role];
+    if (c.ws) {
+      c.quiet = !!quiet;
+      try { c.ws.close(); } catch (e) {}
+      c.ws = null;
+    }
+    c.connected = false;
+    if (!quiet) setStatus(role, '未连接', '');
+    $('btn-' + role + '-off').disabled = true;
+  }
+
+  // ---------------- 收帧 ----------------
+  function onFrame(role, f) {
+    if (!f || typeof f !== 'object') return;
+    var c = state[role];
+    var t = nowMs();
+    var fr = {
+      ch: role, t: t, wall: Date.now(),
+      ts: numOr(f.ts, 0),
+      x: numOr(f.x, NaN),
+      height: numOr(f.height, 0),
+      jump: numOr(f.jump, 0) ? 1 : 0,
+      crouch: numOr(f.crouch, 0) ? 1 : 0,
+      conf: numOr(f.confidence, 1)
+    };
+
+    c.frames++;
+    if (c.lastAt) {
+      var iv = t - c.lastAt;
+      if (iv > 0) {
+        c.ivs.push(iv);
+        if (c.ivs.length > 120) c.ivs.shift();
+        if (iv > STALE_MS) c.gaps++;
+      }
+    }
+    c.lastAt = t;
+    c.last = fr;
+    if (fr.ts > 1e12) c.lat = fr.wall - fr.ts;
+
+    var buf = state.live[role];
+    buf.push(fr);
+    if (buf.length > 900) buf.shift();
+
+    if (state.rec.on) {
+      if (state.rec.frames.length < MAX_FRAMES) {
+        state.rec.frames.push(fr);
+        c.lastRec = fr;
+      } else {
+        state.rec.dropped++;
+      }
+    }
+    if (interf.active) interf.buf.push(fr);
+  }
+
+  // ---------------- 实时面板 ----------------
+  var lastPaint = 0;
+  setInterval(function () {
+    var t = nowMs();
+    if (t - lastPaint < 180) return;
+    lastPaint = t;
+    paintLive();
+  }, 80);
+
+  function paintLive() {
+    paintChan('lr');
+    paintChan('ud');
+    drawWaves();
+  }
+
+  function paintChan(role) {
+    var c = state[role];
+    var p = role === 'lr' ? 'l' : 'u';
+    var hz = hzOf(c.ivs);
+    var ivp = pct(c.ivs, 95);
+    var latS = c.lat !== null ? c.lat : null;
+    $(p + '-hz').textContent = hz > 0 ? hz.toFixed(1) + 'Hz' : '—';
+    $(p + '-hz-n').textContent = c.frames + ' 帧' + (c.badJson ? ' · 非JSON ' + c.badJson : '');
+    $(p + '-iv').textContent = ivp !== null ? Math.round(ivp) + 'ms' : '—';
+    $(p + '-gap').textContent = '超时 ' + c.gaps + ' 次';
+    $(p + '-lat').textContent = latS !== null ? Math.round(latS) + 'ms' : '—';
+
+    if (role === 'lr') {
+      var fr = c.last;
+      $('l-x').textContent = fr && isFinite(fr.x) ? fr.x.toFixed(3) : '—';
+      $('l-x-n').textContent = fr ? 't=' + shortT(fr.t) : '原始值';
+    } else {
+      var fu = c.last;
+      $('u-jc').textContent = fu ? (fu.jump + ' / ' + fu.crouch) : '—';
+      $('u-h').textContent = 'height ' + (fu ? fu.height.toFixed(2) : '—');
+    }
+  }
+
+  function shortT(t) {
+    if (!t) return '—';
+    return (t / 1000).toFixed(1) + 's';
+  }
+
+  // ---------------- 画图 ----------------
+  function drawWaves() {
+    drawX();
+    drawJC();
+  }
+
+  function fitCanvas(cv) {
+    var dpr = window.devicePixelRatio || 1;
+    var w = cv.clientWidth || 600;
+    var h = 104;
+    if (cv.width !== Math.round(w * dpr)) {
+      cv.width = Math.round(w * dpr);
+      cv.height = Math.round(h * dpr);
+    }
+    var ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx: ctx, w: w, h: h };
+  }
+
+  function drawX() {
+    var cv = $('cv-x');
+    var o = fitCanvas(cv), ctx = o.ctx, w = o.w, h = o.h;
+    ctx.clearRect(0, 0, w, h);
+    var buf = state.live.lr;
+    var unit = $('m-unit').value;
+
+    var lo = -1, hi = 1;
+    if (unit !== 'norm') {
+      var mn = Infinity, mx = -Infinity, i;
+      for (i = 0; i < buf.length; i++) {
+        if (isFinite(buf[i].x)) { if (buf[i].x < mn) mn = buf[i].x; if (buf[i].x > mx) mx = buf[i].x; }
+      }
+      if (isFinite(mn)) { var pad = Math.max((mx - mn) * 0.15, 0.01); lo = mn - pad; hi = mx + pad; }
+    }
+    if (hi - lo < 1e-6) { hi = lo + 1; }
+
+    grid(ctx, w, h, lo, hi, 4);
+
+    ctx.strokeStyle = 'rgba(148,163,184,.55)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    var y0 = yOf(0, h, lo, hi);
+    ctx.moveTo(0, y0); ctx.lineTo(w, y0); ctx.stroke();
+
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    var started = false, n = buf.length;
+    for (var j = 0; j < n; j++) {
+      if (!isFinite(buf[j].x)) continue;
+      var px = (j / Math.max(n - 1, 1)) * w;
+      var py = yOf(buf[j].x, h, lo, hi);
+      if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    ctx.font = '11px ui-monospace,Consolas,monospace';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(hi.toFixed(2), 4, 12);
+    ctx.fillText(lo.toFixed(2), 4, h - 5);
+  }
+
+  function drawJC() {
+    var cv = $('cv-j');
+    var o = fitCanvas(cv), ctx = o.ctx, w = o.w, h = o.h;
+    ctx.clearRect(0, 0, w, h);
+    var buf = state.live.ud;
+    grid(ctx, w, h, 0, 1, 4);
+
+    var series = [
+      { k: 'jump', c: '#fbbf24' },
+      { k: 'crouch', c: '#c084fc' }
+    ];
+    for (var s = 0; s < series.length; s++) {
+      ctx.strokeStyle = series[s].c;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      var started = false, n = buf.length;
+      for (var j = 0; j < n; j++) {
+        var v = buf[j][series[s].k];
+        var px = (j / Math.max(n - 1, 1)) * w;
+        var py = yOf(v, h, 0, 1);
+        if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+    ctx.font = '11px ui-monospace,Consolas,monospace';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText('1.0', 4, 12);
+    ctx.fillText('0.0', 4, h - 5);
+  }
+
+  function grid(ctx, w, h, lo, hi, n) {
+    ctx.strokeStyle = 'rgba(148,163,184,.10)';
+    ctx.lineWidth = 1;
+    for (var i = 0; i <= n; i++) {
+      var y = (h - 12) * (i / n) + 6;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    }
+  }
+  function yOf(v, h, lo, hi) {
+    var r = (v - lo) / (hi - lo);
+    if (!isFinite(r)) r = 0;
+    if (r < 0) r = 0; if (r > 1) r = 1;
+    return h - 6 - r * (h - 12);
+  }
+
+  // ---------------- 统计工具 ----------------
+  function mean(a) {
+    var s = 0, n = 0;
+    for (var i = 0; i < a.length; i++) if (isFinite(a[i])) { s += a[i]; n++; }
+    return n ? s / n : null;
+  }
+  function std(a) {
+    var m = mean(a);
+    if (m === null) return null;
+    var s = 0, n = 0;
+    for (var i = 0; i < a.length; i++) if (isFinite(a[i])) { s += (a[i] - m) * (a[i] - m); n++; }
+    return n > 1 ? Math.sqrt(s / (n - 1)) : 0;
+  }
+  function sorted(a) {
+    var b = a.slice(0);
+    b.sort(function (x, y) { return x - y; });
+    return b;
+  }
+  function pct(a, p) {
+    var b = [], i;
+    for (i = 0; i < a.length; i++) if (isFinite(a[i])) b.push(a[i]);
+    if (!b.length) return null;
+    b = sorted(b);
+    var idx = (b.length - 1) * p / 100;
+    var lo = Math.floor(idx), hi = Math.ceil(idx);
+    if (lo === hi) return b[lo];
+    return b[lo] + (b[hi] - b[lo]) * (idx - lo);
+  }
+  function hzOf(ivs) {
+    var m = mean(ivs);
+    return (m && m > 0) ? 1000 / m : 0;
+  }
+
+  // ---------------- 流程 ----------------
+  function startFlow() {
+    state.rec = { on: true, t0: nowMs(), frames: [], marks: [], dropped: 0 };
+    state.result = null;
+    state.flow = { on: true, i: 0, rep: 0, sampling: false, timer: null, tick: null, t0: 0 };
+    $('rep-body').style.display = 'none';
+    $('rep-empty').textContent = '正在采集… 做完流程会自动出报告。';
+    $('btn-flow-start').disabled = true;
+    $('btn-flow-rec').disabled = false;
+    $('btn-flow-skip').disabled = false;
+    $('btn-flow-stop').disabled = false;
+    $('btn-flow-rec').textContent = '记录这一次';
+    renderFlow();
+  }
+
+  function currentStep() {
+    return state.flow.on ? FLOW[state.flow.i] : null;
+  }
+
+  function renderFlow() {
+    var st = currentStep();
+    var bar = $('fl-bar');
+    var steps = $('fl-steps');
+    steps.innerHTML = '';
+    for (var i = 0; i < FLOW.length; i++) {
+      var s = document.createElement('span');
+      var nm = FLOW[i].title;
+      var cut = nm.indexOf('：');
+      if (cut > 0) nm = nm.substring(0, cut);
+      s.textContent = (i + 1) + '. ' + nm;
+      if (i < state.flow.i) s.className = 'done';
+      else if (i === state.flow.i) s.className = 'cur';
+      steps.appendChild(s);
+    }
+
+    if (!st) {
+      $('fl-title').textContent = '体检结束';
+      $('fl-hint').textContent = '报告已生成，往下看第 ⑤ 节。';
+      bar.style.width = '100%';
+      $('fl-count').textContent = '';
+      return;
+    }
+
+    var total = 0, done = 0;
+    for (var k = 0; k < FLOW.length; k++) {
+      total += FLOW[k].reps;
+      done += (k < state.flow.i) ? FLOW[k].reps : (k === state.flow.i ? state.flow.rep : 0);
+    }
+    bar.style.width = (100 * done / total).toFixed(1) + '%';
+
+    $('fl-title').textContent = (state.flow.i + 1) + '/' + FLOW.length + '　' + st.title;
+    $('fl-hint').textContent = st.hint;
+    $('fl-count').textContent = '本步 ' + state.flow.rep + ' / ' + st.reps + '　·　本次采集 ' +
+      ((nowMs() - state.rec.t0) / 1000).toFixed(0) + ' 秒，' + state.rec.frames.length + ' 帧';
+  }
+
+  function trackFlowClock() {
+    if (state.flow.timer) clearInterval(state.flow.timer);
+    state.flow.timer = setInterval(function () {
+      if (!state.flow.on) return;
+      if (state.flow.sampling) {
+        var left = Math.max(0, (state.flow.endAt || 0) - nowMs());
+        $('btn-flow-rec').textContent = '采集中… ' + (left / 1000).toFixed(1) + 's';
+      }
+      renderFlowCountOnly();
+    }, 120);
+  }
+  function renderFlowCountOnly() {
+    if (!state.flow.on) return;
+    var st = currentStep();
+    if (!st) return;
+    $('fl-count').textContent = '本步 ' + state.flow.rep + ' / ' + st.reps + '　·　本次采集 ' +
+      ((nowMs() - state.rec.t0) / 1000).toFixed(0) + ' 秒，' + state.rec.frames.length + ' 帧';
+  }
+
+  function recordOnce() {
+    if (!state.flow.on || state.flow.sampling) return;
+    var st = currentStep();
+    if (!st) return;
+    var f = state.flow;
+    f.sampling = true;
+    f.t0 = nowMs();
+    f.endAt = f.t0 + st.ms;
+    $('btn-flow-rec').disabled = true;
+    $('btn-flow-skip').disabled = true;
+    $('btn-flow-stop').disabled = true;
+
+    setTimeout(function () {
+      if (!state.flow.on) return;
+      var t1 = nowMs();
+      state.rec.marks.push({
+        key: st.key, tag: st.tag, cm: st.cm,
+        t0: f.t0, t1: t1
+      });
+      f.sampling = false;
+      f.rep++;
+      if (f.rep >= st.reps) { f.i++; f.rep = 0; }
+      $('btn-flow-rec').disabled = false;
+      $('btn-flow-skip').disabled = false;
+      $('btn-flow-stop').disabled = false;
+      $('btn-flow-rec').textContent = '记录这一次';
+      if (f.i >= FLOW.length) { finishFlow(); return; }
+      renderFlow();
+    }, st.ms);
+  }
+
+  function skipStep() {
+    if (!state.flow.on || state.flow.sampling) return;
+    state.flow.i++;
+    state.flow.rep = 0;
+    if (state.flow.i >= FLOW.length) { finishFlow(); return; }
+    renderFlow();
+  }
+
+  function finishFlow() {
+    state.flow.on = false;
+    state.flow.sampling = false;
+    if (state.flow.timer) { clearInterval(state.flow.timer); state.flow.timer = null; }
+    state.rec.on = false;
+    $('btn-flow-start').disabled = false;
+    $('btn-flow-rec').disabled = true;
+    $('btn-flow-skip').disabled = true;
+    $('btn-flow-stop').disabled = true;
+    $('btn-flow-rec').textContent = '记录这一次';
+    renderFlow();
+    analyze();
+  }
+
+  function freeMark(tag, ms, btn) {
+    if (!state.rec.on) {
+      state.rec = { on: true, t0: nowMs(), frames: [], marks: [], dropped: 0 };
+      $('btn-flow-start').disabled = true;
+      $('btn-flow-stop').disabled = false;
+    }
+    var t0 = nowMs();
+    state.rec.marks.push({ key: 'free-' + tag, tag: tag, cm: null, t0: t0, t1: t0 + ms });
+    if (btn) {
+      btn.disabled = true;
+      setTimeout(function () { btn.disabled = false; }, ms);
+    }
+    $('rep-body').style.display = 'none';
+    $('rep-empty').style.display = '';
+    $('rep-empty').textContent = '已记录：' + tag + '（' + (ms / 1000) + ' 秒窗口），共 ' +
+      state.rec.marks.length + ' 个标记。继续打点，或点「结束并出报告」。';
+  }
+
+  // ---------------- 干扰自检 ----------------
+  // 同一站位、只开一台 vs 两台都开，比较左右路的静息噪声/跳变/帧率。
+  // 射频互扰的典型表现：σ 抬升、x 出现固定幅度跳变、帧率下降；单开正常双开变差即可判定。
+  var IF_MS = 20000;
+
+  function startInterf(mode) {
+    if (state.flow.on) {
+      $('if-st').textContent = '体检流程进行中，先结束体检再做自检';
+      return;
+    }
+    if (ifRunning()) return;
+
+    interf.active = true;
+    interf.buf = [];
+    if (interf.tick) clearInterval(interf.tick);
+
+    var t0 = nowMs();
+    var label = mode === 'single' ? '单台' : '双台';
+    $('btn-if-single').disabled = true;
+    $('btn-if-both').disabled = true;
+    $('btn-if-cmp').disabled = true;
+    $('if-st').textContent = label + '采集中… 站定别动（0s / 20s）';
+
+    interf.tick = setInterval(function () {
+      var left = Math.max(0, IF_MS - (nowMs() - t0));
+      $('if-st').textContent = label + '采集中… 站定别动（' + ((IF_MS - left) / 1000).toFixed(0) + 's / 20s）';
+    }, 200);
+
+    interf.timer = setTimeout(function () {
+      interf.active = false;
+      if (interf.tick) { clearInterval(interf.tick); interf.tick = null; }
+      var st = statsFrom(interf.buf);
+      st.at = new Date().toLocaleTimeString();
+      interf[mode] = st;
+      interf.buf = [];
+      $('btn-if-single').disabled = false;
+      $('btn-if-both').disabled = false;
+      $('if-st').textContent = label + '采集完成（' + st.n_lr + ' 帧）';
+      if (interf.single && interf.both) $('btn-if-cmp').disabled = false;
+      renderInterf();
+    }, IF_MS);
+  }
+
+  function ifRunning() {
+    return interf.active;
+  }
+
+  function statsFrom(frames) {
+    var lr = [], ud = [], xs = [], i, f, prev = null, jumps = 0;
+    for (i = 0; i < frames.length; i++) {
+      f = frames[i];
+      if (f.ch === 'lr') { lr.push(f); if (isFinite(f.x)) xs.push(f.x); }
+      else ud.push(f);
+    }
+    for (i = 0; i < lr.length; i++) {
+      if (prev !== null && isFinite(lr[i].x) && isFinite(prev) && Math.abs(lr[i].x - prev) > 0.25) jumps++;
+      prev = lr[i].x;
+    }
+    var span = lr.length > 1 ? (lr[lr.length - 1].t - lr[0].t) / 1000 : 0;
+    var jr = 0, cr = 0;
+    for (i = 0; i < ud.length; i++) { if (ud[i].jump) jr++; if (ud[i].crouch) cr++; }
+    return {
+      n_lr: lr.length, n_ud: ud.length,
+      hz: span > 0 ? (lr.length - 1) / span : 0,
+      x_std: std(xs),
+      x_range: xs.length ? (Math.max.apply(null, xs) - Math.min.apply(null, xs)) : null,
+      jump_rate: ud.length ? jr / ud.length : null,
+      crouch_rate: ud.length ? cr / ud.length : null,
+      jumps: jumps
+    };
+  }
+
+  function renderInterf() {
+    var s = interf.single, b = interf.both;
+    if (!s && !b) return;
+    var L = [];
+    if (s) {
+      L.push('单台：σ <b>' + fmt(s.x_std, 3) + '</b>，峰峰 ' + fmt(s.x_range, 3) +
+        '，跳变 ' + s.jumps + ' 次，' + fmt(s.hz, 1) + 'Hz（' + s.n_lr + ' 帧）');
+    }
+    if (b) {
+      L.push('双台：σ <b>' + fmt(b.x_std, 3) + '</b>，峰峰 ' + fmt(b.x_range, 3) +
+        '，跳变 ' + b.jumps + ' 次，' + fmt(b.hz, 1) + 'Hz（' + b.n_lr + ' 帧）');
+    }
+
+    if (s && b) {
+      var ratio = (s.x_std && s.x_std > 1e-6 && b.x_std !== null) ? b.x_std / s.x_std : null;
+      var hzRatio = (s.hz > 0) ? b.hz / s.hz : null;
+      var jumpDelta = b.jumps - s.jumps;
+      var bad = (ratio !== null && ratio >= 1.5) || (jumpDelta >= 3) ||
+        (hzRatio !== null && hzRatio < 0.75);
+      var mild = !bad && ratio !== null && ratio >= 1.25;
+
+      if (s.n_ud > 0) {
+        L.push('<span style="color:var(--warn)">⚠ 单台阶段仍收到上下路 ' + s.n_ud +
+          ' 帧：上下雷达没有真正断开，这次对比无效。</span>');
+      } else if (bad) {
+        L.push('<span style="color:var(--bad)"><b>结论：疑似射频互扰。</b></span> ' +
+          '双开时噪声 ' + (ratio === null ? '—' : ratio.toFixed(2) + '×') +
+          '、跳变 ' + (jumpDelta >= 0 ? '+' : '') + jumpDelta + ' 次、帧率 ' +
+          (hzRatio === null ? '—' : Math.round(hzRatio * 100) + '%') +
+          '。按「拉开/转向 → 距离门 → 频分」顺序处理，处理完重测。');
+      } else if (mild) {
+        L.push('<span style="color:var(--warn)"><b>结论：轻度抬升。</b></span>噪声 ' +
+          ratio.toFixed(2) + '×，可能只是环境或站位变化。建议换一次朝向/间距再测一遍确认。');
+      } else {
+        L.push('<span style="color:var(--ok)"><b>结论：未见明显干扰。</b></span>' +
+          '噪声变化 ' + (ratio === null ? '—' : ratio.toFixed(2) + '×') +
+          '，跳变 ' + (jumpDelta >= 0 ? '+' : '') + jumpDelta + ' 次。');
+      }
+    } else {
+      L.push('还差一段：' + (s ? '请再采「双台」' : '请再采「单台」') + '，两段都完成后自动对比。');
+    }
+
+    $('if-res').innerHTML = L.join('<br>');
+  }
+
+  // ---------------- 分析 ----------------
+  function analyze() {
+    var rec = state.rec;
+    var frames = rec.frames;
+    var marks = rec.marks;
+    var unit = $('m-unit').value;
+    var durMs = frames.length ? (frames[frames.length - 1].t - rec.t0) : 0;
+
+    var lrF = [], udF = [], i, f;
+    for (i = 0; i < frames.length; i++) {
+      f = frames[i];
+      if (f.ch === 'lr') lrF.push(f); else udF.push(f);
+    }
+
+    var res = {
+      meta: readMeta(),
+      generatedAt: new Date().toISOString(),
+      rec: { duration_ms: Math.round(durMs), frames: frames.length, marks: marks.length, dropped: rec.dropped },
+      channels: {}, bins: [], events: {}, sync: {}, checks: []
+    };
+
+    res.channels.lr = chStats(lrF, 'lr');
+    res.channels.ud = chStats(udF, 'ud');
+    res.channels.ud.badJson = state.ud.badJson;
+    res.channels.lr.badJson = state.lr.badJson;
+
+    // 窗口取值
+    var win = {};
+    for (i = 0; i < marks.length; i++) {
+      var m = marks[i];
+      var k = m.key;
+      if (!win[k]) win[k] = { tag: m.tag, cm: m.cm, x: [], jump: [], crouch: [], n: 0 };
+      win[k].n++;
+      for (var j = 0; j < lrF.length; j++) {
+        if (lrF[j].t >= m.t0 && lrF[j].t <= m.t1 && isFinite(lrF[j].x)) win[k].x.push(lrF[j].x);
+      }
+      for (var j2 = 0; j2 < udF.length; j2++) {
+        if (udF[j2].t >= m.t0 && udF[j2].t <= m.t1) {
+          win[k].jump.push(udF[j2].jump);
+          win[k].crouch.push(udF[j2].crouch);
+        }
+      }
+    }
+
+    // 基线
+    var baseVals = [];
+    ['base', 'base2'].forEach(function (bk) {
+      if (win[bk]) baseVals = baseVals.concat(win[bk].x);
+    });
+    var baseMean = mean(baseVals);
+    var baseStd = std(baseVals);
+    res.baseline = { n: baseVals.length, mean: baseMean, std: baseStd, p95dev: p95dev(baseVals, baseMean) };
+
+    // 档位表
+    var binKeys = ['left60', 'left40', 'left20', 'right20', 'right40', 'right60'];
+    for (i = 0; i < binKeys.length; i++) {
+      var b = win[binKeys[i]];
+      if (!b) continue;
+      res.bins.push({
+        key: binKeys[i], cm: b.cm, reps: b.n,
+        x_mean: mean(b.x), x_std: std(b.x),
+        delta: (baseMean !== null && mean(b.x) !== null) ? mean(b.x) - baseMean : null,
+        n: b.x.length
+      });
+    }
+
+    // 左右判断（40cm 档优先）
+    var l40 = win['left40'], r40 = win['right40'];
+    var dirOk = null, sep = null;
+    if (l40 && r40 && baseMean !== null) {
+      var dl = mean(l40.x), dr = mean(r40.x);
+      if (dl !== null && dr !== null) {
+        dirOk = dr > dl;
+        sep = (baseStd && baseStd > 1e-6) ? Math.abs(dr - dl) / baseStd : null;
+      }
+    }
+
+    // 单调性：l60 < l40 < l20 < base < r20 < r40 < r60
+    var seq = [];
+    ['left60', 'left40', 'left20'].forEach(function (k) { if (win[k]) seq.push(mean(win[k].x)); });
+    if (baseMean !== null) seq.push(baseMean);
+    ['right20', 'right40', 'right60'].forEach(function (k) { if (win[k]) seq.push(mean(win[k].x)); });
+    var mono = 0, monoTotal = 0;
+    for (i = 1; i < seq.length; i++) {
+      if (seq[i - 1] === null || seq[i] === null) continue;
+      monoTotal++;
+      if (seq[i] > seq[i - 1]) mono++;
+    }
+
+    // 线性度：|Δ|/cm
+    var ks = [];
+    ['left20', 'left40', 'left60', 'right20', 'right40', 'right60'].forEach(function (k) {
+      var w = win[k];
+      if (!w || !w.cm || baseMean === null) return;
+      var d = mean(w.x);
+      if (d === null) return;
+      ks.push(Math.abs(d - baseMean) / Math.abs(w.cm));
+    });
+    var kMean = mean(ks), kStd = std(ks);
+    var linCv = (kMean && kMean > 1e-9) ? kStd / kMean : null;
+
+    // 饱和
+    var sat = null;
+    if (unit === 'norm') {
+      var satN = 0, xN = 0;
+      for (i = 0; i < lrF.length; i++) {
+        if (!isFinite(lrF[i].x)) continue;
+        xN++;
+        if (Math.abs(lrF[i].x) >= 0.98) satN++;
+      }
+      sat = xN ? satN / xN : null;
+    }
+
+    // 回中
+    var recenter = null;
+    if (win['base2'] && baseMean !== null && baseStd && baseStd > 1e-6) {
+      var b2 = mean(win['base2'].x);
+      if (b2 !== null) recenter = Math.abs(b2 - baseMean) / baseStd;
+    }
+
+    // 静息误报
+    var stillJ = [], stillC = [];
+    ['base', 'base2'].forEach(function (k) {
+      if (win[k]) { stillJ = stillJ.concat(win[k].jump); stillC = stillC.concat(win[k].crouch); }
+    });
+    var spur = {
+      frames: stillJ.length,
+      jumpRate: stillJ.length ? sum(stillJ) / stillJ.length : null,
+      crouchRate: stillC.length ? sum(stillC) / stillC.length : null,
+      jumpEvents: edges(stillJ),
+      crouchEvents: edges(stillC)
+    };
+
+    // 动作命中（按每个标记窗口单独算）
+    var hits = { jump: null, crouch: null };
+    var actionSpur = { jumpRate: null, crouchRate: null };
+    hits.jump = hitsByMark(marks, udF, 'jump', '跳');
+    hits.crouch = hitsByMark(marks, udF, 'crouch', '蹲');
+    actionSpur.jumpRate = spurRateInMarks(marks, udF, 'jump', ['左', '右', '静息', '蹲']);
+    actionSpur.crouchRate = spurRateInMarks(marks, udF, 'crouch', ['左', '右', '静息', '跳']);
+
+    res.events = { still: spur, hits: hits, spurInOther: actionSpur };
+
+    // 同步
+    res.sync = syncStats(lrF, udF);
+
+    // 延迟
+    var lats = [], latsU = [];
+    for (i = 0; i < lrF.length; i++) if (lrF[i].ts > 1e12) lats.push(lrF[i].wall - lrF[i].ts);
+    for (i = 0; i < udF.length; i++) if (udF[i].ts > 1e12) latsU.push(udF[i].wall - udF[i].ts);
+    res.channels.lr.lat_p50 = pct(lats, 50);
+    res.channels.lr.lat_p95 = pct(lats, 95);
+    res.channels.ud.lat_p50 = pct(latsU, 50);
+    res.channels.ud.lat_p95 = pct(latsU, 95);
+    res.channels.lr.ts_valid = lrF.length ? lats.length / lrF.length : null;
+    res.channels.ud.ts_valid = udF.length ? latsU.length / udF.length : null;
+
+    res.derived = {
+      base_mean: baseMean, base_std: baseStd,
+      dir_ok: dirOk, separation: sep, mono: mono, mono_total: monoTotal,
+      lin_cv: linCv, sat: sat, recenter: recenter,
+      unit: unit
+    };
+
+    res.checks = buildChecks(res);
+    state.result = res;
+    renderReport(res);
+  }
+
+  function chStats(arr, role) {
+    var ivs = [], i;
+    for (i = 1; i < arr.length; i++) ivs.push(arr[i].t - arr[i - 1].t);
+    var hz = hzOf(ivs);
+    var med = pct(ivs, 50);
+    var p95 = pct(ivs, 95);
+    var mx = ivs.length ? Math.max.apply(null, ivs) : null;
+    var over = 0;
+    for (i = 0; i < ivs.length; i++) if (ivs[i] > STALE_MS) over++;
+    return {
+      role: role,
+      frames: arr.length,
+      hz: hz,
+      iv_p50: med,
+      iv_p95: p95,
+      iv_max: mx,
+      iv_ratio: (med && med > 0 && p95) ? p95 / med : null,
+      stale_count: over,
+      span_ms: arr.length ? Math.round(arr[arr.length - 1].t - arr[0].t) : 0
+    };
+  }
+
+  function p95dev(vals, m) {
+    if (!vals.length || m === null) return null;
+    var d = [];
+    for (var i = 0; i < vals.length; i++) d.push(Math.abs(vals[i] - m));
+    return pct(d, 95);
+  }
+  function sum(a) { var s = 0; for (var i = 0; i < a.length; i++) s += a[i]; return s; }
+  function maxOf(a) { if (!a.length) return null; var m = -Infinity; for (var i = 0; i < a.length; i++) if (a[i] > m) m = a[i]; return m; }
+  function edges(a) {
+    var n = 0;
+    for (var i = 1; i < a.length; i++) if (a[i] && !a[i - 1]) n++;
+    return n;
+  }
+  function hitsByMark(marks, udF, field, tag) {
+    var total = 0, hit = 0;
+    for (var i = 0; i < marks.length; i++) {
+      if (marks[i].tag !== tag) continue;
+      total++;
+      var got = 0;
+      for (var j = 0; j < udF.length; j++) {
+        if (udF[j].t < marks[i].t0 || udF[j].t > marks[i].t1) continue;
+        if (udF[j][field] >= 0.5) { got = 1; break; }
+      }
+      hit += got;
+    }
+    return total ? { hit: hit, total: total, rate: hit / total } : null;
+  }
+  function spurRateInMarks(marks, udF, field, tags) {
+    var any = false, n = 0, on = 0;
+    for (var i = 0; i < marks.length; i++) {
+      if (tags.indexOf(marks[i].tag) < 0) continue;
+      for (var j = 0; j < udF.length; j++) {
+        if (udF[j].t < marks[i].t0 || udF[j].t > marks[i].t1) continue;
+        n++; any = true;
+        if (udF[j][field] >= 0.5) on++;
+      }
+    }
+    return any ? on / n : null;
+  }
+  function syncStats(lrF, udF) {
+    if (!lrF.length || !udF.length) return { n: 0 };
+    var out = [], tsOut = [], j = 0;
+    for (var i = 0; i < lrF.length; i++) {
+      var t = lrF[i].t;
+      while (j + 1 < udF.length && Math.abs(udF[j + 1].t - t) <= Math.abs(udF[j].t - t)) j++;
+      out.push(Math.abs(udF[j].t - t));
+      if (lrF[i].ts > 1e12 && udF[j].ts > 1e12) tsOut.push(Math.abs(lrF[i].ts - udF[j].ts));
+    }
+    return {
+      n: out.length,
+      arrive_p50: pct(out, 50),
+      arrive_p95: pct(out, 95),
+      ts_p50: pct(tsOut, 50),
+      ts_p95: pct(tsOut, 95)
+    };
+  }
+
+  // ---------------- 判定 ----------------
+  function buildChecks(r) {
+    var c = [];
+    function add(id, name, level, value, expect, who, advice) {
+      c.push({ id: id, name: name, level: level, value: value, expect: expect, who: who, advice: advice });
+    }
+    var lr = r.channels.lr, ud = r.channels.ud;
+
+    // 连接与帧率
+    [['lr', lr, '左右雷达'], ['ud', ud, '上下雷达']].forEach(function (p) {
+      var id = p[0], s = p[1], nm = p[2];
+      if (!s.frames) { add(id + '_hz', nm + ' 帧率', 'na', '无数据', '≥20Hz', '雷达侧', '这一路没收到帧：先确认地址/桥接器在推数据。'); return; }
+      var lv = s.hz >= TH.hzPass ? 'pass' : (s.hz >= TH.hzWarn ? 'warn' : 'fail');
+      add(id + '_hz', nm + ' 帧率', lv, fmt(s.hz, 1) + 'Hz', '≥20Hz',
+        '雷达侧', lv === 'pass' ? '达标。' : '处理链降采样太重。游戏侧无法补偿被漏采的动作，必须把降采样改成 1:1 或 2:1。');
+    });
+
+    [['lr', lr, '左右'], ['ud', ud, '上下']].forEach(function (p) {
+      var id = p[0], s = p[1], nm = p[2];
+      if (!s.frames || s.iv_ratio === null) return;
+      var lv = s.iv_ratio <= TH.ivRatioMax && s.stale_count === 0 ? 'pass' : (s.iv_ratio <= TH.ivRatioMax * 1.6 ? 'warn' : 'fail');
+      add(id + '_iv', nm + ' 间隔稳定性', lv, 'p95/中位 ' + fmt(s.iv_ratio, 2) + '，>500ms ' + s.stale_count + ' 次',
+        '比值 ≤' + TH.ivRatioMax + ' 且 0 次超时', '雷达侧', '间隔忽长忽短说明丢帧/GC/网络抖动；先看桥接器日志的 dropped。');
+    });
+
+    // 基线噪声
+    var d = r.derived;
+    if (r.baseline && r.baseline.n > 0) {
+      var lvB = 'na';
+      if (d.unit === 'norm') lvB = d.base_std <= TH.baseStdMax ? 'pass' : (d.base_std <= TH.baseStdMax * 1.6 ? 'warn' : 'fail');
+      else lvB = 'na';
+      add('base_std', '静息噪声（x 标准差）', lvB, fmt(d.base_std, 3),
+        d.unit === 'norm' ? '≤' + TH.baseStdMax : '需归一化后判定', '雷达侧', '站着不动 x 还在大幅跳 = 上游噪声或多人/多径；先清空探测区，再检查距离门。');
+      add('base_mean', '静息基线偏移', 'na', fmt(d.base_mean, 3), '游戏会现场学零点', '游戏侧', '基线偏移本身不影响（校准会减掉），但偏移过大可能意味着人已贴近视场边缘。');
+    } else {
+      add('base_std', '静息噪声（x 标准差）', 'na', '没有静息段', '≤' + TH.baseStdMax, '雷达侧', '流程第 1 步没做，无法判断噪声。');
+    }
+
+    // 方向与分离度
+    if (d.dir_ok === null) {
+      add('dir', '左右方向', 'na', '缺 40cm 档', '右 > 左', '雷达侧', '左右 40cm 档没采到，无法判方向。');
+    } else {
+      add('dir', '左右方向', d.dir_ok ? 'pass' : 'fail', d.dir_ok ? '右 > 左' : '右 ≤ 左', '右 > 左', '雷达侧',
+        d.dir_ok ? '方向正确。' : '先排除换线/极性（桥接器加 --invert-x），若加了仍然反，说明没采到方向信息。');
+      if (d.separation !== null) {
+        var lvS = d.separation >= TH.sepMin ? 'pass' : (d.separation >= 2 ? 'warn' : 'fail');
+        add('sep', '左右可分辨度（Δ/σ）', lvS, fmt(d.separation, 1) + 'σ', '≥' + TH.sepMin + 'σ', '雷达侧',
+          lvS === 'pass' ? '够用。' : '左右动作的差异还没超过噪声。历史上根因是板没瞄准人（静息主回波偏 40°），人一走就出视场。');
+      }
+    }
+
+    // 单调性
+    if (d.mono_total >= 3) {
+      var lvM = d.mono === d.mono_total ? 'pass' : (d.mono >= d.mono_total - 1 ? 'warn' : 'fail');
+      add('mono', '档位单调性', lvM, d.mono + '/' + d.mono_total, '全部递增', '雷达侧',
+        lvM === 'pass' ? '20/40/60cm 单调递增。' : '某一档不再变大 = 饱和或出视场；把该档位标出来给雷达侧看。');
+    } else {
+      add('mono', '档位单调性', 'na', '档位不足', '全部递增', '雷达侧', '至少要走 20/40/60 三档。');
+    }
+
+    // 线性度
+    if (d.lin_cv !== null) {
+      var lvL = d.lin_cv <= TH.linCv ? 'pass' : (d.lin_cv <= TH.linCv * 1.7 ? 'warn' : 'fail');
+      add('lin', '档位线性度（CV）', lvL, fmt(d.lin_cv, 2), '≤' + TH.linCv, '雷达侧',
+        lvL === 'pass' ? '比例稳定。' : '不同距离的比例不一致：要么量纲/scale 不对，要么角度非线性；需要雷达侧给物理量（米/角度）而不是自定义单位。');
+    }
+
+    // 饱和
+    if (d.sat !== null) {
+      var lvSat = d.sat <= TH.satMax ? 'pass' : (d.sat <= 0.15 ? 'warn' : 'fail');
+      add('sat', 'x 贴边饱和比例', lvSat, (d.sat * 100).toFixed(1) + '%', '≤5%', '雷达侧',
+        lvSat === 'pass' ? '正常。' : 'x 撞到 ±1 不动 = 视场边缘或归一化范围太窄；人还没走到最大位移就已经饱和。');
+    }
+
+    // 回中
+    if (d.recenter !== null) {
+      var lvR = d.recenter <= TH.recenter ? 'pass' : (d.recenter <= TH.recenter * 1.8 ? 'warn' : 'fail');
+      add('recenter', '回到基线', lvR, fmt(d.recenter, 2) + 'σ', '≤' + TH.recenter + 'σ', '雷达侧',
+        lvR === 'pass' ? '回中正常。' : '人回到原位但 x 没回来 = 零点漂移/迟滞，长局会越玩越偏。');
+    }
+
+    // 静息误报
+    var st = r.events.still;
+    if (st.frames > 0) {
+      var rate = Math.max(st.jumpRate || 0, st.crouchRate || 0);
+      var ev = Math.max(st.jumpEvents, st.crouchEvents);
+      var lvE = (rate <= TH.spurRate && ev <= TH.spurEvents) ? 'pass' : (rate <= 0.15 ? 'warn' : 'fail');
+      add('spur', '静息误报（跳/蹲）', lvE,
+        'jump ' + pctS(st.jumpRate) + ' / crouch ' + pctS(st.crouchRate) + '，事件 ' + st.jumpEvents + '/' + st.crouchEvents,
+        '帧占比 ≤6% 且事件 ≤2', '雷达侧',
+        lvE === 'pass' ? '静息干净。' : '站着不动也报跳/蹲 = 上游判据零判别力。游戏会在校准第 1~3 步自动停用跳/蹲，请优先修上游判据。');
+    } else {
+      add('spur', '静息误报（跳/蹲）', 'na', '没有静息段', '帧占比 ≤6%', '雷达侧', '流程第 1 步没做。');
+    }
+
+    // 命中率
+    [['jump', '起跳'], ['crouch', '下蹲']].forEach(function (p) {
+      var h = r.events.hits[p[0]];
+      if (!h) { add(p[0] + '_hit', p[1] + '命中率', 'na', '没有动作段', '≥80%', '雷达侧', '这一动作没采。'); return; }
+      var lv = h.rate >= TH.hitRate ? 'pass' : (h.rate >= 0.6 ? 'warn' : 'fail');
+      add(p[0] + '_hit', p[1] + '命中率', lv, h.hit + '/' + h.total + ' (' + Math.round(h.rate * 100) + '%)', '≥80%', '雷达侧',
+        lv === 'pass' ? '动作能触发。' : '真做了但没报 = 漏检；结合帧率看，若帧率 <10Hz，先修帧率再谈判据。');
+    });
+
+    // 其他段误报
+    var sj = r.events.spurInOther.jumpRate, sc = r.events.spurInOther.crouchRate;
+    if (sj !== null || sc !== null) {
+      var lvO = (Math.max(sj || 0, sc || 0) <= 0.10) ? 'pass' : 'fail';
+      add('cross', '非对应动作段误报', lvO,
+        'jump ' + pctS(sj) + ' / crouch ' + pctS(sc), '≤10%', '雷达侧',
+        lvO === 'pass' ? '没有明显串扰。' : '走位/静息时也报跳蹲 = 串扰；这正是游戏里角色会自己乱跳的原因。');
+    }
+
+    // 延迟
+    [['lr', lr, '左右'], ['ud', ud, '上下']].forEach(function (p) {
+      var s = p[1], nm = p[2];
+      if (s.lat_p95 === null) { add(p[0] + '_lat', nm + ' 端到端延迟', 'na', 'ts 缺失/不是毫秒', 'p95 ≤300ms', '雷达侧', 'ts 必须是采集时刻的毫秒时间戳，否则延迟无法算。'); return; }
+      var lv = s.lat_p95 <= TH.latP95 ? 'pass' : (s.lat_p95 <= 600 ? 'warn' : 'fail');
+      add(p[0] + '_lat', nm + ' 端到端延迟', lv, 'p50 ' + fmt(s.lat_p50, 0) + ' / p95 ' + fmt(s.lat_p95, 0) + 'ms', 'p95 ≤300ms', '雷达侧',
+        lv === 'pass' ? '延迟可玩。' : '延迟大 = 画面跟不上动作。注意跨机器时钟不同步时这个数不准，需要两边 NTP 对时。');
+    });
+
+    // 双路同步
+    var sy = r.sync;
+    if (sy && sy.n) {
+      var lvSync = sy.arrive_p95 <= TH.syncP95 ? 'pass' : (sy.arrive_p95 <= 200 ? 'warn' : 'fail');
+      add('sync', '两路同步（到达时间差 p95）', lvSync, fmt(sy.arrive_p95, 0) + 'ms', '≤' + TH.syncP95 + 'ms', '游戏侧',
+        lvSync === 'pass' ? '两路基本对齐。' : '两路帧率/时钟差太大。边跳边换道会错位：要么把两路合到一个桥接器输出，要么游戏侧改成按 ts 对齐。');
+      if (sy.ts_p95 !== null) {
+        add('sync_ts', '两路采集时刻偏斜 p95', 'na', fmt(sy.ts_p95, 0) + 'ms', '参考值', '雷达侧',
+          '这是两台雷达各自 ts 的差。只有两边同源时钟时才有意义；否则先对时。');
+      }
+    } else {
+      add('sync', '两路同步', 'na', '只有一路有数据', '≤' + TH.syncP95 + 'ms', '游戏侧', '两路都连上后再测。');
+    }
+
+    // 录制质量
+    if (r.rec.dropped > 0) {
+      add('rec', '体检台丢帧', 'warn', r.rec.dropped + ' 帧', '0', '游戏侧', '页面缓冲满了（>20 万帧）。缩短录制或关掉其它标签页。');
+    }
+
+    return c;
+  }
+
+  function pctS(v) { return (v === null || v === undefined) ? '—' : (v * 100).toFixed(1) + '%'; }
+
+  // ---------------- 渲染报告 ----------------
+  function renderReport(r) {
+    $('rep-empty').style.display = 'none';
+    $('rep-body').style.display = 'block';
+
+    var fail = 0, warn = 0, pass = 0, na = 0;
+    for (var i = 0; i < r.checks.length; i++) {
+      var lv = r.checks[i].level;
+      if (lv === 'fail') fail++; else if (lv === 'warn') warn++; else if (lv === 'pass') pass++; else na++;
+    }
+
+    var v = $('rep-verdict');
+    v.className = 'verdict show ' + (fail ? 'err' : (warn ? 'warn' : 'ok'));
+    var head = fail ? ('不合格 ' + fail + ' 项' + (warn ? '，警告 ' + warn + ' 项' : '') + '：数据还不能直接进游戏。')
+      : (warn ? ('没有硬伤，但有 ' + warn + ' 项警告。') : '全部通过，可以进游戏做校准。');
+    v.innerHTML = '<b>' + head + '</b><br>' +
+      '<span style="color:#94a3b8">' + r.rec.frames + ' 帧 / ' + (r.rec.duration_ms / 1000).toFixed(0) + ' 秒 / ' +
+      r.rec.marks + ' 个动作标记　·　' + r.meta.subject + '　站距 ' + r.meta.dist + 'm　x 量纲 ' + r.meta.unit + '</span>';
+
+    // checks 表
+    var t = $('rep-checks');
+    var html = '<tr><th>结论</th><th>指标</th><th>实测</th><th>要求</th><th>该谁修</th><th>说明</th></tr>';
+    for (i = 0; i < r.checks.length; i++) {
+      var c = r.checks[i];
+      var tag = { pass: '通过', warn: '警告', fail: '不合格', na: '未测' }[c.level] || c.level;
+      html += '<tr><td><span class="tag ' + c.level + '">' + tag + '</span></td>' +
+        '<td>' + esc(c.name) + '</td><td class="num">' + esc(c.value) + '</td>' +
+        '<td class="num">' + esc(c.expect) + '</td><td>' + esc(c.who) + '</td><td>' + esc(c.advice) + '</td></tr>';
+    }
+    t.innerHTML = html;
+
+    // bins 表
+    var tb = $('rep-bins');
+    var hb = '<tr><th>档位</th><th>次数</th><th>帧数</th><th>x 均值</th><th>σ</th><th>Δ基线</th></tr>';
+    for (i = 0; i < r.bins.length; i++) {
+      var b = r.bins[i];
+      hb += '<tr><td>' + (b.cm > 0 ? '+' : '') + b.cm + 'cm</td><td class="num">' + b.reps + '</td>' +
+        '<td class="num">' + b.n + '</td><td class="num">' + fmt(b.x_mean, 3) + '</td>' +
+        '<td class="num">' + fmt(b.x_std, 3) + '</td><td class="num">' + fmt(b.delta, 3) + '</td></tr>';
+    }
+    if (r.bins.length === 0) hb += '<tr><td colspan="6" style="color:#94a3b8">没有档位数据（用了自由打点或跳过了左右步骤）</td></tr>';
+    tb.innerHTML = hb;
+
+    // channels 表
+    var tc = $('rep-ch');
+    var hc = '<tr><th>通道</th><th>帧数</th><th>帧率</th><th>间隔 p50 / p95</th><th>最大间隔</th><th>延迟 p50 / p95</th><th>ts 有效率</th></tr>';
+    [['左右', r.channels.lr], ['上下', r.channels.ud]].forEach(function (p) {
+      var s = p[1];
+      hc += '<tr><td>' + p[0] + '</td><td class="num">' + s.frames + '</td><td class="num">' + fmt(s.hz, 1) + 'Hz</td>' +
+        '<td class="num">' + fmt(s.iv_p50, 0) + ' / ' + fmt(s.iv_p95, 0) + 'ms</td>' +
+        '<td class="num">' + fmt(s.iv_max, 0) + 'ms</td>' +
+        '<td class="num">' + fmt(s.lat_p50, 0) + ' / ' + fmt(s.lat_p95, 0) + 'ms</td>' +
+        '<td class="num">' + fmt(s.ts_valid === null ? null : s.ts_valid * 100, 0) + '%</td></tr>';
+    });
+    if (r.sync && r.sync.n) {
+      hc += '<tr><td>两路</td><td class="num">' + r.sync.n + ' 对</td><td colspan="4" class="num">到达差 p50 ' +
+        fmt(r.sync.arrive_p50, 0) + ' / p95 ' + fmt(r.sync.arrive_p95, 0) + 'ms' +
+        (r.sync.ts_p50 !== null ? '　采集时刻差 p50 ' + fmt(r.sync.ts_p50, 0) + 'ms' : '') + '</td><td>—</td></tr>';
+    }
+    tc.innerHTML = hc;
+
+    $('rep-text').textContent = buildText(r);
+  }
+
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function buildText(r) {
+    var L = [];
+    var d = new Date();
+    L.push('【雷达数据体检】' + d.toLocaleString());
+    L.push('受试者 ' + r.meta.subject + ' | 站距 ' + r.meta.dist + 'm | 板高 ' + r.meta.height +
+      'm | 俯仰 ' + r.meta.pitch + '° | 板间距 ' + r.meta.gap + 'm | x量纲 ' + r.meta.unit);
+    if (r.meta.note) L.push('备注：' + r.meta.note);
+    L.push('');
+    [['左右', r.channels.lr], ['上下', r.channels.ud]].forEach(function (p) {
+      var s = p[1];
+      L.push(p[0] + '：' + s.frames + '帧 ' + fmt(s.hz, 1) + 'Hz，间隔 p50/p95 ' + fmt(s.iv_p50, 0) + '/' +
+        fmt(s.iv_p95, 0) + 'ms，延迟 p50/p95 ' + fmt(s.lat_p50, 0) + '/' + fmt(s.lat_p95, 0) + 'ms');
+    });
+    if (r.sync && r.sync.n) {
+      L.push('两路到达差 p50/p95 ' + fmt(r.sync.arrive_p50, 0) + '/' + fmt(r.sync.arrive_p95, 0) + 'ms');
+    }
+    L.push('');
+    var fail = [];
+    for (var i = 0; i < r.checks.length; i++) {
+      var c = r.checks[i];
+      L.push('[' + ({ pass: 'PASS', warn: 'WARN', fail: 'FAIL', na: 'NA' }[c.level] || c.level) + '] ' +
+        c.name + '：' + c.value + '（要求 ' + c.expect + '）→ ' + c.who + '：' + c.advice);
+      if (c.level === 'fail') fail.push(c.name);
+    }
+    L.push('');
+    L.push(fail.length ? ('需要修：' + fail.join('、')) : '无硬伤。');
+    return L.join('\n');
+  }
+
+  // ---------------- 导出 ----------------
+  function readMeta() {
+    return {
+      subject: ($('m-subject').value || '未填').trim(),
+      dist: ($('m-dist').value || '未填').trim(),
+      height: ($('m-height').value || '未填').trim(),
+      pitch: ($('m-pitch').value || '未填').trim(),
+      gap: ($('m-gap').value || '未填').trim(),
+      angle: ($('m-angle').value || '未填').trim(),
+      unit: $('m-unit').value,
+      note: ($('m-note').value || '').trim(),
+      page: 'radar-diagnose.html'
+    };
+  }
+
+  function saveMeta() {
+    try {
+      var m = readMeta();
+      m.urls = { lr: $('url-lr').value, ud: $('url-ud').value };
+      localStorage.setItem('bear-run:radar-diagnose:meta', JSON.stringify(m));
+    } catch (e) {}
+  }
+  function remember() { saveMeta(); }
+  function loadMeta() {
+    try {
+      var raw = localStorage.getItem('bear-run:radar-diagnose:meta');
+      if (!raw) return;
+      var m = JSON.parse(raw);
+      if (m.subject) $('m-subject').value = m.subject;
+      if (m.dist) $('m-dist').value = m.dist;
+      if (m.height) $('m-height').value = m.height;
+      if (m.pitch) $('m-pitch').value = m.pitch;
+      if (m.gap) $('m-gap').value = m.gap;
+      if (m.angle) $('m-angle').value = m.angle;
+      if (m.note) $('m-note').value = m.note;
+      if (m.unit) $('m-unit').value = m.unit;
+      if (m.urls) {
+        if (m.urls.lr) $('url-lr').value = m.urls.lr;
+        if (m.urls.ud) $('url-ud').value = m.urls.ud;
+      }
+    } catch (e) {}
+  }
+
+  function download(name, text, mime) {
+    var blob = new Blob([text], { type: mime || 'text/plain;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      URL.revokeObjectURL(a.href);
+      document.body.removeChild(a);
+    }, 400);
+  }
+
+  function stamp() {
+    var d = new Date();
+    function p(n) { return n < 10 ? '0' + n : n; }
+    return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+  }
+
+  function dlJson() {
+    if (!state.result) return;
+    if (interf.single || interf.both) {
+      state.result.interference = {
+        window_ms: IF_MS,
+        single: interf.single,
+        both: interf.both,
+        at: new Date().toISOString()
+      };
+    }
+    download('radar-diagnose-' + stamp() + '.json', JSON.stringify(state.result, null, 2), 'application/json;charset=utf-8');
+  }
+
+  function dlCsv() {
+    if (!state.rec.frames.length) return;
+    var L = ['channel,arrive_ms,wall_ms,ts,x,height,jump,crouch,conf'];
+    for (var i = 0; i < state.rec.frames.length; i++) {
+      var f = state.rec.frames[i];
+      L.push([f.ch, f.t.toFixed(2), f.wall, f.ts,
+        isFinite(f.x) ? f.x.toFixed(4) : '', f.height.toFixed(4), f.jump, f.crouch, f.conf.toFixed(3)].join(','));
+    }
+    // markers 单独一个文件更好，但先放 CSV 尾部注释
+    download('radar-frames-' + stamp() + '.csv', L.join('\n'), 'text/csv;charset=utf-8');
+    if (state.result) {
+      download('radar-markers-' + stamp() + '.csv',
+        'key,tag,cm,t0_ms,t1_ms\n' + state.rec.marks.map(function (m) {
+          return [m.key, m.tag, m.cm === null ? '' : m.cm, m.t0.toFixed(2), m.t1.toFixed(2)].join(',');
+        }).join('\n'),
+        'text/csv;charset=utf-8');
+    }
+  }
+
+  function copyText() {
+    if (!state.result) return;
+    var txt = buildText(state.result);
+    var done = function () { flash($('btn-copy'), '已复制'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(done, function () { fallbackCopy(txt, done); });
+    } else {
+      fallbackCopy(txt, done);
+    }
+  }
+  function fallbackCopy(txt, cb) {
+    var ta = document.createElement('textarea');
+    ta.value = txt;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); cb(); } catch (e) { alert('复制失败，请手动展开「原始摘要」复制。'); }
+    document.body.removeChild(ta);
+  }
+  function flash(btn, text) {
+    var old = btn.textContent;
+    btn.textContent = text;
+    setTimeout(function () { btn.textContent = old; }, 1200);
+  }
+
+  // ---------------- 绑定 ----------------
+  function bind() {
+    $('btn-lr').onclick = function () { connect('lr'); };
+    $('btn-ud').onclick = function () { connect('ud'); };
+    $('btn-lr-off').onclick = function () { disconnect('lr', false); };
+    $('btn-ud-off').onclick = function () { disconnect('ud', false); };
+
+    $('btn-flow-start').onclick = startFlow;
+    $('btn-flow-rec').onclick = recordOnce;
+    $('btn-flow-skip').onclick = skipStep;
+    $('btn-flow-stop').onclick = finishFlow;
+
+    var free = document.querySelectorAll('[data-free]');
+    for (var i = 0; i < free.length; i++) {
+      free[i].onclick = function () {
+        freeMark(this.getAttribute('data-free'), Number(this.getAttribute('data-ms')) || 1600, this);
+      };
+    }
+    $('btn-free-stop').onclick = finishFlow;
+
+    $('btn-dl-json').onclick = dlJson;
+    $('btn-dl-csv').onclick = dlCsv;
+    $('btn-copy').onclick = copyText;
+
+    $('btn-if-single').onclick = function () { startInterf('single'); };
+    $('btn-if-both').onclick = function () { startInterf('both'); };
+    $('btn-if-cmp').onclick = renderInterf;
+
+    ['m-subject', 'm-dist', 'm-height', 'm-pitch', 'm-gap', 'm-angle', 'm-unit', 'm-note', 'url-lr', 'url-ud'].forEach(function (id) {
+      $(id).onchange = saveMeta;
+    });
+
+    $('url-lr').onkeydown = function (e) { if (e.keyCode === 13) connect('lr'); };
+    $('url-ud').onkeydown = function (e) { if (e.keyCode === 13) connect('ud'); };
+  }
+
+  loadMeta();
+  bind();
+  trackFlowClock();
+  renderFlow();
+
+})();
+</script>
+</body>
+</html>
