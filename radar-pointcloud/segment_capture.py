@@ -35,6 +35,7 @@
 import argparse
 import base64
 import json
+import math
 import os
 import subprocess
 import sys
@@ -48,9 +49,15 @@ if HERE not in sys.path:
 import radar_actions as ra            # noqa: E402
 import radar_source as rs             # noqa: E402
 import label_tool as lt               # noqa: E402
+import radar_center                   # noqa: E402
+from radar_dsp import PointCloudProcessor   # noqa: E402
+from collections import deque         # noqa: E402
 
 FP = ra.FRAME_PERIOD                  # 帧周期（s/帧）；**运行时按板型覆盖**，见 set_board()
 BOARD = '1t2r'                        # 当前生效板型（默认 1T2R → 行为与改动前一致）
+CENTER_AZ = 0.0                       # 最佳中线（原始 az 读数），见 radar_center.py
+PROC = None                           # 在线点云处理器（只用于采集中线自检）
+AZ_BUF = deque()                      # 最近若干秒的 (t, az_deg, r_m)
 
 
 def set_board(board):
@@ -140,6 +147,18 @@ def band_for_dist(dist, board=None):
         return DIST_BAND.get(dist) or ra.BAND_DEFAULT
     lo = max(rs.range_res(b), dist - BAND_HALF_2T4R)
     return (round(lo, 3), round(dist + BAND_HALF_2T4R, 3))
+
+def band_from_measure(r_lo, r_hi):
+    """用 lead 段的距离分布定带（5%~95% 分位，不是中位数）。
+
+    坑：1T2R 距离分辨率 0.68 m，人站 1.0 m 会同时落在 1.02 和 1.70 两个
+    bin（11/03 两次实测，各占一半）。若只取中位数居中，带宽就只框住
+    一个 bin，直接丢掉 48% 的帧。
+    """
+    lo = max(0.681, r_lo - 0.10)
+    hi = r_hi + 0.10
+    return (round(lo, 3), round(hi, 3))
+
 
 STATE = {'frames': 0, 'fps': 0.0, 'packets': 0, 'bad': 0, 'skipped': 0,
          'connected': True, 'reconnects': 0, 'read_errors': 0}
@@ -282,11 +301,99 @@ def wait_frames(min_frames=3, timeout=20.0):
     return False
 
 
+AZ_WINDOW = 5.0          # 中线自检的滚动窗口（秒）
+
+
+def _med(xs):
+    xs = sorted(xs)
+    if not xs:
+        return None
+    n = len(xs)
+    return xs[n // 2] if n % 2 else 0.5 * (xs[n // 2 - 1] + xs[n // 2])
+
+
 def on_frame(z0, z1, stats):
     for k in ('frames', 'fps', 'packets', 'bad', 'skipped',
               'connected', 'reconnects', 'read_errors'):
         if k in stats:
             STATE[k] = stats[k]
+    # 只要有处理器就顺手记一条「最强点」，给采集中线自检用。
+    # 只取 1 点/帧：7.7 Hz × 5 s ≈ 38 个样本，够算中位数，也不拖慢录制。
+    if PROC is None:
+        return
+    try:
+        pts, _ = PROC.process(z0, z1)
+    except Exception:
+        return
+    if not pts:
+        return
+    q = pts[0]
+    if q['r'] < 0.681:            # bin0 近场泄漏，不是人
+        return
+    t = stats.get('uptime', 0.0)
+    AZ_BUF.append((t, q['deg'], q['r']))
+    cut = t - AZ_WINDOW
+    while AZ_BUF and AZ_BUF[0][0] < cut:
+        AZ_BUF.popleft()
+
+
+def az_stats():
+    """最近窗口的 (az 中位, r 中位, 样本数)；样本太少返回 None。"""
+    if len(AZ_BUF) < 8:
+        return None
+    az = _med([q[1] for q in AZ_BUF])
+    r = _med([q[2] for q in AZ_BUF])
+    return az, r, len(AZ_BUF)
+
+
+def check_center_line(args, dist, speak_on=True):
+    """采集前自检：人是否站在「最佳中线」上。
+
+    为什么不靠人自觉：最佳中线不在法线（1T2R 实测在法线一侧约 45 度），
+    人没有参照物，站歪 10 度看起来和站正没区别，但 LEFT/RIGHT 的位移
+    会因此不对称——这正是 10/22 那批数据 60% 上限的直接来源。
+    """
+    st = az_stats()
+    if st is None and args.lead <= 0:
+        # 没开 lead 时窗口还是空的：先补 5 s 站定，否则自检等于没测。
+        cue(5.0, '正在测量你相对最佳中线的位置，请站定不动')
+        st = az_stats()
+    if st is None:
+        print('  [中线自检] 点太少（<8 帧），跳过；确认人已在 %.2f m 处。' % dist)
+        if speak_on:
+            speak('没有检测到稳定的目标，请确认你站在 %.1f 米处。' % dist)
+        return
+    for attempt in (1, 2):
+        az, r, n = st
+        d = az - CENTER_AZ
+        px = r * math.sin(math.radians(d))
+        print('  [中线自检] 偏离 %+.1f 度（原始 %+.1f，中线 %+.1f）｜ 横向 %+.2f m ｜ %d 帧'
+              % (d, az, CENTER_AZ, px, n))
+        if abs(d) <= args.align_tol:
+            if speak_on:
+                speak('中线正确，保持这个位置。')
+            return
+        side = '右' if d > 0 else '左'
+        move = '左' if d > 0 else '右'
+        # 横向位移超过 1.2 m 时多半是「目标不在你以为的位置」或场里还有别人，
+        # 直接报 3 m 会让人原地懵；先给一个可执行的量，并要求确认场地。
+        step_m = min(abs(px), 1.2)
+        print('    → 偏%s %.1f 度，请向%s挪约 %.2f m' % (side, abs(d), move, step_m))
+        if abs(px) > 1.5:
+            print('      （横向折算 %.1f m 太大：确认只有你一个人在场、站的是 %.0f 度那条线）'
+                  % (abs(px), CENTER_AZ))
+        if attempt == 2:
+            if speak_on:
+                speak('仍然偏离中线 %.0f 度，先按现在的位置采，数据里会记下来。' % abs(d))
+            return
+        if speak_on:
+            speak('偏离中线 %.0f 度，现在偏%s。请向%s挪大约 %.1f 米，然后站定。'
+                  % (abs(d), side, move, step_m))
+        cue(6.0, '请向%s挪约 %.1f m，然后站定不动' % (move, step_m),
+            countdown=True, tick=args.auto)
+        st = az_stats()
+        if st is None:
+            return
 
 
 def make_source(args):
@@ -343,14 +450,26 @@ def capture_segment(args, dist, band, bin_path, labels_path, index, total):
     print('  协议：准备 %.1f s →（嘟）做动作 %.1f s →（停）静息 %.1f s；'
           '动作前 %.1f s 算人的反应时间，不计入真值。'
           % (args.prep, args.move, args.settle, args.trim))
+    AZ_BUF.clear()
     if args.lead > 0:
         # 开场先录一段纯站定：既给「自动选带」攒够检出帧，也给 rest 基线一个干净窗口。
         # 默认 0 = 不插这段，旧协议逐帧不变。
         cue(args.lead,
             '开场：请站定保持不动 %.0f 秒（用于自动选带与静息基线）' % args.lead,
             countdown=True, tick=args.auto)
-    cue(args.prep, '【准备】站到 %.2f m，正对雷达，站回中间、完全静止' % dist,
-        countdown=True, tick=args.auto)
+    if getattr(args, 'auto_band', False) and args.lead > 0:
+        _rs = sorted(q[2] for q in AZ_BUF)
+        if len(_rs) >= 8:
+            _lo = _rs[int(0.05 * (len(_rs) - 1))]
+            _hi = _rs[int(0.95 * (len(_rs) - 1))]
+            band = band_from_measure(_lo, _hi)
+            print('  [自动带] lead 实测距离 %.2f–%.2f m（%d 帧）→ band %.2f–%.2f m'
+                  % (_lo, _hi, len(_rs), band[0], band[1]))
+    if args.align_check:
+        # 不论 lead 长短都测一次：lead 只是把窗口填满，5 s 就够。
+        check_center_line(args, dist, speak_on=args.auto)
+    cue(args.prep, '【准备】站到 %.2f m，站在最佳中线上（中线 %+.0f 度），完全静止'
+        % (dist, CENTER_AZ), countdown=True, tick=args.auto)
 
     trim_f = int(round(args.trim / FP))
 
@@ -368,10 +487,10 @@ def capture_segment(args, dist, band, bin_path, labels_path, index, total):
         for k in range(1, args.reps + 1):
             print('  -- %s 第 %d/%d 次 --' % (ACTION_TEXT[act], k, args.reps))
             if act in ('LEFT', 'RIGHT') and args.stride > 0:
-                cue(args.prep, '准备：站回中间（左右两侧各留 ≥%.1f m 空间）、完全静止'
+                cue(args.prep, '准备：回到最佳中线（左右两侧各留 ≥%.1f m 空间）、完全静止'
                     % args.stride, countdown=True, tick=args.auto)
             else:
-                cue(args.prep, '准备：站回中间、完全静止', countdown=True,
+                cue(args.prep, '准备：回到最佳中线、完全静止', countdown=True,
                     tick=args.auto)
             print('    ' + '>' * 24)
             if act in ('LEFT', 'RIGHT') and args.stride > 0:
@@ -383,7 +502,7 @@ def capture_segment(args, dist, band, bin_path, labels_path, index, total):
                             % (act_txt, args.move), do_beep=True,
                             debug=args.debug_frames)
             print('    ' + '<' * 24)
-            f_stop, _ = cue(args.settle, '【停】回到中间，完全静止',
+            f_stop, _ = cue(args.settle, '【停】回到最佳中线，完全静止',
                             do_beep=True, kind='stop')
             s = f_beep + trim_f              # 扣掉人的反应时间
             if f_stop <= s:                  # 窗口内一帧都没来，别写出无效真值
@@ -412,6 +531,7 @@ def capture_segment(args, dist, band, bin_path, labels_path, index, total):
             'band': list(band), 'frame_period': FP,
             'frames': t_seg_end, 'source': args.source,
             'lead': args.lead,
+            'center_az': CENTER_AZ,
             'board': BOARD,
             'note': '时间轴 = 帧号 × %.4f s（板型 %s，radar_source.frame_period）；'
                     '真值由 segment_capture.py 按提示音时刻的真实帧号生成'
@@ -485,10 +605,27 @@ def main(argv=None):
     ap.add_argument('--lead', type=float, default=0.0,
                     help='开场先录一段纯站定秒数（>0 时给自动选带攒帧 + 让静息基线'
                          '干净；默认 0 = 与旧协议逐帧一致）')
+    ap.add_argument('--auto-band', action='store_true',
+                    help='用 lead 段实测距离中位数定带，覆盖 DIST_BAND 的固定值。'
+                         '1T2R 在 1.0 m 站位会跨 1.02/1.70 两个 bin，固定带会丢一半帧')
+    ap.add_argument('--no-auto-band', dest='auto_band', action='store_false',
+                    help='强制用 DIST_BAND 固定带（复现旧数据时用）')
+    ap.set_defaults(auto_band=True)
     ap.add_argument('--move', type=float, default=2.5, help='动作保持秒数')
     ap.add_argument('--stride', type=float, default=0.0,
                     help='左/右移要求的最小横移距离(米)。>0 时提示语与真值备注改为'
                          '「大跨步横移」，用于验证「位移够大才可判」；0=用旧提示语')
+    ap.add_argument('--center-az', type=float, default=None,
+                    help='最佳中线（原始 az 读数）；留空读 center.json，再缺省 0')
+    ap.add_argument('--angle-max', type=float, default=None,
+                    help='测角上限；中线贴近视场边界时必须放宽（留空自动）')
+    ap.add_argument('--exclude-az', default=None,
+                    help='排除扇区 lo,hi（度），例如 -90,-45。斜放时另一侧常是显示器/主机，'
+                         '完全静止且反射强，不挡住会一直被当成最强点（11/03 实测：未挡时 align 锁到 -29°，人实际 +9°）')
+    ap.add_argument('--align-tol', type=float, default=8.0,
+                    help='采集中线自检允许的偏离（度），超过就语音提示挪位置')
+    ap.add_argument('--no-align-check', dest='align_check', action='store_false',
+                    help='关掉开场的「你站歪了」语音自检')
     ap.add_argument('--settle', type=float, default=3.0, help='动作后静息秒数')
     ap.add_argument('--rest', type=float, default=25.0, help='段尾静息基线秒数')
     ap.add_argument('--trim', type=float, default=0.3, help='真值区间起点留出的反应时间')
@@ -521,6 +658,22 @@ def main(argv=None):
           % (BOARD, FP, rs.range_res(BOARD),
              '（--board 显式指定）' if getattr(args, 'board', 'auto') != 'auto' else ''))
 
+    global CENTER_AZ, PROC
+    cen = radar_center.resolve(BOARD, args.center_az, args.angle_max)
+    CENTER_AZ = cen['az_deg']
+    _EXCLUDE_AZ = None
+    if args.exclude_az:
+        _lo, _hi = [float(x) for x in args.exclude_az.split(',')]
+        _EXCLUDE_AZ = (min(_lo, _hi), max(_lo, _hi))
+        print('[排除扇区] %.0f° ~ %.0f° 的点全部丢弃（挡住另一侧的静止反射体）'
+              % _EXCLUDE_AZ)
+    PROC = PointCloudProcessor(angle_max=cen['angle_max'], min_range=0.681,
+                               max_points=16, exclude_az=_EXCLUDE_AZ)
+    if CENTER_AZ or cen['angle_max'] != 45.0:
+        print('[中线] 最佳中线 %+.1f 度，测角上限 %.0f 度%s'
+              % (CENTER_AZ, cen['angle_max'],
+                 '（来自 center.json）' if args.center_az is None else ''))
+
     per_action = args.reps * args.move
     est = len(distances) * (len(args.action_codes) * args.reps
                             * (args.prep + args.move + args.settle)
@@ -534,7 +687,7 @@ def main(argv=None):
     print('输出目录: %s' % args.outdir)
     print('')
     print('请你这样做（人要在设备旁）：')
-    print('  1) 站到提示的距离，正对雷达，站回中间；')
+    print('  1) 站到提示的距离，站在最佳中线上（不是法线，中线见 center.json）；')
     print('  2) 每次看到「准备」就把身体回到中间、完全静止；')
     print('  3) 听到『嘟』立刻开始做指定动作，并**保持住** %.1f 秒；' % args.move)
     print('  4) 看到「停」就回到中间，继续等下一次提示；')
@@ -553,9 +706,9 @@ def main(argv=None):
         # 人站在雷达前，键盘是够不到的：用语音 + 数拍倒计时替掉「按回车」。
         # 8 s 是「从电脑走到 1 m 站位」的下限；--start-delay 更大时用更大的。
         lead = max(args.start_delay, 8.0)
-        speak('采集即将开始。请站到雷达正前方 %.2f 米处，面向雷达，站好不要动。'
+        speak('采集即将开始。请站到最佳中线上的 %.2f 米处，面向雷达，站好不要动。'
               % distances[0])
-        cue(lead, '【无人值守】请站到 %.2f m 处、正对雷达、完全静止'
+        cue(lead, '【无人值守】请站到 %.2f m 处的**最佳中线**、完全静止'
             '（约 %.0f 秒后自动开始）' % (distances[0], lead),
             countdown=True, tick=True)
     else:
@@ -578,12 +731,12 @@ def main(argv=None):
 
         if i > 1:
             if args.auto:
-                speak('请走到雷达正前方 %.2f 米处，站好不要动，下一段马上开始。' % dist)
+                speak('请走到最佳中线上 %.2f 米处，站好不要动，下一段马上开始。' % dist)
                 cue(args.walk_time,
-                    '请走到 %.2f m 处，正对雷达站好（约 %.0f 秒后自动继续）'
+                    '请走到 %.2f m 处、站在最佳中线上（约 %.0f 秒后自动继续）'
                     % (dist, args.walk_time), countdown=True, tick=True)
             else:
-                pause('请走到 %.2f m 处，正对雷达站好（下一段马上开始）' % dist)
+                pause('请走到 %.2f m 处、站在最佳中线上（下一段马上开始）' % dist)
 
         stop = threading.Event()
         STATE.update({'frames': 0, 'fps': 0.0, 'packets': 0, 'bad': 0,

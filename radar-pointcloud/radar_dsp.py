@@ -34,7 +34,12 @@ class PointCloudProcessor:
                  remove_clutter=True, angle_sign=1.0, max_points=64,
                  angle_max=ANGLE_MAX, min_range=0.0,
                  chirps=None, bins=None, range_res=None, v_res=None,
-                 ant_spacing=None, lam=None, clutter_keep=1.0):
+                 ant_spacing=None, lam=None, clutter_keep=1.0,
+                 exclude_az=None):
+        # exclude_az: (lo, hi) 度。落在该扇区内的点直接丢弃。
+        # 用途：雷达斜放时另一侧常是显示器/主机，完全静止且反射强，
+        # 取「最强点」会一直锁到它（11/03 实测：align 测出 -29° 而人实际在 +9°）。
+        self.exclude_az = exclude_az
         self.cfar_scale = float(cfar_scale)
         self.min_power = float(min_power)       # 绝对门限（功率，0 = 关闭）
         self.min_snr = float(min_snr)           # 相对本帧噪声底的 SNR 门限 (dB)
@@ -174,6 +179,10 @@ class PointCloudProcessor:
             ang = math.degrees(math.asin(s)) * self.angle_sign
             if abs(ang) > self.angle_max:
                 continue
+            if self.exclude_az is not None:
+                lo_, hi_ = self.exclude_az
+                if lo_ <= ang <= hi_:
+                    continue
             a = math.radians(ang)
             pts.append({
                 'x': rng * math.sin(a),
