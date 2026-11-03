@@ -99,17 +99,35 @@ def read_meta(labp):
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser(description='左右移特征可分性 / 静息噪声诊断')
+    ap.add_argument('--dir', action='append', default=[],
+                    help='数据目录，可多次；相对项目根或绝对路径。'
+                         '留空 = 旧数据 seg-lr2 / oncehot')
+    ap.add_argument('--out', default='separability.json',
+                    help='outputs/lane-eval/ 下的输出文件名')
+    ap.add_argument('--band', default=None,
+                    help='覆盖 meta 里的距离带，例如 0.90,1.80（诊断 band 设错时用）')
+    args = ap.parse_args()
+
+    roots = ([(d if os.path.isabs(d) else os.path.join(ROOT, d)) for d in args.dir]
+             if args.dir else
+             [os.path.join(ROOT, '.deepworks', 'tmp', rel) for rel in SETS])
+
     rows = []
     allL, allR, allN = [], [], []
-    for rel in SETS:
-        base = os.path.join(ROOT, '.deepworks', 'tmp', rel)
+    found = 0
+    for base in roots:
         for p in sorted(glob.glob(os.path.join(base, '**', '*.bin'), recursive=True)):
             labp = os.path.splitext(p)[0] + '.labels.jsonl'
             if not os.path.exists(labp):
                 continue
+            found += 1
             labels = lt.load_labels(labp)
             meta = read_meta(labp)
             band = meta.get('band') or [1.36, 2.04]
+            if args.band:
+                band = [float(x) for x in args.band.split(',')]
             t, px, nin = extract(p, band)
             det = 1.0 - float(np.isnan(px).sum()) / max(1, len(px))
             if det < 0.5:
@@ -139,7 +157,10 @@ def main():
     L = np.concatenate(allL) if allL else np.array([])
     R = np.concatenate(allR) if allR else np.array([])
     N = np.concatenate(allN) if allN else np.array([])
-    print()
+    if found == 0 or len(L) + len(R) == 0:
+        print('没找到可用的 .bin + labels.jsonl，或所有文件都不可分。')
+        print('检查 --dir 是否指向采集输出目录（例如 data\\lr3）。')
+        return 1
     print('=' * 74)
     print('合计  LEFT n=%d  RIGHT n=%d  静息 n=%d' % (len(L), len(R), len(N)))
     print('  LEFT  dev 中位 %+.3f  IQR [%+.3f, %+.3f]'
@@ -164,7 +185,7 @@ def main():
 
     out = os.path.join(ROOT, 'outputs', 'lane-eval')
     os.makedirs(out, exist_ok=True)
-    with open(os.path.join(out, 'separability.json'), 'w', encoding='utf-8') as f:
+    with open(os.path.join(out, args.out), 'w', encoding='utf-8') as f:
         json.dump(dict(rows=rows,
                        L=dict(n=len(L), med=float(np.median(L)),
                               p10=float(np.percentile(L, 10)),
@@ -175,7 +196,7 @@ def main():
                        N=dict(n=len(N), p90_abs=float(np.percentile(np.abs(N), 90))),
                        best=dict(acc=float(best[0]), thr=float(best[1]))),
                   f, ensure_ascii=False, indent=1)
-    print('已写 outputs/lane-eval/separability.json')
+    print('已写 outputs/lane-eval/%s' % args.out)
 
 
 if __name__ == '__main__':

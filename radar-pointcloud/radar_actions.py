@@ -300,7 +300,9 @@ XBASE_BASE_WIN_DEFAULT = 40.0   # 长窗（秒）：dev 的「近期常态」项
 #   ⚠ 仍属**样本内**结论（0.70 m / 单日单人 / 366 s 静息），待复采重新标定；
 #     该值只影响 crit='xbase'，对 delta/drift 无作用。
 XBASE_THR_LEFT_DEFAULT = 0.14   # dev >= +该值 → LEFT（LEFT 幅度小于右侧，门限须低于右门）
-XBASE_THR_RIGHT_DEFAULT = 0.18  # dev <= -该值 → RIGHT（实测 RIGHT 幅度偏大，可用高门限）
+XBASE_THR_RIGHT_DEFAULT = 0.12  # dev <= -该值 → RIGHT。11/03 用 data/lr3b 扫门限：
+                                #   0.14/0.18 → 75%（RIGHT 4/8），0.14/0.12 → 87.5%（RIGHT 6/8，误报 20）
+                                #   0.10/0.10 → 93.8% 但误报 37，太吵。选 0.12 是准确率/误报的折中。
 XBASE_RELEASE_DEFAULT = 0.05    # 释放门：|dev| 回到该值以内即释放回 CENTER（滞回）
                                 # ★ 必须满足 0 <= XBASE_RELEASE < min(两侧阈值)，
                                 #   否则退化成「无滞回」，动作前后穿越门槛会重复触发。
