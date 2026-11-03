@@ -155,20 +155,64 @@ def _is_python_pid(pid):
     return 'python' in out
 
 
+def _scan_stray_procs():
+    """按命令行扫出本工具启动、但可能没记进 pidfile 的推流进程。
+
+    pidfile 在异常退出（直接关窗口、强杀父进程、换过启动入口）时可能漏记，
+    只按 pidfile 清理会漏掉仍然占着串口的子进程，下一次启动就报
+    PermissionError(13)，还容易被误读成「设备没插」。这里兜底扫一遍。
+    匹配条件同时要求本工具目录 + 脚本名，不会误伤其它 python 进程。
+    """
+    try:
+        ps = ("Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+              "Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress")
+        r = subprocess.run(['powershell', '-NoProfile', '-Command', ps],
+                           capture_output=True, text=True, timeout=25,
+                           encoding='utf-8', errors='replace')
+        if r.returncode != 0 or not (r.stdout or '').strip():
+            return []
+        data = json.loads(r.stdout)
+        if isinstance(data, dict):
+            data = [data]
+    except Exception:
+        return []
+    here = HERE.lower().replace('/', '\\')
+    out = []
+    for row in data:
+        cmd = (row.get('CommandLine') or '').lower().replace('/', '\\')
+        if not cmd:
+            continue
+        mine = (here in cmd) or ('radar-service' in cmd)
+        if mine and ('radar_live_ws.py' in cmd or 'webcontrol.py' in cmd):
+            try:
+                out.append(int(row.get('ProcessId')))
+            except Exception:
+                pass
+    return out
+
+
 def stop_previous():
+    targets = []
     info = load_pids()
-    if not info or not info.get('procs'):
+    if info and info.get('procs'):
+        for p in info['procs']:
+            targets.append((p.get('pid'), p.get('port'), p.get('role')))
+    known = set(t[0] for t in targets)
+    for pid in _scan_stray_procs():
+        if pid not in known:
+            known.add(pid)
+            targets.append((pid, '?', '残留'))
+    if not targets:
         ac.say(ac.INFO, '没有找到本工具上次启动的记录（%s）。' % PIDFILE)
         print('        如果是手动开的窗口，直接关掉那个窗口即可。')
         return 0
     rc = 0
-    for p in info['procs']:
-        pid = p.get('pid')
+    for pid, port, role in targets:
         if not _is_python_pid(pid):
             print('  跳过 PID %-6s：该 PID 现在不是 python 进程（已退出，或被系统复用）。'
                   % pid)
             continue
-        print('  停止 PID %-6s %-8s %s' % (pid, p.get('port'), p.get('role')))
+        print('  停止 PID %-6s %-8s %s' % (pid, port, role))
         try:
             r = subprocess.run(['taskkill', '/F', '/PID', str(pid)],
                                capture_output=True, text=True,
@@ -397,8 +441,9 @@ def cmd_serve(args):
 
     # 上一次的推流没关掉时，串口会被「自己」占住：START-RADAR 的窗口关了，
     # 但 CREATE_NO_WINDOW 起的子进程还在跑。以前第二次启动就会报
-    # PermissionError(13) 并误显示成「端口不存在」。这里先按 pidfile 清一次。
-    if load_pids():
+    # PermissionError(13) 并误显示成「端口不存在」。
+    # 先按 pidfile 清一次；pidfile 漏记时按命令行兜底扫（异常退出/换过入口）。
+    if load_pids() or _scan_stray_procs():
         ac.say(ac.INFO, '检测到上一次的推流进程，先清理，避免串口被自己占住。')
         stop_previous()
         time.sleep(1.5)
