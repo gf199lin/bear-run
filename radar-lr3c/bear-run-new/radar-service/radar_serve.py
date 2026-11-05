@@ -155,20 +155,67 @@ def _is_python_pid(pid):
     return 'python' in out
 
 
+def _scan_stray_procs():
+    """按命令行扫出本工具启动、但可能没记进 pidfile 的推流进程。
+
+    pidfile 在异常退出（直接关窗口、强杀父进程、换过启动入口）时可能漏记，
+    只按 pidfile 清理会漏掉仍然占着串口的子进程，下一次启动就报
+    PermissionError(13)，还容易被误读成「设备没插」。这里兜底扫一遍。
+    匹配条件同时要求本工具目录 + 脚本名，不会误伤其它 python 进程。
+    """
+    try:
+        ps = ("Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+              "Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress")
+        r = subprocess.run(['powershell', '-NoProfile', '-Command', ps],
+                           capture_output=True, text=True, timeout=25,
+                           encoding='utf-8', errors='replace')
+        if r.returncode != 0 or not (r.stdout or '').strip():
+            return []
+        data = json.loads(r.stdout)
+        if isinstance(data, dict):
+            data = [data]
+    except Exception:
+        return []
+    here = HERE.lower().replace('/', '\\')
+    out = []
+    for row in data:
+        cmd = (row.get('CommandLine') or '').lower().replace('/', '\\')
+        if not cmd:
+            continue
+        mine = (here in cmd) or ('radar-service' in cmd)
+        # ★ 只扫推流子进程。webcontrol.py 是常驻的页面服务（8801），
+        #   杀掉它页面就打不开（「127.0.0.1 拒绝连接」就是这么来的），
+        #   它也不占串口，不需要在起推流前清理。
+        if mine and 'radar_live_ws.py' in cmd:
+            try:
+                out.append(int(row.get('ProcessId')))
+            except Exception:
+                pass
+    return out
+
+
 def stop_previous():
+    targets = []
     info = load_pids()
-    if not info or not info.get('procs'):
+    if info and info.get('procs'):
+        for p in info['procs']:
+            targets.append((p.get('pid'), p.get('port'), p.get('role')))
+    known = set(t[0] for t in targets)
+    for pid in _scan_stray_procs():
+        if pid not in known:
+            known.add(pid)
+            targets.append((pid, '?', '残留'))
+    if not targets:
         ac.say(ac.INFO, '没有找到本工具上次启动的记录（%s）。' % PIDFILE)
         print('        如果是手动开的窗口，直接关掉那个窗口即可。')
         return 0
     rc = 0
-    for p in info['procs']:
-        pid = p.get('pid')
+    for pid, port, role in targets:
         if not _is_python_pid(pid):
             print('  跳过 PID %-6s：该 PID 现在不是 python 进程（已退出，或被系统复用）。'
                   % pid)
             continue
-        print('  停止 PID %-6s %-8s %s' % (pid, p.get('port'), p.get('role')))
+        print('  停止 PID %-6s %-8s %s' % (pid, port, role))
         try:
             r = subprocess.run(['taskkill', '/F', '/PID', str(pid)],
                                capture_output=True, text=True,
@@ -287,8 +334,71 @@ def probe_ws(port, seconds=5.0, want=6):
 # --------------------------------------------------------------------------
 # 命令
 # --------------------------------------------------------------------------
-def find_streaming(verbose=True):
-    """枚举 + 实测，返回 (streaming, problems)。"""
+def wake_2t4r(port, verbose=True):
+    """对 2T4R 端口重放一次启动序列（插上就自动出流的关键一步）。
+
+    2T4R（DEV113P）上电是待机状态，必须收完「握手 + 写段配置」才开始出流；
+    1T2R 上电自跑，所以本函数只应在指纹已判定为 2t4r 时调用。
+    返回 dict(sent, acks, no_ack, elapsed) 或 None。
+    """
+    try:
+        import serial
+        from radar_boot_2t4r import load_seq, send_boot, find_seq_path
+    except Exception as e:
+        if verbose:
+            print('  无法加载 2T4R 启动模块：%s' % e)
+        return None
+    path = find_seq_path()
+    try:
+        _obj, frames = load_seq(path)
+    except SystemExit as e:
+        if verbose:
+            print('  %s' % e)
+        return None
+    try:
+        ser = serial.Serial(port, 1500000, timeout=0.05)
+    except Exception as e:
+        if verbose:
+            print('  打不开 %s：%s' % (port, e))
+        return None
+    try:
+        # FT232 的命令转发受 DTR/RTS 门控（厂商实测），必须显式拉高
+        for attr in ('dtr', 'rts'):
+            try:
+                setattr(ser, attr, True)
+            except Exception:
+                pass
+        time.sleep(0.15)
+        ser.reset_input_buffer()
+        # 已经在出流就别动它：重放会重置芯片，反而打断正常输出
+        time.sleep(0.35)
+        if (ser.in_waiting or 0) >= 512:
+            if verbose:
+                print('  2T4R 已在出流，跳过启动序列')
+            return {'sent': 0, 'acks': 0, 'no_ack': 0, 'elapsed': 0.0,
+                    'skipped': True}
+        res = send_boot(ser, frames, gap=0.03, ack_timeout=0.12)
+    except Exception as e:
+        if verbose:
+            print('  %s 启动序列发送失败：%s' % (port, e))
+        return None
+    finally:
+        try:
+            ser.close()
+        except Exception:
+            pass
+    if verbose:
+        print('  已发送启动序列：%d 帧，回包 %d，无回包 %d，用时 %.2fs'
+              % (res['sent'], res['acks'], res['no_ack'], res['elapsed']))
+    return res
+
+
+def find_streaming(verbose=True, auto_boot=True):
+    """枚举 + 实测，返回 (streaming, problems)。
+
+    对「指纹是 2T4R 但没出帧」的口，先自动重放启动序列再测一次；
+    这样插上两块板后直接跑 radar_serve.py 就能都连上，不需要人工唤醒。
+    """
     ports = ac.discover()
     if verbose:
         print('  发现 %d 个串口，逐个试开（只读，不发命令）...' % len(ports))
@@ -299,6 +409,13 @@ def find_streaming(verbose=True):
         if verbose:
             print('    %-8s (%s) ...' % (port, hint or '板型待定'), end='', flush=True)
         r = ac.check_one(port, board_hint=hint, seconds=2.0, verbose=False)
+        if (r['status'] != 'streaming' and auto_boot and hint == '2t4r'
+                and r['status'] in ('no_data', 'unknown')):
+            if verbose:
+                print(' 2T4R 未出流，自动唤醒...')
+            wake_2t4r(port, verbose=verbose)
+            r = ac.check_one(port, board_hint='2t4r', seconds=5.0,
+                             verbose=False)
         if r['status'] == 'streaming':
             streaming.append({'port': port, 'board': r['board'],
                               'baud': r['baud'], 'fps': r['fps']})
@@ -325,7 +442,17 @@ def cmd_serve(args):
         ac.say(ac.BAD, '缺少 tools/radar_live_ws.py —— 压缩包没解压完整，请整包重新解压。')
         return 2
 
-    streaming, problems = find_streaming()
+    # 上一次的推流没关掉时，串口会被「自己」占住：START-RADAR 的窗口关了，
+    # 但 CREATE_NO_WINDOW 起的子进程还在跑。以前第二次启动就会报
+    # PermissionError(13) 并误显示成「端口不存在」。
+    # 先按 pidfile 清一次；pidfile 漏记时按命令行兜底扫（异常退出/换过入口）。
+    if load_pids() or _scan_stray_procs():
+        ac.say(ac.INFO, '检测到上一次的推流进程，先清理，避免串口被自己占住。')
+        stop_previous()
+        time.sleep(1.5)
+
+    streaming, problems = find_streaming(
+        auto_boot=not getattr(args, 'no_boot_2t4r', False))
 
     if not streaming:
         ac.say(ac.BAD, '没有一块板在出帧，无法推流。')
@@ -386,6 +513,11 @@ def cmd_serve(args):
                '--role', p['role'],
                '--ws-port', str(p['ws_port']),
                '--log', log]
+        # 左右反向默认交给游戏端（index.html 的 CFG.MIRROR_LR=true），
+        # 这里**默认不翻**，否则两层叠加会翻两次又变回反的。
+        # 只有游戏端是旧版、没有 MIRROR_LR 时，才手动加 --flip-lr 兜底。
+        if p['role'] == 'lr' and getattr(args, 'flip_lr', False):
+            cmd.append('--flip-lr')
         kwargs = {}
         if os.name == 'nt':
             kwargs['creationflags'] = 0x08000000  # CREATE_NO_WINDOW
@@ -462,7 +594,7 @@ def cmd_serve(args):
         print('  游戏地址后面接：%s' % q)
         print('  （把这段拼到你本机的 index.html 后面，或用联调台手动填上面的地址）')
         print('')
-        print('  停止推流：python radar_serve.py --stop')
+        print('  停止推流：python radar_serve.py stop')
     else:
         ac.say(ac.BAD, '推流进程起来了，但自检没收到帧。')
         print('        1) 看 logs 目录里最新日志的 [serial] 行，确认串口是打开还是报错')
@@ -481,7 +613,7 @@ def main(argv=None):
     ac._init_stdout()
     # 允许 `radar_serve.py stop` 这种子命令写法
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] == 'stop':
+    if argv and argv[0] in ('stop', '--stop'):
         return cmd_stop(None)
     ap = argparse.ArgumentParser(prog='radar_serve', description='自动识别两块雷达并启动 WebSocket 推流')
     ap.add_argument('--dry-run', action='store_true')
@@ -494,6 +626,12 @@ def main(argv=None):
     ap.add_argument('--port-ud', default=None)
     ap.add_argument('--board-lr', default=None, choices=['1t2r', '2t4r'])
     ap.add_argument('--board-ud', default=None, choices=['1t2r', '2t4r'])
+    ap.add_argument('--no-boot-2t4r', action='store_true',
+                    help='不自动唤醒 2T4R（默认：识别到 2T4R 无数据时自动重放启动序列）')
+    ap.add_argument('--flip-lr', action='store_true',
+                    help='在推流层翻转左右。默认关闭：游戏端 index.html 已用 '
+                         'CFG.MIRROR_LR 翻过一次，两层同时开会翻两次。'
+                         '只有用旧版游戏页面时才需要加。')
     args = ap.parse_args(argv)
     args.func = cmd_serve
     return cmd_serve(args)
