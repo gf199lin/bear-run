@@ -26,8 +26,10 @@
 2T4R 需先出流（`radar-pointcloud/radar_source.SerialSource` 会自动唤醒）。
 """
 import argparse
+import base64
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -39,7 +41,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "radar-pointcloud"))
 
 from jumpduck_core import pitch_from_frame                     # noqa: E402
-from radar_source import SerialSource, make_protocol           # noqa: E402
+from radar_source import SerialSource, make_protocol, frame_period  # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -66,16 +68,61 @@ def beep(ok=True):
         pass
 
 
+NO_SPEAK = False
+
+
+def _ps_literal(s):
+    """纯 ASCII 的 PowerShell 字符串表达式（按码点 join），避免中文编码损坏。"""
+    return "(-join @(" + ",".join("[char]%d" % ord(c) for c in s) + "))"
+
+
+def speak(text):
+    """中文语音播报，后台异步，失败静默降级（采集节奏不能因播报中断）。"""
+    if NO_SPEAK or not text:
+        return False
+    try:
+        script = ("Add-Type -AssemblyName System.Speech;"
+                  "$v=New-Object System.Speech.Synthesis.SpeechSynthesizer;"
+                  "$v.Rate=1;$v.Speak(%s)" % _ps_literal(text))
+        enc = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+        kw = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+        if hasattr(subprocess, "CREATE_NO_WINDOW"):
+            kw["creationflags"] = subprocess.CREATE_NO_WINDOW
+        subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive",
+                          "-EncodedCommand", enc], **kw)
+        return True
+    except Exception:
+        return False
+
+
+def short_tick():
+    try:
+        import winsound
+        winsound.Beep(1400, 70)
+    except Exception:
+        pass
+
+
 # ------------------------------------------------------------------ 读帧
 
 class FrameReader(object):
-    """串口原始流 → 完整 (rx, chirps, bins) 帧。"""
+    """串口原始流 → 完整 (rx, chirps, bins) 帧。
 
-    def __init__(self, port, board=None):
-        self.src = SerialSource(port, baud=None, retry_delay=1.0)
+    chirps 必须与 Radar_Config.ini 的 `ChirpsPerFrame` 一致：
+    组帧要求 `4 RX × chirps` 全部填满才出一帧，写死 64 而芯片实际给 16，
+    会一条帧都拼不出来（不是丢帧，是永远不完整）。所以这里必须显式传。
+    """
+
+    def __init__(self, port, board=None, chirps=None, auto_boot=True):
+        # auto_boot=False：调用方已经下发过自己的配置（如 130 ms / 16 bin），
+        # 不能让 SerialSource 再重放 64 chirp 的默认序列把它冲掉。
+        self.src = SerialSource(port, baud=None, retry_delay=1.0,
+                                auto_boot=auto_boot)
         self.src.open()
         self.board = board or getattr(self.src, "board", None) or "2t4r"
-        self.parser, self.asm = make_protocol(self.board)
+        self.chirps = int(chirps) if chirps else None
+        self.parser, self.asm = make_protocol(self.board, chirps=self.chirps)
+        self.chirps = int(getattr(self.asm, "chirps", 0) or 64)
         self.bad = 0
 
     def poll(self, timeout=0.05):
@@ -117,21 +164,35 @@ def capture(reader, out_dir, rounds, sec_base, sec_act, band_lo, band_hi):
         print("\n" + "=" * 62)
         log("第 %d / %d 轮" % (r, rounds))
         print("=" * 62)
+        speak("第 %d 轮，共 %d 轮。" % (r, rounds))
         for seg, hint, default_sec in SEGMENTS:
             sec = sec_base if seg.startswith("base") else sec_act
             if default_sec and sec <= 0:
                 sec = default_sec
+            is_base = seg.startswith("base")
             print("\n  >>> %s" % hint)
-            beep(seg.startswith("base"))
+            # 先语音播报，等 1.6 s 让人准备；计时从「嘟」开始，
+            # 这样语音不占动作窗口，真值窗口就是动作窗口。
+            speak(hint)
+            time.sleep(1.6)
+            beep(is_base)
+            time.sleep(0.4)
             f0 = len(zs)
-            time.sleep(0.6)                 # 让提示音与动作错开
             t_seg = time.time()
+            shown = None
             while time.time() - t_seg < sec:
+                remain = sec - (time.time() - t_seg)
+                if not is_base and remain <= 3.2:
+                    n = int(remain) + 1
+                    if n != shown and n >= 1:
+                        shown = n
+                        short_tick()
                 for z in reader.poll(0.05):
                     zs.append(z.astype(np.complex64))
                     ts.append(time.time() - t0)
                     labels.append(seg)
             f1 = len(zs)
+            beep(not is_base)
             marks.append(dict(round=r, seg=seg, frame_start=f0,
                               frame_end=max(f0, f1 - 1), frames=f1 - f0,
                               t_start=round(t_seg - t0, 2),
@@ -161,6 +222,8 @@ def capture(reader, out_dir, rounds, sec_base, sec_act, band_lo, band_hi):
         created=time.strftime("%Y-%m-%d %H:%M:%S"),
         port=getattr(reader.src, "name", None),
         board=reader.board,
+        chirps=getattr(reader, "chirps", None),
+        frame_period=frame_period(reader.board, chirps=getattr(reader, "chirps", None)),
         rounds=rounds,
         sec_base=sec_base, sec_act=sec_act,
         band=[band_lo, band_hi],
@@ -197,6 +260,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", default="COM4")
     ap.add_argument("--board", default=None, help="1t2r/2t4r；默认跟随串口自动识别")
+    ap.add_argument("--chirps", type=int, default=None,
+                    help="每帧 chirp 数，必须与 Radar_Config.ini 的 ChirpsPerFrame 一致；"
+                         "默认跟随 board profile（2T4R 为 64，可被 RADAR_2T4R_CHIRPS 覆盖）")
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--sec-base", type=float, default=4.0)
     ap.add_argument("--sec-act", type=float, default=8.0)
@@ -204,7 +270,13 @@ def main():
     ap.add_argument("--out", default=DEFAULT_OUT,
                     help="输出根目录，自动建 <时间戳> 子目录")
     ap.add_argument("--selftest", action="store_true", help="不碰硬件，检查流程")
+    ap.add_argument("--auto", action="store_true",
+                    help="无人值守：不按回车，语音+倒计时自动开始（人站在设备前够不到键盘）")
+    ap.add_argument("--no-speak", action="store_true", help="关掉中文语音播报")
     args = ap.parse_args()
+
+    global NO_SPEAK
+    NO_SPEAK = bool(args.no_speak)
 
     try:
         lo, hi = [int(v) for v in args.band.split(",")]
@@ -216,7 +288,9 @@ def main():
         print("selftest：检查输出目录与数据格式（不连串口）")
         print("  输出根目录：%s" % args.out)
         print("  段：%s" % [s[0] for s in SEGMENTS])
-        z = np.zeros((4, 64, 32), np.complex64)
+        n_chirp = int(args.chirps) if args.chirps else 64
+        print("  chirps=%d（与 ini 的 ChirpsPerFrame 保持一致）" % n_chirp)
+        z = np.zeros((4, n_chirp, 32), np.complex64)
         print("  pitch_from_frame 冒烟：%s"
               % pitch_from_frame(z, lo, hi, 0, 1))
         print("  目录可写：%s" % os.access(os.path.dirname(args.out) or ".", os.W_OK))
@@ -224,7 +298,7 @@ def main():
 
     log("连接雷达 %s ..." % args.port)
     try:
-        reader = FrameReader(args.port, args.board)
+        reader = FrameReader(args.port, args.board, chirps=args.chirps)
     except Exception as exc:
         log("打开串口失败：%s: %s" % (type(exc).__name__, exc))
         log("检查：USB 是否插紧 / 是否被其他程序占用（查 pythonw.exe）")
@@ -236,7 +310,16 @@ def main():
 
     print("\n请站到雷达正前方约 1.5–2 m，听提示音做动作。")
     print("每轮 5 段：站好 → 跳三次 → 站好 → 蹲三次 → 站好")
-    input("按回车开始 ...")
+    if args.auto:
+        # 人站在雷达前看不到屏幕：语音说明 + 8 秒准备，不用碰键盘。
+        speak("跳蹲采集即将开始。请站到雷达正前方 1.5 到 2 米处，站好不要动。")
+        for n in (3, 2, 1):
+            print("  %d ..." % n, flush=True)
+            short_tick()
+            time.sleep(1.0)
+        beep(True)
+    else:
+        input("按回车开始 ...")
 
     try:
         capture(reader, out_dir, args.rounds, args.sec_base, args.sec_act, lo, hi)
