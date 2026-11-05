@@ -50,9 +50,15 @@ BOARD_PROFILES = {
         # chirps 必须与 Radar_Config.ini 的 ChirpsPerFrame 一致，否则一帧都凑不齐。
         # 改了 ini 就设环境变量 RADAR_2T4R_CHIRPS=16，全链路（采集/回放/校准）自动跟随，
         # 不必逐处改代码。见 docs/jump-duck-sampling-limit.md §5A。
-        'bins': 32, 'chirps': int(os.environ.get('RADAR_2T4R_CHIRPS', '64') or 64), 'rx': 4,
+        # 2026-11-05：130.44 ms 配置（FFT 输出列=16）帧长 72 B、只出偶数 chirp，
+        #   RADAR_2T4R_BINS=16 RADAR_2T4R_CHIRPS=32 RADAR_2T4R_STRIDE=2 → 7.6 Hz。
+        'bins': int(os.environ.get('RADAR_2T4R_BINS', '32') or 32),
+        'chirps': int(os.environ.get('RADAR_2T4R_CHIRPS', '64') or 64), 'rx': 4,
+        'stride': int(os.environ.get('RADAR_2T4R_STRIDE', '1') or 1),
         'f0': 24.5005e9, 'bandwidth': 999e6, 'range_res': 0.1500,
-        'ant_spacing': 5.900e-3, 'chirp_period': 520840e-6 / 64,
+        # T_Chirp = 8060 µs（T0 40 + T1 12 + T2 8 + T3 8000），帧内加 T_PRE 1000 + T_NOP 4000。
+        # 2026-11-03 从 64 chirp / 520.840 ms 改成 16 chirp / 133.960 ms，波形未动。
+        'ant_spacing': 5.900e-3, 'chirp_period': 8060e-6, 'frame_overhead': 5e-3,
         'v_max': 0.376, 'v_res': 0.01175,
     },
 }
@@ -123,8 +129,10 @@ def make_protocol(board, chirps=None):
     """
     if board == '2t4r':
         from radar_protocol_dev113p import StreamParser as PS, FrameAssembler as FA
-        n = int(chirps) if chirps else int(BOARD_PROFILES['2t4r']['chirps'])
-        return PS(), FA(chirps=n)
+        p = BOARD_PROFILES['2t4r']
+        n = int(chirps) if chirps else int(p['chirps'])
+        return PS(), FA(chirps=n, bins=int(p.get('bins', 32)),
+                        stride=int(p.get('stride', 1)))
     from radar_protocol import StreamParser as PS, FrameAssembler as FA
     return PS(), FA()
 
@@ -145,8 +153,18 @@ def frame_period(board=None, chirps=None):
     否则时间轴仍按旧的 64 帧算，慢 4 倍）。
     """
     p = profile_for(board)
+    # 130.44 ms 配置：物理 64 chirp × T_Chirp 1960 µs + 5 ms = 130.44 ms，
+    # 但输出 chirp 只有 32 个（偶数索引），用公式会算成一半。直接给实测值。
+    ov = os.environ.get('RADAR_2T4R_FRAME_US') if board == '2t4r' else None
+    if ov:
+        return float(ov) * 1e-6
     n = int(chirps) if chirps else int(p['chirps'])
-    return float(p['chirp_period']) * n
+    # Frame = T_PRE + n × T_Chirp + T_NOP。
+    # 2T4R 每帧固定开销 5 ms（T_PRE 1000 + T_NOP 4000），不随 chirps 缩放：
+    #   64 chirp → 5 + 8060×64/1000 = 520.840 ms（原值，对得上）
+    #   16 chirp → 5 + 8060×16/1000 = 133.960 ms（2026-11-03 ONELAB 实测）
+    # 用「等效 chirp 周期 × n」会少算这 5 ms（16 chirp 时偏 2.8%），真值对齐会漂。
+    return float(p['chirp_period']) * n + float(p.get('frame_overhead', 0.0))
 
 
 def range_res(board=None):
