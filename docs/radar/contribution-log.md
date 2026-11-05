@@ -30,15 +30,19 @@
 
 ## 二、提交分布
 
-| 分支 / 位置 | 数量 | 状态 |
-|---|---|---|
-| `main`（2026-11-03，旧邮箱） | 8 | 已合并，内容为自动识别、串口自占用修复、方向翻转、单文件构建 |
-| `radar-lr3c`（雷达侧独立历史） | 38 | 已推送，邮箱已修正为可关联地址 |
-| `radar/2t4r-framerate-limit`（本次 PR） | 8 | 待合并，邮箱正确 |
+| 分支 / 位置 | 数量 | 邮箱 | 状态 |
+|---|---|---|---|
+| `main`（更早） | 1 | noreply（可关联） | 已合并 |
+| `main`（2026-11-03） | 8 | `jiangqinzhao@local`（不可关联） | 已合并，内容为自动识别、串口自占用修复、方向翻转、单文件构建 |
+| `main`（2026-11-05，第一批） | 9 | noreply（可关联） | 已合并，帧率上限、跳蹲工具、AI 决策记录、雷达档案 |
+| `main`（2026-11-05，第二批） | 9 | noreply（可关联） | 已合并，8 份采集/分析记录与评估结果集 |
+| `radar-lr3c`（雷达侧独立历史） | 38 | noreply（可关联） | 已推送 |
+
+**main 上合计 27 个本人提交**：19 个可被 GitHub 统计到 `@jqz070803`，8 个因旧邮箱无法关联。
 
 `radar-lr3c` 是雷达侧的独立历史分支（与 main 无共同祖先），因为两边的目录结构不同：
 本分支雷达代码在根 `radar-pointcloud/`，main 在 `radar-service/`。两者不能直接合并，
-只能按主题把成果移植到 main——这正是本次 PR 的做法。
+只能按主题把成果移植到 main——前两批合并就是这么做的。
 
 ---
 
@@ -71,9 +75,9 @@ git log radar-lr3c --oneline
 
 ---
 
-## 四、本次 PR（`radar/2t4r-framerate-limit`）的内容
+## 四、2026-11-05 合并的两批内容
 
-8 个 commit，全部为新增文件，不改动 main 上任何现有文件：
+### 第一批（9 个 commit）：结论、工具与档案
 
 | 主题 | 交付物 |
 |---|---|
@@ -83,7 +87,22 @@ git log radar-lr3c --oneline
 | AI 决策记录 | `docs/ai-decision-log.md`（64 条） |
 | 雷达侧档案 | `docs/radar/`（26 篇 + 索引） |
 
-目录与文件说明见 `docs/radar/README.md`。
+### 第二批（9 个 commit）：8 份实测记录与评估结果集
+
+| 主题 | 交付物 |
+|---|---|
+| lr3 系列固定带评估 | `docs/radar/captures/lr3-series-20261022.md` + 2 份对比表 + 8 份评估 json |
+| 2T4R 俯仰标定 11 轮 | `captures/vertical-20261029.md` + 11 份 result.json |
+| 通道对诊断 | `captures/rxpair-20261029.md` + 2 份 result.json |
+| 水平方位角 | `captures/horizontal-20261029.md` + 2 份 result.json |
+| Fisher 可分性 | `captures/calibration-fisher-20261029.md` + 2 份分析 json |
+| 双板干扰 4 次 | `captures/dual-interference-20261029.md` + 4 份 report json |
+| 跳蹲离线评估 | `captures/jumpduck-offline-eval.md` + report.json/md |
+| 左右移判据结果集 | `captures/lane-eval-summary.md` + 15 份评估 json |
+
+两批合计 50 个新增文件、11048 行，**0 行删除**，未改动 main 上任何现有文件。
+
+目录与文件说明见 `docs/radar/README.md` 与 `docs/radar/captures/README.md`。
 
 ---
 
