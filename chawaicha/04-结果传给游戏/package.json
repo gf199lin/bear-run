@@ -1,0 +1,15 @@
+{
+  "name": "radar-game-link",
+  "version": "1.0.0",
+  "private": true,
+  "description": "把点云网页的判定事件合并成 20Hz 帧，经 UDP 8888 交给游戏侧 radar_bridge.py",
+  "main": "radar_fusion.js",
+  "scripts": {
+    "start": "node radar_fusion.js",
+    "sim": "node radar_fusion.js --sim",
+    "selftest": "node _test_client.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
