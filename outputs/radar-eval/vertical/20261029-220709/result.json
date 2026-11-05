@@ -1,0 +1,29 @@
+{
+  "port": "COM4",
+  "board": "2t4r",
+  "ts": "20261029-220709",
+  "rounds": [
+    {
+      "base1": null,
+      "jump": null,
+      "base2": null,
+      "duck": null,
+      "base3": null
+    },
+    {
+      "base1": null,
+      "jump": null,
+      "base2": null,
+      "duck": null,
+      "base3": null
+    },
+    {
+      "base1": null,
+      "jump": null,
+      "base2": null,
+      "duck": null,
+      "base3": null
+    }
+  ],
+  "verdict": "no_signal"
+}
