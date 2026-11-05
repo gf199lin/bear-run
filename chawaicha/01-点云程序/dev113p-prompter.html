@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DEV113P 全面测试 · 语音报幕提词器</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html,body { height: 100%; }
+  body { background: #000; color: #fff; font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; overflow: hidden; }
+  section { height: 100vh; display: flex; flex-direction: column; }
+  [hidden] { display: none !important; }
+
+  /* ---- 准备页 ---- */
+  #prep { align-items: center; justify-content: center; padding: 3vh 4vw; overflow-y: auto; }
+  #prep h1 { font-size: 4.5vh; margin-bottom: 2vh; color: #00bfff; }
+  #prep ol { margin: 1vh 0 2vh 2.2em; line-height: 2; font-size: 2.6vh; }
+  #prep .warn { color: #ffb020; }
+  .row { display: flex; gap: 2vw; align-items: center; flex-wrap: wrap; justify-content: center; }
+  button { font-size: 3.4vh; padding: 2vh 6vw; border: 0; border-radius: 1.5vh; cursor: pointer;
+           background: #00bfff; color: #04222e; font-weight: 800; }
+  button.ghost { background: #233042; color: #cfe3ff; font-size: 2.2vh; padding: 1.2vh 2.5vw; }
+  label.toggle { font-size: 2.4vh; color: #9fd8ff; display: flex; align-items: center; gap: .6em; cursor: pointer; }
+  label.toggle input { width: 2.6vh; height: 2.6vh; }
+  #fullList { font-size: 2vh; color: #8fa3bd; columns: 2; column-gap: 3vw; margin-top: 2vh; line-height: 1.8; }
+
+  /* ---- 舞台页: 整屏大字 ---- */
+  #bar { height: 1.6vh; background: #1c2534; flex: none; }
+  #barfill { height: 100%; width: 0%; background: linear-gradient(90deg,#00bfff,#7ee787); transition: width .12s linear; }
+  #stageMain { flex: 1; display: flex; flex-direction: column; padding: 2vh 4vw 3vh; min-height: 0; }
+  #meta { display: flex; justify-content: space-between; color: #7c8fb0; font-size: 2.4vh; flex: none; }
+  #phasename { font-size: 6vh; font-weight: 800; color: #7ee787; margin-top: 1vh; flex: none; }
+  #cueWrap { flex: 1; display: flex; align-items: center; min-height: 0; }
+  #cue { font-size: 13vw; font-weight: 900; line-height: 1.25; text-shadow: 0 0 3vh rgba(0,191,255,.35); }
+  #sub { font-size: 4vh; color: #9fd8ff; flex: none; min-height: 5vh; }
+  #bottomRow { display: flex; align-items: flex-end; justify-content: space-between; flex: none; }
+  #next { color: #5f7199; font-size: 2.8vh; max-width: 55vw; }
+  #count { font-size: 34vh; font-weight: 900; color: #ffb020; line-height: 1;
+           font-variant-numeric: tabular-nums; text-shadow: 0 0 4vh rgba(255,176,32,.4); }
+  .flash { animation: flash .45s; }
+  @keyframes flash { 0% { background: #1d3a5f; } 100% { background: #000; } }
+
+  /* ---- 完成页 ---- */
+  #done { align-items: center; justify-content: center; text-align: center; padding: 4vw; }
+  #done h1 { color: #7ee787; font-size: 6vh; margin-bottom: 2vh; }
+  #done p { font-size: 3vh; line-height: 2; }
+  #done button { margin-top: 3vh; }
+</style>
+</head>
+<body>
+
+<section id="prep">
+  <h1>DEV113P 游戏输入测试 · 67 秒语音剧本</h1>
+  <ol>
+    <li>雷达网页<b>等绿字「已减背景 · 静物隐藏」</b>，30cm 挥手自检</li>
+    <li>在雷达网页<b>连点两下录制按钮</b>（停止→再开始），日志出现"开始录制原始串口数据"=缓存已清空</li>
+    <li><b>立刻回本页</b>点「开始」或按空格</li>
+    <li>每段开始会<b>语音喊出动作</b>，结束前 1 秒有预警哔</li>
+    <li class="warn">差 1~2 秒没关系，不要停、不要重来，一口气做完</li>
+    <li class="warn">电脑音量调大！屏幕常亮，别锁屏</li>
+  </ol>
+  <div class="row">
+    <button id="startBtn">开始（空格）</button>
+    <button class="ghost" id="voiceTest">🔊 测试语音</button>
+    <label class="toggle"><input type="checkbox" id="voiceOn" checked>语音播报</label>
+    <button class="ghost" onclick="toggleList()">分段表</button>
+  </div>
+  <ol id="fullList" style="display:none;"></ol>
+</section>
+
+<section id="stage" hidden>
+  <div id="bar"><div id="barfill"></div></div>
+  <div id="stageMain">
+    <div id="meta"><span id="clock">0.0s / 67s</span><span id="seg"></span></div>
+    <div id="phasename"></div>
+    <div id="cueWrap"><div id="cue"></div></div>
+    <div id="sub"></div>
+    <div id="bottomRow">
+      <div id="next"></div>
+      <div id="count"></div>
+    </div>
+  </div>
+</section>
+
+<section id="done" hidden>
+  <h1>✅ 剧本完成！</h1>
+  <p id="doneHint">1. 回<b>雷达网页</b>点「停止录制原始流」→「下载原始流」拿 .bin<br>
+     2. bin 发我，并告知：<b>天线离地高度(cm)</b>、出入备注<br>
+     3. 我出判决：前进/后退/左右移/跳/蹲 + 移速与角度（1.5~3m 游戏区间）</p>
+  <div class="row">
+    <button id="csvBtn">📄 下载标签 CSV</button>
+    <button class="ghost" onclick="location.reload()">再来一遍</button>
+  </div>
+</section>
+
+<script>
+let PHASES = [
+  { dur: 5,  name: '第 0 段 · 空背景',     cue: '走出探测区！',              say: '开始！走出探测区，站到一点五米标记旁边等待', sub: '在 1.5m 标记旁待命' },
+  { dur: 4,  name: '第 1 段 · 站 1.5m',    cue: '站 1.5 米，纹丝不动',       say: '平移到一点五米，纹丝不动',            sub: '距离标定·近端 + 方位0°基准' },
+  { dur: 4,  name: '第 2 段 · 站 2m',      cue: '后退到 2.0 米，纹丝不动',   say: '后退到两米，纹丝不动',                sub: '距离标定·第 2 点' },
+  { dur: 4,  name: '第 3 段 · 站 2.5m',    cue: '后退到 2.5 米，纹丝不动',   say: '后退到两点五米，纹丝不动',            sub: '距离标定·第 3 点' },
+  { dur: 4,  name: '第 4 段 · 站 3m',      cue: '后退到 3.0 米，纹丝不动',   say: '后退到三米，纹丝不动',                sub: '距离标定·远端（游戏最远操作位）' },
+  { dur: 4,  name: '第 5 段 · 慢速靠近',   cue: '3m → 1.5m 慢走',           say: '从三米慢走到一点五米',                sub: '前进·慢速（约 0.4 m/s）' },
+  { dur: 4,  name: '第 6 段 · 慢速远离',   cue: '1.5m → 3m 慢走',           say: '从一点五米慢走回三米',                sub: '后退·慢速' },
+  { dur: 2,  name: '第 7 段 · 快速靠近',   cue: '3m → 1.5m 快走！',         say: '快走到一点五米！',                    sub: '前进·快速（约 0.75 m/s）' },
+  { dur: 2,  name: '第 8 段 · 快速远离',   cue: '1.5m → 3m 快走！',         say: '快走回三米！',                        sub: '后退·快速' },
+  { dur: 2,  name: '第 9 段 · 走位到中线', cue: '走到 2.5m 中线上',          say: '走到两点五米中线上',                  sub: '走位段·为左右移就位' },
+  { dur: 2,  name: '第 10 段 · 方位基准',  cue: '保持中线，别动',            say: '保持中线，别动',                      sub: '方位角 0° 基准' },
+  { dur: 3,  name: '第 11 段 · 左移 1m',   cue: '横移到左侧 1 米标记',       say: '横移到左边一米标记，站定',            sub: '左移 → 方位角约 −22°' },
+  { dur: 2,  name: '第 12 段 · 回中线',    cue: '横移回中线，静',            say: '回到中线',                            sub: '' },
+  { dur: 3,  name: '第 13 段 · 右移 1m',   cue: '横移到右侧 1 米标记',       say: '横移到右边一米标记，站定',            sub: '右移 → 方位角约 +22°' },
+  { dur: 2,  name: '第 14 段 · 回中线',    cue: '横移回中线，静',            say: '回到中线',                            sub: '' },
+  { dur: 2,  name: '第 15 段 · 走位到 2m', cue: '走到 2 米标记',             say: '走到两米标记',                        sub: '走位段·为跳蹲就位' },
+  { dur: 4,  name: '第 16 段 · 跳 2 下',   cue: '跳 2 下！',                say: '跳两下！每秒一下',                    sub: '跳跃 → 俯仰角瞬时上摆' },
+  { dur: 3,  name: '第 17 段 · 蹲下保持',  cue: '蹲下，别动',                say: '蹲下，保持不动',                      sub: '下蹲 → 俯仰角持续下摆' },
+  { dur: 2,  name: '第 18 段 · 站起',      cue: '站起来，静',                say: '站起来',                              sub: '' },
+  { dur: 4,  name: '第 19 段 · 跳+蹲组合', cue: '跳 1 下→落地立即蹲下',      say: '跳一下，落地马上蹲住',                sub: '游戏连招判别测试' },
+  { dur: 2,  name: '第 20 段 · 站起',      cue: '站起来，静',                say: '站起来',                              sub: '' },
+  { dur: 3,  name: '第 21 段 · 挥手收尾',  cue: '走到 1.5m 用力挥手！',      say: '走到一点五米，用力挥手到结束',        sub: '高速运动上限 + 文件尾标记' },
+];
+/* 补录专用剧本（32 秒）：只补还缺的三样——方位角(斜走)、精确速度(径向来回)、空场底噪(判幽灵)。
+   用法：dev113p-prompter.html#az
+   地面 5 个标记：中线 2.0m(0°)、左后 2.5m(横向左 1m)、右后 2.5m(横向右 1m)、1.5m、2.5m。
+   斜走 = 每趟同时有距离变化(雷达看得见) + 角度变化(±22°)。横移千万别纯横着走(雷达对纯横移是瞎的)！ */
+const PHASES_AZ = [
+  { dur: 5,  name: '第 0 段 · 空场检查',     cue: '所有人走出探测区！',      say: '开始！所有人走出探测区',           sub: '这 5 秒画面应该全黑，有红带=幽灵还在，换朝向重录' },
+  { dur: 4,  name: '第 1 段 · 斜走左后',     cue: '斜走到左后标记，再回中线', say: '斜走到左后标记，再走回中线',       sub: '2m → 2.5m 左 1m → 回 2m（每程 2 秒）' },
+  { dur: 4,  name: '第 2 段 · 斜走右后',     cue: '斜走到右后标记，再回中线', say: '斜走到右后标记，再走回中线',       sub: '2m → 2.5m 右 1m → 回 2m' },
+  { dur: 4,  name: '第 3 段 · 斜走左后',     cue: '再来：斜走左后，回中线',   say: '再斜走左后，回中线',               sub: '第 2 遍·提高样本数' },
+  { dur: 4,  name: '第 4 段 · 斜走右后',     cue: '再来：斜走右后，回中线',   say: '再斜走右后，回中线',               sub: '第 2 遍·回到中线 2m' },
+  { dur: 2,  name: '第 5 段 · 走位',         cue: '走到 1.5m 标记就位',       say: '走到一点五米标记就位',             sub: '走位段·不判分' },
+  { dur: 3,  name: '第 6 段 · 慢退到 2.5m',  cue: '慢退到 2.5m',             say: '慢退到两点五米',                   sub: '径向速度标定（约 0.33 m/s）' },
+  { dur: 3,  name: '第 7 段 · 慢走回 1.5m',  cue: '慢走回 1.5m',             say: '慢走回一点五米',                   sub: '反方向' },
+  { dur: 3,  name: '第 8 段 · 挥手收尾',     cue: '原地用力挥手！',           say: '原地用力挥手到结束',               sub: '文件尾标记 + 近距复验' },
+];
+/* 跳/蹲训练数据采集剧本（约 135 秒）：给游戏组训练算法用。
+   用法：dev113p-prompter.html#jc
+   人站 1.0m 标记（≈第 6 距离门，信号强、远离 2.8~3.2m 幽灵区），全程正对雷达。
+   结构：对时挥手(4s) → 校准静止(6s) → 跳×10(跳1s+站稳2s) → 休息(4s)
+        → 蹲×10(蹲2s+起2s) → 休息(4s) → 负样本(晃/踏步/弯腰/挥臂 21s)
+        → 连招(跳蹲混合 18s) → 收尾静止(4s)。
+   act 字段会写进标签 CSV：jump / crouch / idle / neg_* / sync_wave。
+   容量：135s × 64KB/s ≈ 8.7MB < 12MB 上限，留足开始/停止操作余量。 */
+const PHASES_JC = [];
+PHASES_JC.push(
+  { dur: 4, act: 'sync_wave', name: '第 0 段 · 对时挥手', cue: '手在雷达前 30cm 快速挥！', say: '开始！手在雷达前三十厘米快速挥动', sub: '对齐时间轴用，挥满 4 秒' },
+  { dur: 6, act: 'idle_calib', name: '第 1 段 · 校准静止', cue: '站 1 米，纹丝不动', say: '手放下，站到一米标记，纹丝不动', sub: '基准校准·千万别动' },
+);
+for (let i = 1; i <= 10; i++) {
+  PHASES_JC.push({ dur: 1, act: 'jump', name: `跳 ${i}/10`, cue: '跳！', say: '跳！', sub: '全力向上跳一下' });
+  PHASES_JC.push({ dur: 2, act: 'idle', name: `跳 ${i}/10 · 站稳`, cue: '站稳', say: '', sub: '落地别动，等下一声' });
+}
+PHASES_JC.push({ dur: 4, act: 'idle_rest', name: '休息 · 站立', cue: '站立休息', say: '休息一下，站着别动', sub: '调整呼吸' });
+for (let i = 1; i <= 10; i++) {
+  PHASES_JC.push({ dur: 2, act: 'crouch', name: `蹲 ${i}/10`, cue: '蹲！', say: '蹲！', sub: '蹲到底，保持别动' });
+  PHASES_JC.push({ dur: 2, act: 'idle', name: `蹲 ${i}/10 · 起`, cue: '起！站稳', say: '起！', sub: '站直别动' });
+}
+PHASES_JC.push(
+  { dur: 4, act: 'idle_rest', name: '休息 · 站立', cue: '站立休息', say: '休息一下，站着别动', sub: '' },
+  { dur: 6, act: 'neg_sway', name: '负样本 · 自然晃', cue: '站着自然晃动', say: '站着自然晃动，别跳别蹲', sub: '模拟玩游戏时的小动作' },
+  { dur: 6, act: 'neg_step', name: '负样本 · 原地踏步', cue: '原地踏步', say: '原地踏步', sub: '慢慢踏，脚别离地太高' },
+  { dur: 4, act: 'neg_bend', name: '负样本 · 弯腰', cue: '弯腰摸地 → 起身', say: '弯腰摸一下地，再站起来', sub: '最容易被误判成蹲的动作' },
+  { dur: 5, act: 'neg_arms', name: '负样本 · 挥臂扭腰', cue: '挥手臂 + 扭腰', say: '挥挥手臂，扭扭腰', sub: '模拟激动时的上肢动作' },
+);
+[['jump', '跳！', '跳完站稳'], ['crouch', '蹲！', '蹲住，听到下一声再起'],
+   ['jump', '跳！', '先起再跳'], ['crouch', '蹲！', '蹲住，听到下一声再起'],
+   ['jump', '跳！', '先起再跳'], ['crouch', '蹲！', '蹲住，听到收尾提示']].forEach((a, i) => {
+  PHASES_JC.push({ dur: 3, act: a[0], name: `连招 ${i + 1}/6`, cue: a[1], say: a[1], sub: a[2] });
+});
+PHASES_JC.push({ dur: 4, act: 'idle_end', name: '收尾 · 静止', cue: '站好别动', say: '最后站好四秒', sub: '文件尾标记' });
+
+if (location.hash === '#az') {
+  PHASES = PHASES_AZ;
+  document.title = 'DEV113P 补录剧本 · 32 秒';
+  document.querySelector('h1').textContent = 'DEV113P 补录剧本 · 32 秒（只录缺的）';
+} else if (location.hash === '#jc') {
+  PHASES = PHASES_JC;
+  document.title = 'DEV113P 跳蹲采集剧本 · 135 秒';
+  document.querySelector('h1').textContent = '跳/蹲训练数据采集 · 135 秒剧本';
+  const tip = document.createElement('li');
+  tip.innerHTML = '人站 <b>1.0 米标记</b>，全程正对雷达；听到/看到「跳！」立刻跳，「蹲！」蹲到底等「起！」';
+  tip.style.color = '#7ee787';
+  const ol = document.querySelector('#prep ol');
+  ol.insertBefore(tip, ol.firstChild);
+}
+const TOTAL = PHASES.reduce((s, p) => s + p.dur, 0);
+let t0 = 0, timer = null, lastIdx = -2, warned = false, AC = null, VOICE = null;
+
+const $ = id => document.getElementById(id);
+
+/* ---------- 语音播报 ---------- */
+function pickVoice() {
+  if (!('speechSynthesis' in window)) return;
+  const vs = speechSynthesis.getVoices();
+  VOICE = vs.find(v => /^zh[-_]CN/i.test(v.lang)) || vs.find(v => v.lang && v.lang.toLowerCase().startsWith('zh')) || null;
+}
+if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+function speak(text) {
+  if (!$('voiceOn').checked || !('speechSynthesis' in window)) return;
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'zh-CN'; if (VOICE) u.voice = VOICE;
+    u.rate = 1.08; u.volume = 1;
+    speechSynthesis.speak(u);
+  } catch (e) {}
+}
+/* ---------- 提示音 ---------- */
+function beep(n = 1, freq = 880) {
+  try {
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    for (let i = 0; i < n; i++) {
+      const o = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime + i * 0.22;
+      o.frequency.value = freq; o.type = 'sine';
+      g.gain.setValueAtTime(0.22, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+      o.connect(g).connect(AC.destination); o.start(t); o.stop(t + 0.17);
+    }
+  } catch (e) {}
+}
+
+function start() {
+  $('prep').hidden = true; $('done').hidden = true; $('stage').hidden = false;
+  document.title = '▶ 录制中… DEV113P 语音提词器';
+  t0 = performance.now(); lastIdx = -2;
+  // 对时锚点: 主网页(radar-pointcloud.html)的「跳蹲采集」按钮靠这个做精确同步
+  try { localStorage.removeItem('jc_sync_done'); localStorage.setItem('jc_sync', JSON.stringify({ t0: Date.now(), total: TOTAL, hash: location.hash || '#jc' })); } catch (e) {}
+  timer = setInterval(tick, 100);
+  tick();
+}
+function tick() {
+  const el = (performance.now() - t0) / 1000;
+  if (el >= TOTAL) { finish(); return; }
+  let acc = 0, idx = 0;
+  for (let i = 0; i < PHASES.length; i++) { if (el < acc + PHASES[i].dur) { idx = i; break; } acc += PHASES[i].dur; }
+  const p = PHASES[idx], tIn = el - acc, remain = Math.ceil(p.dur - tIn);
+  if (idx !== lastIdx) {
+    lastIdx = idx; warned = false;
+    if (p.say) speak(p.say);
+    beep(idx === 0 ? 2 : 1);
+    document.body.classList.remove('flash'); void document.body.offsetWidth; document.body.classList.add('flash');
+    $('phasename').textContent = p.name;
+    $('cue').textContent = p.cue;
+    $('sub').textContent = p.sub || '';
+    $('seg').textContent = `第 ${idx + 1} / ${PHASES.length} 段`;
+    $('next').textContent = idx + 1 < PHASES.length ? `下一段 → ${PHASES[idx + 1].name}：${PHASES[idx + 1].cue}` : '最后一段！';
+  }
+  // 长段结束前 1 秒预警哔
+  if (!warned && p.dur >= 4 && (p.dur - tIn) <= 1.05) { warned = true; beep(1, 1400); }
+  $('count').textContent = remain;
+  $('clock').textContent = el.toFixed(1) + 's / ' + TOTAL + 's';
+  $('barfill').style.width = (el / TOTAL * 100).toFixed(1) + '%';
+}
+function finish() {
+  clearInterval(timer);
+  speak('剧本完成！请回雷达网页，停止并保存录制文件');
+  beep(3, 1200);
+  $('stage').hidden = true; $('done').hidden = false;
+  document.title = '✅ 完成 · DEV113P 提词器';
+  // 通知主网页自动收尾(停止录制+下载)
+  try { localStorage.removeItem('jc_sync'); localStorage.setItem('jc_sync_done', String(Date.now())); } catch (e) {}
+  if (location.hash === '#jc') {
+    $('doneHint').innerHTML =
+      '回<b>雷达网页</b>：若用了「跳蹲采集(带同步)」，录制已自动停止并自动下载 .bin + 同步 JSON<br>' +
+      '（手动模式则照旧：停止录制原始流 → 下载原始流 + 下方标签 CSV）<br>' +
+      '建议命名 <b>jc_take?_1m.bin</b>，一对一对发给我分析';
+  }
+}
+/* 导出标签 CSV：段号,段名,动作类别,开始秒,结束秒（时间轴以剧本开始=0，对时挥手段用于和 .bin 对齐） */
+function downloadCSV() {
+  let acc = 0;
+  const rows = ['seg,name,action,t_start_s,t_end_s'];
+  PHASES.forEach((p, i) => {
+    rows.push(`${i},"${p.name}",${p.act || 'na'},${acc.toFixed(1)},${(acc + p.dur).toFixed(1)}`);
+    acc += p.dur;
+  });
+  const blob = new Blob(['﻿' + rows.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'dev113p_' + (location.hash ? location.hash.slice(1) : 'script') + '_labels.csv';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+function toggleList() {
+  const l = $('fullList');
+  if (!l.dataset.built) {
+    let acc = 0;
+    l.innerHTML = PHASES.map(p => { const s = `${acc}s–${acc + p.dur}s`; acc += p.dur; return `<li>[${s}] ${p.name} — ${p.cue}</li>`; }).join('');
+    l.dataset.built = 1;
+  }
+  l.style.display = l.style.display === 'none' ? '' : 'none';
+}
+$('startBtn').onclick = start;
+$('csvBtn').onclick = downloadCSV;
+$('voiceTest').onclick = () => speak('语音测试正常。请把音量调大，准备开始。');
+addEventListener('keydown', e => { if (e.code === 'Space' && !$('prep').hidden) { e.preventDefault(); start(); } });
+</script>
+</body>
+</html>
