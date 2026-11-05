@@ -26,6 +26,18 @@
 
 直接回车 = 玩游戏。
 
+### 插上就自动识别（2026-11-03）
+
+不用手填 COM3 / COM4，也不用先开 ONELAB：
+
+| 板子 | USB 指纹 | 上电行为 | 本工具的处理 |
+|---|---|---|---|
+| DEV202H 1T2R | `10c4:ea60`（CP210x） | 自动出流 | 直接识别、推左右 |
+| DEV113P 2T4R | `0403:6001`（FT232） | 待机、0 字节 | 识别后自动重放启动序列唤醒，再推上下 |
+
+两块同时插、顺序对调、换 USB 口、换电脑都按指纹识别，不依赖 COM 号。
+识别只用只读枚举；唤醒只在「指纹是 2T4R 且确实没出流」时发生，已经在出流则跳过。
+
 `[1]` 会依次做三件事：起本地静态服务（8801）→ 自动识别雷达并推流 → 打开
 
 ```
@@ -87,28 +99,63 @@ http://127.0.0.1:8801/index.html?input=radar&radar=ws://127.0.0.1:8766&radar2=ws
 
 ---
 
-## 2T4R 的启动（新增，2026-10-30）
+## 2T4R 的启动（自动，2026-11-03）
 
 1T2R 插上就出数；2T4R（DEV113P）**默认待机**，必须写一段启动序列才开始出流。
-以前只能在 ONELAB 里点一次唤醒，现在仓库里有纯 Python 的替代方案：
+
+**现在不需要人工唤醒**：`START-RADAR.cmd` → `[1]` → `radar_serve.py` 会
+
+1. 按 USB VID:PID 认出每块板的型号（CP210x = 1T2R，FT232 = 2T4R）；
+2. 对 2T4R 先听 0.35 s，已经在出流就跳过；
+3. 没出流就自动重放启动序列（37 帧），再测一次，然后推流。
+
+想看识别与唤醒过程，但不起推流：
 
 ```bat
-REM 1) 离线校验：只检查序列完整性，不碰串口
-py radar-service\radar_boot_2t4r.py --dry-run
-
-REM 2) 真机启动
-py radar-service\radar_boot_2t4r.py --send --port COM4 --verify
+py radar-service\radar_serve.py --dry-run
 ```
 
-启动序列来自**本机 ONELAB 日志**，用 `radar-service\tools\extract_vendor_boot.py` 提取一次即可：
+关掉自动唤醒（交给人工 / ONELAB）：
+
+```bat
+py radar-service\radar_serve.py --no-boot-2t4r
+```
+
+### 启动序列放哪里（必读）
+
+序列文件 `boot_seq_2t4r.json` **含厂商寄存器配置，按保密要求不入库**（`.gitignore` 已覆盖
+`boot_seq_*.json` 和 `.deepworks/`）。换电脑后按下面任一位置放：
+
+```
+radar-service\boot_seq_2t4r.json            ← 推荐，跟程序放一起
+radar-service\.deepworks\tmp\boot_seq_2t4r.json
+<仓库根>\.deepworks\tmp\boot_seq_2t4r.json
+```
+
+也可以设环境变量 `RADAR_BOOT_SEQ` 指向任意路径。
+
+序列来自**本机 ONELAB 日志**，用 `radar-service\tools\extract_vendor_boot.py` 提取一次：
 
 ```bat
 py radar-service\tools\extract_vendor_boot.py --logdir "<ONELAB安装目录>\ONELAB毫米波传感器开发工具\Log"
 ```
 
-> 提取结果落在 `.deepworks/tmp/boot_seq_2t4r.json`，**含厂商寄存器配置，不要提交、不要外传**。
 > 仓库只收录提取脚本，不收录该 JSON，也不收录厂商日志原文。
-> 实机出流尚未验证，详见 `docs/boot-2t4r-pure-python.md`。
+
+### 手工排查（可选）
+
+```bat
+REM 1) 离线校验：只检查序列完整性，不碰串口
+py radar-service\radar_boot_2t4r.py --dry-run
+
+REM 2) 真机启动 + 验证出流
+py radar-service\radar_boot_2t4r.py --send --port COM4 --verify
+```
+
+> 2026-11-03 实机验证：DTR/RTS 未拉高时，命令有回包但芯片不出流；
+> 打开端口后显式 `dtr=True / rts=True` 再重放，2T4R 立即出流。
+> 两条路径（`radar_serve.py` 自动唤醒、`radar_boot_2t4r.py --send`）都已补上。
+
 
 ## 双雷达双开：后台判定 + 合并（可选路线）
 

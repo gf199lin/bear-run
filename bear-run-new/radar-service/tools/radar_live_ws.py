@@ -273,6 +273,10 @@ def main():
                          '站着不动也能被看到（噪声会变多）')
     ap.add_argument('--min-snr', type=float, default=7.0)
     ap.add_argument('--x-amp', type=float, default=0.6, help='车道电平幅值')
+    ap.add_argument('--flip-lr', action='store_true',
+                    help='左右反向：把 pos 与 LANE_LEFT/RIGHT 取反。'
+                         '本项目实测「人向左移 = az 变大」，而游戏画面按 x>0 向右，'
+                         '两者相反；现场用这个开关一次修正，不改识别层的标定。')
     ap.add_argument('--mode', default='pos', choices=['pos', 'event'],
                     help='pos=瞬时角度出位置电平(低延迟,默认)；event=识别器离散事件(~2s)')
     ap.add_argument('--scale-deg', type=float, default=20.0,
@@ -396,6 +400,10 @@ def main():
         else:
             jj, cc = jump, crouch
 
+        # 左右反向只作用于左右板；竖放板（ud）已经把 pos 清零，height 不受影响。
+        if args.flip_lr and args.role == 'lr':
+            pos = -pos
+
         conf = 0.9 if fresh else (0.75 if stale_ok else 0.2)
         if args.mode == 'pos' and zero is None:
             conf = min(conf, 0.5)      # 零点未锁定：低置信，让游戏忽略
@@ -451,6 +459,13 @@ def main():
     def on_frame(z0, z1, stats):
         pts, _noise = proc.process(z0, z1)
         out = rec.push(pts, t=time.time())
+        # 事件名同样要跟着翻转，否则 mode=event 或日志里仍是反的
+        if args.flip_lr:
+            for e in out.get('events') or []:
+                if e.get('name') == LANE_LEFT:
+                    e['name'] = LANE_RIGHT
+                elif e.get('name') == LANE_RIGHT:
+                    e['name'] = LANE_LEFT
         az_hint = track_az(pts)
         state['n'] += 1
 
