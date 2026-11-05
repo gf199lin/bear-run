@@ -115,6 +115,8 @@ node 04-结果传给游戏\_test_client.js
 
 一次完整标定复测（72.4 s / 139 完整帧 / 21 段剧本）的分段判决原文见
 `05-证据与日志/grade_game2_verdict.txt`，可视化母图见 `截图/grade_game2_waterfall.png`。
+参数取值、判据设计依据、失败项归因，以及给游戏侧的三个待定参数答复，整理在
+[`docs/calibration-record.md`](../docs/calibration-record.md)。
 
 | 结论 | 项目 |
 | --- | --- |

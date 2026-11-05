@@ -37,6 +37,7 @@
 | [radar-dataset-evaluation-2.md](radar-dataset-evaluation-2.md) | 两批雷达数据的可用性评估（跳/蹲 + 左右） |
 | [radar-calibration-plan.md](radar-calibration-plan.md) | 雷达数据评估、采集方案与开局校准设计 |
 | [radar-data-request-v3.md](radar-data-request-v3.md) | 数据采集需求与字段约定 |
+| [calibration-record.md](calibration-record.md) | 跳/蹲判定器的标定记录：参数取值、一次 72.4 s 复测的分段结论、失败项归因（@chawaicha） |
 
 ## 雷达服务与工具
 
