@@ -1,0 +1,41 @@
+{
+  "generated_at": "2026-10-29T18:10:27",
+  "seconds_requested": 10.0,
+  "ports": {
+    "1t2r": "COM3",
+    "2t4r": "COM4"
+  },
+  "errors": {
+    "1t2r": [],
+    "2t4r": []
+  },
+  "frame_rate_2t4r_hz": null,
+  "target_freq_hz": 1.92,
+  "criterion": {
+    "snr_db_pass": 15.0,
+    "freq_tol_rel": 0.15,
+    "segment_consistency": 0.75,
+    "note": "提案，待小组确认"
+  },
+  "analysis_1t2r": {
+    "ok": true,
+    "frames": 76,
+    "duration_s": 9.71,
+    "fs_hz": 7.723,
+    "f_peak_hz": 0.7113,
+    "snr_db": 9.76,
+    "peak_width_hz": 0.4065,
+    "f_target_hz": 1.92,
+    "f_err_pct": 63.0,
+    "seg_consistency": 0.0,
+    "seg_used": 0,
+    "seg_hits": 0,
+    "energy_med_db": 86.44,
+    "energy_p95_db": 95.12,
+    "energy_max_db": 107.68,
+    "hit": false
+  },
+  "verdict": "no_significant_periodic_interference",
+  "verdict_note": "未检测到与 2T4R 扫频周期一致的周期调制",
+  "caveat": "周期指纹法只能证明'有干扰'，不能证明'绝对没有'；干扰功率过低时同样测不到。"
+}
