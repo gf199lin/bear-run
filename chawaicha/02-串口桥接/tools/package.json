@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.11",
+    "pdfjs-dist": "^4.2.67",
+    "serialport": "^13.0.0",
+    "ws": "^8.22.0"
+  }
+}
