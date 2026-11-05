@@ -56,7 +56,7 @@ from dataclasses import dataclass
 import numpy as np
 
 SYNC = b"\x55\xAA"
-FRAME_LEN = 136
+FRAME_LEN = 136                            # 32 bin 时的帧长，保留作兼容默认
 FRAME_TAIL_LEN = 3
 PAYLOAD_OFF = 5
 POINTS_MINUS_ONE = 0x1F
@@ -72,6 +72,17 @@ RX_TAG_MASK = 0x03
 FRAME_TAG_SHIFT = 4
 FRAME_TAG_MASK = 0x0F
 COUNTER_FLAG = 0x8000                     # counter = COUNTER_FLAG | (chirp << 4)
+VALID_BINS = (8, 16, 32, 64)
+
+
+def frame_layout(bins: int):
+    """按 bin 数返回 (帧长, payload 长)。
+
+    2026-11-05 实测：FFT 输出列改成 16 后，每帧 **72 B**（16 bin × 4 B），
+    不是固定的 136 B。帧头 off4 = bins-1。
+    """
+    bins = int(bins)
+    return 8 + 4 * bins, 4 * bins
 
 
 def chirp_to_counter(chirp: int) -> int:
@@ -107,27 +118,32 @@ def parse_frame(buf, off=0, seq=0, rx=-1, verify=True):
 
     rx < 0 时从帧尾标签取（bits[3:2]）；verify=True 时校验帧尾校验和。
     """
-    if off < 0 or off + FRAME_LEN > len(buf):
+    if off < 0 or off + 5 > len(buf):
         return None
     if buf[off] != 0x55 or buf[off + 1] != 0xAA:
         return None
-    if buf[off + 4] != POINTS_MINUS_ONE:
+    bins_n = buf[off + 4] + 1
+    if bins_n not in VALID_BINS:
         return None
-    payload = bytes(buf[off + PAYLOAD_OFF:off + PAYLOAD_OFF + PAYLOAD_LEN])
+    flen, plen = frame_layout(bins_n)
+    if off + flen > len(buf):
+        return None
+    payload = bytes(buf[off + PAYLOAD_OFF:off + PAYLOAD_OFF + plen])
+    ck_off = off + PAYLOAD_OFF + plen
     cks_ok = True
     if verify:
-        want = (buf[off + TAIL_CHECKSUM_OFF] << 8) | buf[off + TAIL_CHECKSUM_OFF + 1]
+        want = (buf[ck_off] << 8) | buf[ck_off + 1]
         cks_ok = tail_checksum(payload) == want
         if not cks_ok:
             return None
-    tag = buf[off + TAIL_TAG_OFF]
+    tag = buf[ck_off + 2]
     if rx < 0:
         rx = (tag >> RX_TAG_SHIFT) & RX_TAG_MASK
     frame_seq = (tag >> FRAME_TAG_SHIFT) & FRAME_TAG_MASK
     counter = (buf[off + 2] << 8) | buf[off + 3]
     chirp = (counter >> 4) & CHIRP_MASK
     raw = np.frombuffer(payload, dtype='>i2')
-    iq = raw.astype(np.float32).reshape(BINS_PER_CHIRP, 2)
+    iq = raw.astype(np.float32).reshape(bins_n, 2)
     bins = (iq[:, 0] + 1j * iq[:, 1]).astype(np.complex64)
     return Dev113pFrame(seq=seq, counter=counter, chirp=chirp, rx=rx,
                         bins=bins, checksum_ok=cks_ok, frame_seq=frame_seq)
@@ -183,22 +199,27 @@ class StreamParser:
             if i > 0:
                 self._skip(i)
                 continue
-            if len(buf) < FRAME_LEN:
+            if len(buf) < 8:
                 break
-            if buf[4] != POINTS_MINUS_ONE:
+            bins_n = buf[4] + 1
+            if bins_n not in VALID_BINS:
                 self.bad_packets += 1
                 self._skip(1)
                 continue
+            flen, plen = frame_layout(bins_n)
+            if len(buf) < flen:
+                break
             fr = parse_frame(buf, 0, seq=self.frames, verify=self.verify)
             if fr is None:
                 self.bad_packets += 1
                 if self.verify:
-                    want = (buf[TAIL_CHECKSUM_OFF] << 8) | buf[TAIL_CHECKSUM_OFF + 1]
-                    if tail_checksum(bytes(buf[PAYLOAD_OFF:PAYLOAD_OFF + PAYLOAD_LEN])) != want:
+                    ck_off = PAYLOAD_OFF + plen
+                    want = (buf[ck_off] << 8) | buf[ck_off + 1]
+                    if tail_checksum(bytes(buf[PAYLOAD_OFF:PAYLOAD_OFF + plen])) != want:
                         self.bad_checksum += 1
                 self._skip(1)
                 continue
-            del buf[:FRAME_LEN]
+            del buf[:flen]
             self.frames += 1
             out.append(fr)
         return out
@@ -234,10 +255,13 @@ class FrameAssembler:
       overrun     —— 同一槽位重复到达 / 槽位越界的次数
     """
 
-    def __init__(self, chirps=CHIRPS_PER_FRAME, bins=BINS_PER_CHIRP, rx=RX_COUNT):
+    def __init__(self, chirps=CHIRPS_PER_FRAME, bins=BINS_PER_CHIRP, rx=RX_COUNT,
+                 stride=1):
         self.chirps = chirps
         self.bins = bins
         self.rx = rx
+        # stride=2：130 ms 配置只出偶数 chirp（18,20,…,62），映射到 0..31
+        self.stride = max(1, int(stride))
         self.data = np.zeros((rx, chirps, bins), dtype=np.complex64)
         self.filled = np.zeros((rx, chirps), dtype=bool)
         self.frames = 0
@@ -253,7 +277,8 @@ class FrameAssembler:
 
     def push(self, fr: Dev113pFrame):
         """返回 (z0, z1, z2, z3) 当一帧收齐，否则 None。"""
-        if fr.chirp >= self.chirps:
+        idx = fr.chirp // self.stride
+        if idx >= self.chirps:
             return None
         res = None
         if fr.frame_seq != self.cur_frame:
@@ -274,7 +299,7 @@ class FrameAssembler:
             self.cur_counter = fr.counter
             self.cur_n = 0
             if self.last_chirp >= 0 and \
-                    ((fr.chirp - self.last_chirp) & CHIRP_MASK) != 1:
+                    ((fr.chirp - self.last_chirp) & CHIRP_MASK) != self.stride:
                 self.gap_groups += 1
             self.last_chirp = fr.chirp
         if 0 <= fr.rx < self.rx:
@@ -283,11 +308,11 @@ class FrameAssembler:
             slot = self.cur_n
         self.cur_n += 1
         if slot < self.rx:
-            if self.filled[slot, fr.chirp]:
+            if self.filled[slot, idx]:
                 # 同槽位重复到达（丢帧后重传/乱序）→ 记一次 overrun 但保留数据
                 self.overrun += 1
-            self.data[slot, fr.chirp, :] = fr.bins
-            self.filled[slot, fr.chirp] = True
+            self.data[slot, idx, :] = fr.bins
+            self.filled[slot, idx] = True
         else:
             self.overrun += 1
         if res is not None:
