@@ -63,6 +63,25 @@
 
 ---
 
+## 六、采集与分析记录
+
+[captures/](captures/README.md) 按「一次实验 = 一份记录」归档了 8 份实测记录：
+
+| 记录 | 核心结论 |
+|---|---|
+| [lr3 系列](captures/lr3-series-20261022.md) | 固定带 RIGHT 0/8，根因是只覆盖一个距离 bin |
+| [俯仰标定](captures/vertical-20261029.md) | 8 轮里仅 1 轮 `ok`，跳/蹲俯仰响应同向 |
+| [通道对诊断](captures/rxpair-20261029.md) | z0-z1 偏左、z0-z3 偏右，单对分不出左右 |
+| [水平方位角](captures/horizontal-20261029.md) | 中心自身漂移 30°，方位角法不可用 |
+| [Fisher 可分性](captures/calibration-fisher-20261029.md) | 2T4R 通道 0-1 达 18.8，首轮数据作废 |
+| [双板干扰](captures/dual-interference-20261029.md) | 4 次均未见显著周期性干扰 |
+| [跳蹲离线评估](captures/jumpduck-offline-eval.md) | 58.8% 但置信下界 42.2%，判「不可分」 |
+| [左右移判据结果集](captures/lane-eval-summary.md) | 93.3% 是离线可分性，实时滑窗最好 48.2% |
+
+对应的原始评估 JSON 在 `outputs/radar-eval/`，与记录一一对应。
+
+---
+
 ## 与主仓库的关系
 
 - 本文档目录是**过程与结论档案**；可运行代码以 `radar-service/` 为准。
