@@ -1,0 +1,69 @@
+{
+  "created": "2026-11-12 20:02:38",
+  "port": "COM3",
+  "board": "1t2r",
+  "simulate": false,
+  "chirps": 64,
+  "bins": 8,
+  "rx": 2,
+  "frame_period": 0.1295,
+  "range_res": 0.6813,
+  "bin_width_m": 0.6813,
+  "ant_spacing_m": 0.00625,
+  "lambda_m": 0.01242663038341969,
+  "k_phi_rad_per_sin": 3.16014132216152,
+  "band": [
+    1,
+    3
+  ],
+  "rounds": 2,
+  "sec_base": 4.0,
+  "sec_act": 8.0,
+  "frames": 206,
+  "shape": [
+    2,
+    64,
+    8
+  ],
+  "selfcheck": {
+    "status": "none",
+    "axis": "horizontal",
+    "text": "几乎没有竖直响应（上举 +43.5°、下蹲 +42.1°，信噪比 4.3×）。当前 RX 连线在水平面：必须把板子绕光轴旋转 90° 再测",
+    "base": -5.51,
+    "up": 37.98,
+    "down": 36.55,
+    "resp": 43.49,
+    "snr": 4.27
+  },
+  "segments": [
+    {
+      "kind": "selfcheck",
+      "seg": "check_stand1",
+      "frame_start": 42,
+      "frame_end": 75,
+      "frames": 34
+    },
+    {
+      "kind": "selfcheck",
+      "seg": "check_armsup",
+      "frame_start": 88,
+      "frame_end": 121,
+      "frames": 34
+    },
+    {
+      "kind": "selfcheck",
+      "seg": "check_crouch",
+      "frame_start": 134,
+      "frame_end": 167,
+      "frames": 34
+    },
+    {
+      "kind": "selfcheck",
+      "seg": "check_stand2",
+      "frame_start": 180,
+      "frame_end": 205,
+      "frames": 26
+    }
+  ],
+  "note": "真值由段边界给出；frame_start/frame_end 是 frames.npz 的行号；idle = 播报/准备段，不属于动作真值；ang_deg = asin(dphi/k_phi)，只有板子绕光轴转 90° 时才是俯仰角"
+}
