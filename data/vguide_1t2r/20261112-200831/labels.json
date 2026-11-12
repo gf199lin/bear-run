@@ -1,0 +1,191 @@
+{
+  "created": "2026-11-12 20:10:40",
+  "port": "COM3",
+  "board": "1t2r",
+  "simulate": false,
+  "chirps": 64,
+  "bins": 8,
+  "rx": 2,
+  "frame_period": 0.1295,
+  "range_res": 0.6813,
+  "bin_width_m": 0.6813,
+  "ant_spacing_m": 0.00625,
+  "lambda_m": 0.01242663038341969,
+  "k_phi_rad_per_sin": 3.16014132216152,
+  "band": [
+    1,
+    3
+  ],
+  "rounds": 3,
+  "sec_base": 4.0,
+  "sec_act": 8.0,
+  "frames": 983,
+  "shape": [
+    2,
+    64,
+    8
+  ],
+  "selfcheck": {
+    "status": "skipped",
+    "axis": "unknown",
+    "text": "已跳过安装自检（--no-selfcheck）",
+    "base": null,
+    "up": null,
+    "down": null,
+    "resp": 0.0,
+    "snr": 0.0
+  },
+  "segments": [
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "base1",
+      "frame_start": 74,
+      "frame_end": 108,
+      "frames": 35,
+      "t_start": 10.25,
+      "t_end": 14.44
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "jump",
+      "frame_start": 124,
+      "frame_end": 188,
+      "frames": 65,
+      "t_start": 16.63,
+      "t_end": 24.81
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "base2",
+      "frame_start": 204,
+      "frame_end": 238,
+      "frames": 35,
+      "t_start": 27.0,
+      "t_end": 31.18
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "duck",
+      "frame_start": 253,
+      "frame_end": 318,
+      "frames": 66,
+      "t_start": 33.37,
+      "t_end": 41.57
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "base3",
+      "frame_start": 333,
+      "frame_end": 367,
+      "frames": 35,
+      "t_start": 43.73,
+      "t_end": 47.92
+    },
+    {
+      "kind": "segment",
+      "round": 2,
+      "seg": "base1",
+      "frame_start": 382,
+      "frame_end": 416,
+      "frames": 35,
+      "t_start": 50.09,
+      "t_end": 54.28
+    },
+    {
+      "kind": "segment",
+      "round": 2,
+      "seg": "jump",
+      "frame_start": 431,
+      "frame_end": 496,
+      "frames": 66,
+      "t_start": 56.44,
+      "t_end": 64.63
+    },
+    {
+      "kind": "segment",
+      "round": 2,
+      "seg": "base2",
+      "frame_start": 511,
+      "frame_end": 545,
+      "frames": 35,
+      "t_start": 66.8,
+      "t_end": 70.99
+    },
+    {
+      "kind": "segment",
+      "round": 2,
+      "seg": "duck",
+      "frame_start": 560,
+      "frame_end": 625,
+      "frames": 66,
+      "t_start": 73.17,
+      "t_end": 81.36
+    },
+    {
+      "kind": "segment",
+      "round": 2,
+      "seg": "base3",
+      "frame_start": 640,
+      "frame_end": 674,
+      "frames": 35,
+      "t_start": 83.52,
+      "t_end": 87.71
+    },
+    {
+      "kind": "segment",
+      "round": 3,
+      "seg": "base1",
+      "frame_start": 689,
+      "frame_end": 723,
+      "frames": 35,
+      "t_start": 89.89,
+      "t_end": 94.08
+    },
+    {
+      "kind": "segment",
+      "round": 3,
+      "seg": "jump",
+      "frame_start": 738,
+      "frame_end": 803,
+      "frames": 66,
+      "t_start": 96.24,
+      "t_end": 104.43
+    },
+    {
+      "kind": "segment",
+      "round": 3,
+      "seg": "base2",
+      "frame_start": 819,
+      "frame_end": 853,
+      "frames": 35,
+      "t_start": 106.63,
+      "t_end": 110.83
+    },
+    {
+      "kind": "segment",
+      "round": 3,
+      "seg": "duck",
+      "frame_start": 868,
+      "frame_end": 933,
+      "frames": 66,
+      "t_start": 112.99,
+      "t_end": 121.17
+    },
+    {
+      "kind": "segment",
+      "round": 3,
+      "seg": "base3",
+      "frame_start": 948,
+      "frame_end": 982,
+      "frames": 35,
+      "t_start": 123.33,
+      "t_end": 127.52
+    }
+  ],
+  "note": "真值由段边界给出；frame_start/frame_end 是 frames.npz 的行号；idle = 播报/准备段，不属于动作真值；ang_deg = asin(dphi/k_phi)，只有板子绕光轴转 90° 时才是俯仰角"
+}

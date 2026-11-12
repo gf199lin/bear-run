@@ -1,0 +1,291 @@
+{
+  "created": "2026-11-12 20:59:02",
+  "port": "COM3",
+  "board": "1t2r",
+  "simulate": false,
+  "chirps": 64,
+  "bins": 8,
+  "rx": 2,
+  "frame_period": 0.1295,
+  "range_res": 0.6813,
+  "bin_width_m": 0.6813,
+  "ant_spacing_m": 0.00625,
+  "lambda_m": 0.01242663038341969,
+  "k_phi_rad_per_sin": 3.16014132216152,
+  "band": [
+    1,
+    3
+  ],
+  "rounds": 1,
+  "sec_base": 4.0,
+  "sec_act": 8.0,
+  "frames": 888,
+  "shape": [
+    2,
+    64,
+    8
+  ],
+  "selfcheck": {
+    "status": "skipped",
+    "axis": "unknown",
+    "text": "已跳过安装自检（--no-selfcheck）",
+    "base": null,
+    "up": null,
+    "down": null,
+    "resp": 0.0,
+    "snr": 0.0
+  },
+  "segments": [
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "idle",
+      "frame_start": 59,
+      "frame_end": 78,
+      "frames": 20,
+      "t_start": 8.27,
+      "t_end": 10.46
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "jump",
+      "frame_start": 93,
+      "frame_end": 111,
+      "frames": 19,
+      "t_start": 12.65,
+      "t_end": 14.84
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "idle",
+      "frame_start": 126,
+      "frame_end": 145,
+      "frames": 20,
+      "t_start": 17.0,
+      "t_end": 19.19
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "duck",
+      "frame_start": 160,
+      "frame_end": 179,
+      "frames": 20,
+      "t_start": 21.39,
+      "t_end": 23.58
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "idle",
+      "frame_start": 194,
+      "frame_end": 213,
+      "frames": 20,
+      "t_start": 25.76,
+      "t_end": 27.94
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "idle",
+      "frame_start": 228,
+      "frame_end": 246,
+      "frames": 19,
+      "t_start": 30.1,
+      "t_end": 32.29
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "jump",
+      "frame_start": 261,
+      "frame_end": 280,
+      "frames": 20,
+      "t_start": 34.46,
+      "t_end": 36.65
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "idle",
+      "frame_start": 295,
+      "frame_end": 313,
+      "frames": 19,
+      "t_start": 38.82,
+      "t_end": 41.0
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "duck",
+      "frame_start": 328,
+      "frame_end": 347,
+      "frames": 20,
+      "t_start": 43.17,
+      "t_end": 45.36
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "idle",
+      "frame_start": 362,
+      "frame_end": 381,
+      "frames": 20,
+      "t_start": 47.52,
+      "t_end": 49.71
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "idle",
+      "frame_start": 396,
+      "frame_end": 414,
+      "frames": 19,
+      "t_start": 51.87,
+      "t_end": 54.07
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "jump",
+      "frame_start": 430,
+      "frame_end": 449,
+      "frames": 20,
+      "t_start": 56.34,
+      "t_end": 58.53
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "idle",
+      "frame_start": 464,
+      "frame_end": 482,
+      "frames": 19,
+      "t_start": 60.69,
+      "t_end": 62.88
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "duck",
+      "frame_start": 497,
+      "frame_end": 516,
+      "frames": 20,
+      "t_start": 65.05,
+      "t_end": 67.24
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "idle",
+      "frame_start": 531,
+      "frame_end": 550,
+      "frames": 20,
+      "t_start": 69.4,
+      "t_end": 71.59
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "idle",
+      "frame_start": 565,
+      "frame_end": 584,
+      "frames": 20,
+      "t_start": 73.82,
+      "t_end": 76.01
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "jump",
+      "frame_start": 599,
+      "frame_end": 617,
+      "frames": 19,
+      "t_start": 78.18,
+      "t_end": 80.36
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "idle",
+      "frame_start": 632,
+      "frame_end": 651,
+      "frames": 20,
+      "t_start": 82.52,
+      "t_end": 84.71
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "duck",
+      "frame_start": 666,
+      "frame_end": 685,
+      "frames": 20,
+      "t_start": 86.89,
+      "t_end": 89.07
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "idle",
+      "frame_start": 700,
+      "frame_end": 718,
+      "frames": 19,
+      "t_start": 91.24,
+      "t_end": 93.43
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "idle",
+      "frame_start": 733,
+      "frame_end": 752,
+      "frames": 20,
+      "t_start": 95.6,
+      "t_end": 97.78
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "jump",
+      "frame_start": 767,
+      "frame_end": 786,
+      "frames": 20,
+      "t_start": 99.95,
+      "t_end": 102.15
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "idle",
+      "frame_start": 801,
+      "frame_end": 819,
+      "frames": 19,
+      "t_start": 104.3,
+      "t_end": 106.49
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "duck",
+      "frame_start": 835,
+      "frame_end": 854,
+      "frames": 20,
+      "t_start": 108.8,
+      "t_end": 110.98
+    },
+    {
+      "kind": "segment",
+      "round": 1,
+      "seg": "idle",
+      "frame_start": 869,
+      "frame_end": 887,
+      "frames": 19,
+      "t_start": 113.15,
+      "t_end": 115.34
+    }
+  ],
+  "note": "真值由段边界给出；frame_start/frame_end 是 frames.npz 的行号；idle = 播报/准备段，不属于动作真值；ang_deg = asin(dphi/k_phi)，只有板子绕光轴转 90° 时才是俯仰角"
+}
