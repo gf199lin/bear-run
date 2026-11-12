@@ -1,7 +1,7 @@
 # 雷达侧工作档案（索引）
 
 > 归属：雷达数据采集与帧解析（@jqz070803）
-> 时间跨度：2026-10-15 → 2026-11-05
+> 时间跨度：2026-10-15 → 2026-11-12
 > 说明：本目录归档雷达侧的过程记录与结论。代码在 `radar-service/`，
 > 通用工具在 `tools/`，两者不在此目录重复收录。
 
@@ -40,6 +40,8 @@
 | [jump-duck-sampling-limit.md](jump-duck-sampling-limit.md) | 2T4R 采样上限 | 7.7 Hz 下跳这个动作的采样边界；chirps 必须与 ini 一致 |
 | [jump-duck-recognizer.md](jump-duck-recognizer.md) | 采集→训练→实时→游戏的识别程序 | 离线可训练不等于实时可用 |
 | [jump-duck-data-audit.md](jump-duck-data-audit.md) | 17 轮 2T4R 数据为什么训不出识别 | 只存汇总值、丢原始帧，导致无法换特征重算 |
+| [vguide-1t2r.md](vguide-1t2r.md) | 1T2R 竖直采集的摆法与用法 | 雷达离地约 0.5 m、人站约 1.2 m；130 ms 帧下靠多普勒谱宽判跳蹲 |
+| [vguide-1t2r-analysis-1112.md](vguide-1t2r-analysis-1112.md) | 1T2R 竖直判跳/蹲的数据评审（2026-11-12） | 四批事件级 46/49=93.9%，两簇完全分开；走动误报未解决 |
 
 ## 四、采集、标定与实验
 
@@ -53,6 +55,8 @@
 | [dual-board-parallel.md](dual-board-parallel.md) | 双板并行采集 | 并行采集的端口与节奏约定 |
 | [横穿扫描实验-20261022-交接.md](横穿扫描实验-20261022-交接.md) | 横穿扫描实验交接 | 实验条件、原始结果位置与待分析项 |
 | [radar-hardware-stop-plan.md](radar-hardware-stop-plan.md) | 雷达硬件停机方案 | 连通性已实机验证；**停机本身未验证** |
+| [vguide-1t2r-config-notes.md](vguide-1t2r-config-notes.md) | 1T2R 采集参数与分辨率推算 | CPI≈130 ms → V_RES≈0.048 m/s、V_MAX≈1.53 m/s |
+| [vguide-1t2r-data-audit.md](vguide-1t2r-data-audit.md) | 五批竖直采集的数据质量审计 | 0 空帧、峰值 bin 恒为 2、双 RX 相干 0.79~0.86 |
 
 ## 五、对接与验收
 
