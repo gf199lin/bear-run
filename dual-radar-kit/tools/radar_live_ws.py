@@ -34,6 +34,7 @@ import struct
 import sys
 import threading
 import time
+import numpy as np
 
 # ---- 复用项目已有的雷达链路模块（radar-pointcloud）--------------------------
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -49,6 +50,12 @@ from radar_source import SerialSource, build_pipeline, BOARD_PROFILES  # noqa: E
 from radar_dsp import PointCloudProcessor                              # noqa: E402
 from radar_actions import (ActionRecognizer, LANE_LEFT, LANE_RIGHT,    # noqa: E402
                            JUMP, DUCK, TARGET_LOST, TARGET_BACK)
+
+# 跳蹲逐帧状态机（本仓库 tools/jumpduck_sm.py）：按径向速度段长度判跳/蹲，
+# 实测 96 个样本 85.4%（轻跳+深蹲 24/24），延迟 388-517 ms，静息零误报。
+_TOOLS_DIR = os.path.join(PROJECT, 'tools')
+if os.path.isdir(_TOOLS_DIR) and _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
 
 GUID = b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
@@ -275,6 +282,10 @@ def main():
                     help='允许零点在站稳后继续跟随（默认锁定后固定）')
     ap.add_argument('--vertical', action='store_true',
                     help='这块板竖放（测角轴=垂直）：height 用同一角度给出 0..1')
+    ap.add_argument('--jump-engine', default='legacy', choices=['legacy', 'sm'],
+                    help='ud 的跳蹲判据：legacy=ActionRecognizer，sm=径向速度状态机')
+    ap.add_argument('--jump-band', default='1,3',
+                    help='sm 判据使用的距离 bin 带 lo,hi')
     ap.add_argument('--quiet', action='store_true', help='不打印逐帧日志')
     ap.add_argument('--log', default=None,
                     help='把全部输出追加写进该文件（用 pythonw 后台跑时必填）')
@@ -317,6 +328,14 @@ def main():
                                     os.path.basename(calib) if calib else '无'))
 
     state = {'lane': 'CENTER', 'jump': 0.0, 'crouch': 0.0, 'n': 0}
+
+    sm = None
+    if args.jump_engine == 'sm':
+        from jumpduck_sm import JumpDuckSM
+        from vguide_1t2r import frame_feats as _jdfeat
+        sm = JumpDuckSM()
+        _sm_band = tuple(int(x) for x in args.jump_band.split(','))
+        log('跳蹲判据：径向速度状态机 band=%s' % (_sm_band,))
     zcal = ZeroCal(args.zero_secs, adapt=args.zero_adapt)
 
     def emit(rec_out, ts_ms, board, py_val, n_pts, extra, az_hint=None):
@@ -455,6 +474,21 @@ def main():
         state['jump'] = 0.0
         state['crouch'] = 0.0
         fired = []
+
+        if sm is not None and args.role in ('ud', 'both'):
+            try:
+                _zz = np.stack([z0, z1]).astype('complex64')
+                _ev, _d, _ms = sm.push(_jdfeat(_zz, _sm_band))
+            except Exception as _e:
+                _ev = None
+                if state['n'] % 50 == 1:
+                    log('sm 异常: %r' % (_e,))
+            if _ev == 'jump':
+                state['jump'] = 1.0
+                fired.append('JUMP[sm]')
+            elif _ev == 'duck':
+                state['crouch'] = 1.0
+                fired.append('DUCK[sm]')
         for e in out.get('events') or []:
             name = e.get('name')
             if name in (JUMP, DUCK):
