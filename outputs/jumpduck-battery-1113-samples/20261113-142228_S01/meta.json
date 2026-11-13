@@ -1,0 +1,16 @@
+{
+  "subject": "S01",
+  "height": "",
+  "note": "p6-retry2-lightjump12-deepsquat12",
+  "port": "COM3",
+  "tiers": [
+    "p6"
+  ],
+  "band": [
+    1,
+    3
+  ],
+  "fps": 7.73,
+  "start": "20261113-142228",
+  "plan": 25
+}

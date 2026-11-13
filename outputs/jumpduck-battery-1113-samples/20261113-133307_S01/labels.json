@@ -1,0 +1,429 @@
+{
+  "meta": {
+    "subject": "S01",
+    "height": "",
+    "note": "",
+    "port": "COM3",
+    "tiers": [
+      "p0",
+      "p1",
+      "p2"
+    ],
+    "band": [
+      1,
+      4
+    ],
+    "fps": 7.73,
+    "start": "20261113-133307",
+    "plan": 37
+  },
+  "blocks": [
+    {
+      "i": 1,
+      "id": "rest0",
+      "truth": "rest",
+      "kind": "cal",
+      "frames": 93,
+      "nz_med": 0.003,
+      "nz_p90": 0.037,
+      "act_nz_p90": 0.0,
+      "qc": "ok"
+    },
+    {
+      "i": 2,
+      "id": "jump_m",
+      "truth": "jump",
+      "kind": "act",
+      "frames": 51,
+      "nz_med": 0.004,
+      "nz_p90": 0.675,
+      "act_nz_p90": 0.872,
+      "qc": "ok"
+    },
+    {
+      "i": 3,
+      "id": "jump_m",
+      "truth": "jump",
+      "kind": "act",
+      "frames": 50,
+      "nz_med": 0.002,
+      "nz_p90": 0.779,
+      "act_nz_p90": 0.848,
+      "qc": "ok"
+    },
+    {
+      "i": 4,
+      "id": "jump_m",
+      "truth": "jump",
+      "kind": "act",
+      "frames": 51,
+      "nz_med": 0.01,
+      "nz_p90": 0.615,
+      "act_nz_p90": 0.81,
+      "qc": "ok"
+    },
+    {
+      "i": 5,
+      "id": "jump_m",
+      "truth": "jump",
+      "kind": "act",
+      "frames": 51,
+      "nz_med": 0.002,
+      "nz_p90": 0.638,
+      "act_nz_p90": 0.786,
+      "qc": "ok"
+    },
+    {
+      "i": 6,
+      "id": "duck_m",
+      "truth": "duck",
+      "kind": "act",
+      "frames": 51,
+      "nz_med": 0.004,
+      "nz_p90": 0.801,
+      "act_nz_p90": 0.877,
+      "qc": "ok"
+    },
+    {
+      "i": 7,
+      "id": "duck_m",
+      "truth": "duck",
+      "kind": "act",
+      "frames": 51,
+      "nz_med": 0.064,
+      "nz_p90": 0.799,
+      "act_nz_p90": 0.838,
+      "qc": "ok"
+    },
+    {
+      "i": 8,
+      "id": "duck_m",
+      "truth": "duck",
+      "kind": "act",
+      "frames": 51,
+      "nz_med": 0.003,
+      "nz_p90": 0.705,
+      "act_nz_p90": 0.895,
+      "qc": "ok"
+    },
+    {
+      "i": 9,
+      "id": "duck_m",
+      "truth": "duck",
+      "kind": "act",
+      "frames": 51,
+      "nz_med": 0.008,
+      "nz_p90": 0.813,
+      "act_nz_p90": 0.865,
+      "qc": "ok"
+    },
+    {
+      "i": 10,
+      "id": "walk",
+      "truth": "walk",
+      "kind": "neg",
+      "frames": 77,
+      "nz_med": 0.504,
+      "nz_p90": 0.881,
+      "act_nz_p90": 0.882,
+      "qc": "warn"
+    },
+    {
+      "i": 11,
+      "id": "walk",
+      "truth": "walk",
+      "kind": "neg",
+      "frames": 77,
+      "nz_med": 0.361,
+      "nz_p90": 0.859,
+      "act_nz_p90": 0.861,
+      "qc": "warn"
+    },
+    {
+      "i": 12,
+      "id": "left",
+      "truth": "left",
+      "kind": "lane",
+      "frames": 51,
+      "nz_med": 0.017,
+      "nz_p90": 0.526,
+      "act_nz_p90": 0.541,
+      "qc": "ok"
+    },
+    {
+      "i": 13,
+      "id": "left",
+      "truth": "left",
+      "kind": "lane",
+      "frames": 51,
+      "nz_med": 0.014,
+      "nz_p90": 0.737,
+      "act_nz_p90": 0.517,
+      "qc": "ok"
+    },
+    {
+      "i": 14,
+      "id": "left",
+      "truth": "left",
+      "kind": "lane",
+      "frames": 50,
+      "nz_med": 0.053,
+      "nz_p90": 0.715,
+      "act_nz_p90": 0.696,
+      "qc": "ok"
+    },
+    {
+      "i": 15,
+      "id": "right",
+      "truth": "right",
+      "kind": "lane",
+      "frames": 51,
+      "nz_med": 0.019,
+      "nz_p90": 0.509,
+      "act_nz_p90": 0.554,
+      "qc": "ok"
+    },
+    {
+      "i": 16,
+      "id": "right",
+      "truth": "right",
+      "kind": "lane",
+      "frames": 51,
+      "nz_med": 0.017,
+      "nz_p90": 0.83,
+      "act_nz_p90": 0.844,
+      "qc": "ok"
+    },
+    {
+      "i": 17,
+      "id": "right",
+      "truth": "right",
+      "kind": "lane",
+      "frames": 51,
+      "nz_med": 0.013,
+      "nz_p90": 0.786,
+      "act_nz_p90": 0.711,
+      "qc": "ok"
+    },
+    {
+      "i": 18,
+      "id": "jump_s",
+      "truth": "jump",
+      "kind": "act",
+      "frames": 51,
+      "nz_med": 0.002,
+      "nz_p90": 0.427,
+      "act_nz_p90": 0.628,
+      "qc": "ok"
+    },
+    {
+      "i": 19,
+      "id": "jump_s",
+      "truth": "jump",
+      "kind": "act",
+      "frames": 51,
+      "nz_med": 0.003,
+      "nz_p90": 0.488,
+      "act_nz_p90": 0.748,
+      "qc": "ok"
+    },
+    {
+      "i": 20,
+      "id": "jump_l",
+      "truth": "jump",
+      "kind": "act",
+      "frames": 51,
+      "nz_med": 0.023,
+      "nz_p90": 0.902,
+      "act_nz_p90": 0.928,
+      "qc": "ok"
+    },
+    {
+      "i": 21,
+      "id": "jump_l",
+      "truth": "jump",
+      "kind": "act",
+      "frames": 51,
+      "nz_med": 0.045,
+      "nz_p90": 0.832,
+      "act_nz_p90": 0.939,
+      "qc": "ok"
+    },
+    {
+      "i": 22,
+      "id": "duck_s",
+      "truth": "duck",
+      "kind": "act",
+      "frames": 51,
+      "nz_med": 0.006,
+      "nz_p90": 0.406,
+      "act_nz_p90": 0.564,
+      "qc": "ok"
+    },
+    {
+      "i": 23,
+      "id": "duck_s",
+      "truth": "duck",
+      "kind": "act",
+      "frames": 51,
+      "nz_med": 0.003,
+      "nz_p90": 0.502,
+      "act_nz_p90": 0.704,
+      "qc": "ok"
+    },
+    {
+      "i": 24,
+      "id": "duck_l",
+      "truth": "duck",
+      "kind": "act",
+      "frames": 51,
+      "nz_med": 0.008,
+      "nz_p90": 0.801,
+      "act_nz_p90": 0.846,
+      "qc": "ok"
+    },
+    {
+      "i": 25,
+      "id": "duck_l",
+      "truth": "duck",
+      "kind": "act",
+      "frames": 51,
+      "nz_med": 0.018,
+      "nz_p90": 0.838,
+      "act_nz_p90": 0.898,
+      "qc": "ok"
+    },
+    {
+      "i": 26,
+      "id": "bend",
+      "truth": "bend",
+      "kind": "neg",
+      "frames": 51,
+      "nz_med": 0.029,
+      "nz_p90": 0.808,
+      "act_nz_p90": 0.838,
+      "qc": "warn"
+    },
+    {
+      "i": 27,
+      "id": "bend",
+      "truth": "bend",
+      "kind": "neg",
+      "frames": 51,
+      "nz_med": 0.011,
+      "nz_p90": 0.675,
+      "act_nz_p90": 0.809,
+      "qc": "warn"
+    },
+    {
+      "i": 28,
+      "id": "bend",
+      "truth": "bend",
+      "kind": "neg",
+      "frames": 51,
+      "nz_med": 0.005,
+      "nz_p90": 0.606,
+      "act_nz_p90": 0.686,
+      "qc": "warn"
+    },
+    {
+      "i": 29,
+      "id": "turn",
+      "truth": "turn",
+      "kind": "neg",
+      "frames": 51,
+      "nz_med": 0.06,
+      "nz_p90": 0.719,
+      "act_nz_p90": 0.833,
+      "qc": "warn"
+    },
+    {
+      "i": 30,
+      "id": "turn",
+      "truth": "turn",
+      "kind": "neg",
+      "frames": 51,
+      "nz_med": 0.142,
+      "nz_p90": 0.585,
+      "act_nz_p90": 0.85,
+      "qc": "warn"
+    },
+    {
+      "i": 31,
+      "id": "turn",
+      "truth": "turn",
+      "kind": "neg",
+      "frames": 51,
+      "nz_med": 0.071,
+      "nz_p90": 0.768,
+      "act_nz_p90": 0.888,
+      "qc": "warn"
+    },
+    {
+      "i": 32,
+      "id": "combo_j",
+      "truth": "jump",
+      "kind": "combo",
+      "frames": 70,
+      "nz_med": 0.009,
+      "nz_p90": 0.807,
+      "act_nz_p90": 0.839,
+      "qc": "ok"
+    },
+    {
+      "i": 33,
+      "id": "combo_j",
+      "truth": "jump",
+      "kind": "combo",
+      "frames": 70,
+      "nz_med": 0.03,
+      "nz_p90": 0.872,
+      "act_nz_p90": 0.929,
+      "qc": "ok"
+    },
+    {
+      "i": 34,
+      "id": "combo_d",
+      "truth": "duck",
+      "kind": "combo",
+      "frames": 70,
+      "nz_med": 0.32,
+      "nz_p90": 0.892,
+      "act_nz_p90": 0.913,
+      "qc": "ok"
+    },
+    {
+      "i": 35,
+      "id": "combo_d",
+      "truth": "duck",
+      "kind": "combo",
+      "frames": 70,
+      "nz_med": 0.313,
+      "nz_p90": 0.887,
+      "act_nz_p90": 0.913,
+      "qc": "ok"
+    },
+    {
+      "i": 36,
+      "id": "alt",
+      "truth": "alt",
+      "kind": "combo",
+      "frames": 85,
+      "nz_med": 0.01,
+      "nz_p90": 0.825,
+      "act_nz_p90": 0.851,
+      "qc": "ok"
+    },
+    {
+      "i": 37,
+      "id": "alt",
+      "truth": "alt",
+      "kind": "combo",
+      "frames": 85,
+      "nz_med": 0.003,
+      "nz_p90": 0.887,
+      "act_nz_p90": 0.935,
+      "qc": "ok"
+    }
+  ]
+}
