@@ -57,7 +57,12 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-sys.path.insert(0, os.path.join(ROOT, 'radar-pointcloud'))
+# 兼容两种仓库布局：本地根目录 radar-pointcloud/，以及远端整合仓库的 radar-service/
+for _p in ('radar-pointcloud', 'radar-service'):
+    _cand = os.path.join(ROOT, _p)
+    if os.path.exists(os.path.join(_cand, 'radar_protocol.py')):
+        sys.path.insert(0, _cand)
+        break
 
 from radar_protocol import StreamParser, FrameAssembler  # noqa: E402
 
