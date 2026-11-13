@@ -336,11 +336,12 @@ class Runner(object):
             self.out_dir = os.path.join(a.out, stamp)
             os.makedirs(self.out_dir, exist_ok=True)
 
-            _set(phase='prep', text='请站到雷达正前方 1.5–2 m，站好别动',
-                 remain=6.0, dur=6.0, round=0, rounds=a.rounds,
+            prep = max(3.0, float(getattr(a, 'prep', 6.0)))
+            _set(phase='prep', text='请站到雷达正前方 1.2 m，站好别动',
+                 remain=prep, dur=prep, round=0, rounds=a.rounds,
                  seg_total=a.rounds * len(SEGMENTS), seg_no=0)
-            say('跳蹲采集即将开始。请站到雷达正前方一点五到两米处，站好不要动。')
-            self._pump(6.0, 'idle')
+            say('跳蹲采集即将开始。请站到雷达正前方一点二米处，站好不要动。')
+            self._pump(prep, 'idle')
 
             seg_total = a.rounds * len(SEGMENTS)
             no = 0
@@ -489,6 +490,8 @@ def main():
     ap.add_argument('--no-boot', action='store_true', help='不下发配置，用设备当前状态')
     ap.add_argument('--no-open', action='store_true', help='不自动打开浏览器')
     ap.add_argument('--no-speak', action='store_true')
+    ap.add_argument('--prep', type=float, default=6.0,
+                    help='开始前«站好别动»的预备秒数，默认 6')
     args = ap.parse_args()
 
     if args.no_speak:
@@ -522,7 +525,13 @@ def main():
 
     url = 'http://127.0.0.1:%d/' % args.web_port
     if not args.no_open:
-        threading.Timer(1.2, lambda: webbrowser.open(url)).start()
+        def _open():
+            time.sleep(1.2)
+            try:
+                os.startfile(url)
+            except Exception:
+                webbrowser.open(url)
+        threading.Thread(target=_open, daemon=True).start()
 
     httpd = ThreadingHTTPServer(('127.0.0.1', args.web_port), Handler)
 
