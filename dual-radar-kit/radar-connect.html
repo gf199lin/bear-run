@@ -76,6 +76,21 @@
   table{width:100%;border-collapse:collapse;font-size:13.5px}
   th,td{text-align:left;padding:6px 8px;border-bottom:1px solid rgba(246,239,220,.1);vertical-align:top}
   th{color:var(--ink-dim);font-weight:500;white-space:nowrap}
+  select{
+    padding:8px 10px;border-radius:9px;border:1px solid rgba(247,197,49,.35);
+    background:#0d1a0a;color:var(--ink);font:600 13px/1.2 inherit;
+  }
+  select:focus{outline:none;border-color:var(--gold)}
+  .tblwrap{overflow-x:auto}
+  .order{font:700 16px/1 ui-monospace,Consolas,monospace;color:var(--gold)}
+  .order small{display:block;font:400 11px/1.4 inherit;color:var(--ink-dim);margin-top:3px}
+  .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11.5px;
+    border:1px solid rgba(246,239,220,.25);color:var(--ink-dim);white-space:nowrap}
+  .tag.lr{color:#7ec8ff;border-color:rgba(126,200,255,.45)}
+  .tag.ud{color:#ffa63d;border-color:rgba(255,166,61,.45)}
+  .tag.on{color:var(--moss);border-color:rgba(142,209,79,.5)}
+  .tag.warn{color:var(--gold);border-color:rgba(247,197,49,.5)}
+  tr.stale td{opacity:.45}
   code{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:var(--gold)}
   pre{background:rgba(0,0,0,.35);border-radius:10px;padding:10px 12px;overflow:auto;font-size:12.5px;margin:8px 0 0}
   details{margin-top:8px}
@@ -102,6 +117,48 @@
     填雷达地址 → 测连通 → 看实时数值 → 一键带校准进游戏。
     帧格式与游戏完全一致（<code>ws://…</code> + 每帧一个 JSON），
     详细约定见 <a href="./README.md" target="_blank">README 第六节</a>。
+  </div>
+
+  <!-- ============ 0. 雷达分配 ============ -->
+  <div class="card" id="assign-card">
+    <h2>0. 雷达分配 <em>（两块都是 1T2R，型号分不开 → 按插入先后）</em></h2>
+    <div class="hint" id="assign-note">正在读取本机串口…</div>
+
+    <div id="assign-body" style="display:none">
+      <div class="tblwrap">
+        <table>
+          <thead>
+            <tr><th>插入序</th><th>串口 / 设备</th><th>USB 口</th><th>这块负责</th><th>桥接</th></tr>
+          </thead>
+          <tbody id="assign-rows"></tbody>
+        </table>
+      </div>
+      <div class="hint" style="margin-top:8px">
+        默认：<b>插入序 1 = 水平（左右换道）</b>，<b>插入序 2 = 竖直（跳 / 蹲）</b>。
+        两块都已经插着时拿不到真实插入时刻，按 COM 号推定 —— 不对就直接改下拉框。
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="primary small" type="button" id="btn-assign-start">按此分配启动并连接</button>
+        <button class="primary small" type="button" id="btn-assign-play">启动并回游戏主页面</button>
+        <button class="small ghost" type="button" id="btn-assign-swap">交换水平 / 竖直</button>
+        <button class="small ghost" type="button" id="btn-assign-stop">停止桥接</button>
+        <button class="small ghost" type="button" id="btn-assign-reset">重排插入顺序</button>
+        <button class="small ghost" type="button" id="btn-assign-refresh">刷新</button>
+      </div>
+      <div class="hint" id="assign-rule" style="margin-top:6px"></div>
+      <div class="verdict" id="assign-verdict"></div>
+      <details id="assign-log-box" style="display:none">
+        <summary>桥接日志（最近 20 行，起不来时先看这里）</summary>
+        <pre id="assign-log"></pre>
+      </details>
+    </div>
+
+    <div class="hint" id="assign-off" style="display:none">
+      分配服务没启动。双击 <code>dual-radar-kit\tools\start_radar_manager.cmd</code>，
+      或运行 <code>python tools\dual_radar_manager.py</code>，
+      再用它打印的地址打开本页（<code>http://127.0.0.1:8778/radar-connect.html</code>）。
+      起不来的话，下面 1 号卡片仍可以手动填地址连接。
+    </div>
   </div>
 
   <!-- ============ 1. 连接 ============ -->
@@ -144,7 +201,7 @@
 
     <div class="hint" id="url-memory"></div>
     <div class="row" style="margin-top:10px">
-      <button id="btn-play" class="primary" type="button" disabled>进入游戏（带校准）</button>
+      <button id="btn-play" class="primary" type="button" disabled>回游戏主页面（准备开始）</button>
       <span class="hint" style="margin:0" id="play-note"></span>
     </div>
   </div>
@@ -196,6 +253,10 @@
         </div>
         <div class="kv" id="dir-out" style="margin-top:8px">左：—   右：—</div>
         <div class="verdict" id="dir-verdict"></div>
+        <div class="row" style="margin-top:10px">
+          <button class="small ghost" type="button" id="btn-flip">左右镜像：关（点一下翻转）</button>
+        </div>
+        <div class="kv" id="flip-out" style="margin-top:6px">进游戏发现左右反了 → 点上面的按钮。翻转会重启水平桥接（约 1 秒），游戏页会自动重连。</div>
       </div>
       <div>
         <h3>② 静站有没有误报</h3>
@@ -865,6 +926,365 @@ raw         原始数据（可选），调试面板会展示</pre>
     }
   }
 
+  // ---------------- 雷达分配（两块 1T2R，按插入先后） ----------------
+  // 为什么要有这一块：两块板 VID:PID / 描述完全一样，「型号」分不出谁是谁。
+  // 本机工具（tools/dual_radar_manager.py）记录串口的**出现顺序**并据此分配角色：
+  // 插入序 1 → 水平（左右），插入序 2 → 竖直（跳蹲）；下拉框可随时手动改。
+  // 页面可能由分配服务托管（同源），也可能由别的静态服务器 / file:// 打开，
+  // 所以 API 先试同源，再退到默认端口 8778。
+  var API_BASES = ['', 'http://127.0.0.1:8778'];
+  var assignState = null;
+
+  function apiTry(i, path, opts) {
+    if (i >= API_BASES.length) return Promise.reject(new Error('分配服务未启动'));
+    return fetch(API_BASES[i] + path, opts).then(function (r) {
+      return r.text().then(function (txt) {
+        var j = null;
+        try { j = JSON.parse(txt); } catch (e) { /* 静态服务器返回的是 HTML */ }
+        if (j && typeof j === 'object') return j;
+        throw new Error('HTTP ' + r.status);
+      });
+    }).catch(function () {
+      return apiTry(i + 1, path, opts);
+    });
+  }
+  function api(path, opts) { return apiTry(0, path, opts); }
+  function apiPost(path, body) {
+    return api(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {})
+    });
+  }
+
+  function assignVerdict(msg, cls) {
+    var el = $('assign-verdict');
+    el.className = 'verdict' + (cls ? ' show ' + cls : '');
+    el.textContent = msg || '';
+    el.style.whiteSpace = 'pre-line';
+  }
+
+  function tag(text, cls) {
+    var s = document.createElement('span');
+    s.className = 'tag' + (cls ? ' ' + cls : '');
+    s.textContent = text;
+    return s;
+  }
+
+  function roleText(role) {
+    return role === 'lr' ? '水平 · 左右换道' : (role === 'ud' ? '竖直 · 跳 / 蹲' : '不参与');
+  }
+
+  function renderAssign(st) {
+    assignState = st;
+    if (st && st.ok) applyFlipState(!!((st.flags || {}).lr_flip));
+    if (!st || !st.ok) {
+      $('assign-body').style.display = 'none';
+      $('assign-off').style.display = '';
+      $('assign-note').textContent = '没连上分配服务。';
+      return;
+    }
+    $('assign-off').style.display = 'none';
+    $('assign-body').style.display = '';
+
+    var ports = st.ports || [];
+    var radars = ports.filter(function (p) { return p.radar_like; });
+    $('assign-note').textContent = ports.length
+      ? ('本机 ' + ports.length + ' 个串口，其中 ' + radars.length +
+         ' 个像雷达（CP210x / FTDI）。改动下拉框立即保存。')
+      : '现在一个串口都没有：插上雷达后这张表每 3 秒自动刷新。';
+
+    var tb = $('assign-rows');
+    tb.innerHTML = '';
+    if (!ports.length) {
+      var tr0 = document.createElement('tr');
+      var td0 = document.createElement('td');
+      td0.colSpan = 5;
+      td0.className = 'hint';
+      td0.textContent = '等雷达插入…（默认：先插入的那块 = 水平）';
+      tr0.appendChild(td0);
+      tb.appendChild(tr0);
+    }
+
+    ports.forEach(function (p) {
+      var tr = document.createElement('tr');
+      if (!p.radar_like) tr.className = 'stale';
+
+      // 插入序
+      var td1 = document.createElement('td');
+      var big = document.createElement('div');
+      big.className = 'order';
+      big.textContent = p.order || '—';
+      var sm = document.createElement('small');
+      sm.textContent = p.order === 1 ? '先插入'
+        : (p.order === 2 ? '后插入'
+          : (p.origin === 'hot-plug' ? '后插的' : ''));
+      big.appendChild(sm);
+      td1.appendChild(big);
+      tr.appendChild(td1);
+
+      // 串口 / 设备
+      var td2 = document.createElement('td');
+      var b = document.createElement('b');
+      b.textContent = p.device;
+      td2.appendChild(b);
+      var desc = document.createElement('div');
+      desc.className = 'hint';
+      desc.style.margin = '2px 0 0';
+      desc.textContent = p.description || '（无描述）';
+      td2.appendChild(desc);
+      if (!p.radar_like) td2.appendChild(tag('不像雷达', 'warn'));
+      td2.appendChild(document.createElement('br'));
+      tr.appendChild(td2);
+
+      // USB 物理口
+      var td3 = document.createElement('td');
+      var loc = document.createElement('code');
+      loc.textContent = p.location ? 'LOCATION=' + p.location : '—';
+      td3.appendChild(loc);
+      var sn = document.createElement('div');
+      sn.className = 'hint';
+      sn.style.margin = '2px 0 0';
+      sn.textContent = p.serial ? ('SN ' + p.serial) : 'SN 空（同型号更分不开）';
+      td3.appendChild(sn);
+      tr.appendChild(td3);
+
+      // 角色选择
+      var td4 = document.createElement('td');
+      var sel = document.createElement('select');
+      [['lr', '水平 · 左右换道'], ['ud', '竖直 · 跳 / 蹲'], ['none', '不参与']]
+        .forEach(function (opt) {
+          var o = document.createElement('option');
+          o.value = opt[0];
+          o.textContent = opt[1];
+          if ((p.role || 'none') === opt[0]) o.selected = true;
+          sel.appendChild(o);
+        });
+      sel.addEventListener('change', function () {
+        assignVerdict('保存分配…', 'warn');
+        apiPost('/api/assign', { device: p.device, role: sel.value }).then(function (res) {
+          renderAssign(res.state);
+          var running = res.state && (res.state.bridges.lr.running || res.state.bridges.ud.running);
+          assignVerdict(running
+            ? ('已保存：' + p.device + ' = ' + roleText(sel.value) +
+               '。桥接还在跑旧分配，点「按此分配启动并连接」才生效。')
+            : ('已保存：' + p.device + ' = ' + roleText(sel.value) + '。'), 'ok');
+        }).catch(function (e) {
+          assignVerdict('保存失败：' + e.message, 'err');
+        });
+      });
+      td4.appendChild(sel);
+      tr.appendChild(td4);
+
+      // 桥接状态
+      var td5 = document.createElement('td');
+      var br = (st.bridges && p.role && st.bridges[p.role]) || null;
+      if (br && br.running && br.device === p.device) {
+        // 「端口在听」不等于「在出数据」：串口打开但一帧都解析不出来时，
+        // 页面照样显示已连接，游戏却完全没反应。用桥接写的心跳区分这两种状态。
+        var hbn = br.hb || null;
+        var frames = hbn ? num(hbn.frames, 0) : null;
+        var hbAge = hbn ? num(hbn.age, 999) : null;
+        var live = (frames !== null && frames > 0 && hbAge !== null && hbAge <= 6);
+        td5.appendChild(tag(
+          live ? ('运行中 · ' + frames + ' 帧') :
+                 (frames === null ? '运行中 · 无心跳' : '运行中 · 无数据'),
+          live ? 'on' : 'warn'));
+        var pid = document.createElement('div');
+        pid.className = 'hint';
+        pid.style.margin = '2px 0 0';
+        pid.textContent = 'pid ' + (br.pid || '?') +
+          (br.listening ? ' · 端口在听' : ' · 端口没起来') +
+          (hbn && hbAge !== null ? (' · 心跳 ' + hbAge + 's') : '');
+        td5.appendChild(pid);
+        if (!live && frames !== null) {
+          var tip = document.createElement('div');
+          tip.className = 'hint';
+          tip.style.margin = '2px 0 0';
+          tip.style.color = 'var(--gold)';
+          tip.textContent = frames === 0
+            ? '串口开了但一帧都没解析出来：看板子朝向/波特率，或该口被别的程序占着'
+            : '心跳停了：桥接可能已退出，点“启动″重开';
+          td5.appendChild(tip);
+        }
+      } else {
+        td5.appendChild(tag('未启动'));
+      }
+      tr.appendChild(td5);
+
+      tb.appendChild(tr);
+    });
+
+    var warns = st.warnings || [];
+    $('assign-rule').textContent = (st.defaults_rule || '') +
+      (warns.length ? ('\n注意：' + warns.join('；')) : '');
+    $('assign-rule').style.whiteSpace = 'pre-line';
+
+    var anyRunning = !!(st.bridges && (st.bridges.lr.running || st.bridges.ud.running));
+    $('btn-assign-stop').disabled = !anyRunning;
+  }
+
+  function refreshAssignLog() {
+    var out = $('assign-log'), box = $('assign-log-box');
+    var parts = [];
+    var roles = ['lr', 'ud'];
+    var i = 0;
+    function next() {
+      if (i >= roles.length) {
+        if (parts.join('').trim()) {
+          out.textContent = parts.join('\n\n');
+          box.style.display = '';
+        }
+        return;
+      }
+      var r = roles[i++];
+      api('/api/log?role=' + r + '&lines=20').then(function (j) {
+        if (j && j.log) parts.push('--- ' + r + ' ---\n' + j.log);
+        next();
+      }).catch(function () { next(); });
+    }
+    next();
+  }
+
+  function applyFlipState(on) {
+    var b = $('btn-flip');
+    if (!b) return;
+    b.textContent = on ? '左右镜像：开（点一下翻回来）' : '左右镜像：关（点一下翻转）';
+    b.classList.toggle('primary', !!on);
+    b.classList.toggle('ghost', !on);
+  }
+
+  function flipLr() {
+    var b = $('btn-flip');
+    if (!b) return;
+    b.disabled = true;
+    b.textContent = '正在翻转…';
+    apiPost('/api/flip-lr', {}).then(function (res) {
+      b.disabled = false;
+      applyFlipState(!!res.lr_flip);
+      var out = $('flip-out');
+      if (out) {
+        out.textContent = (res.lr_flip
+          ? '已开启镜像：雷达的「左」现在对应游戏里的「右」。'
+          : '已关闭镜像：雷达的「左」对应游戏里的「左」。')
+          + (res.restarted ? ' 水平桥接已重启，游戏页会自动重连。'
+                           : (res.note ? ' ' + res.note : ' 下次点「启动」时生效。'));
+      }
+    }).catch(function (e) {
+      b.disabled = false;
+      b.textContent = '左右镜像：切换失败，再点一次';
+      var out = $('flip-out');
+      if (out) out.textContent = '调分配服务失败：' + e.message;
+    });
+  }
+
+  function pollAssign() {
+    api('/api/state').then(renderAssign).catch(function () {
+      $('assign-body').style.display = 'none';
+      $('assign-off').style.display = '';
+      $('assign-note').textContent = '没连上分配服务（第 1 张卡片仍可手动填地址连接）。';
+    });
+  }
+
+  function startAssign(thenPlay) {
+    assignVerdict('正在按分配启动两个桥接…', 'warn');
+    apiPost('/api/start').then(function (res) {
+      renderAssign(res.state || assignState);
+      if (!res.ok) {
+        assignVerdict('启动没完全成功：\n' + (res.problems || []).join('\n'), 'err');
+        refreshAssignLog();
+        return;
+      }
+      var roles = (res.state && res.state.roles) || {};
+      var hasLr = false, hasUd = false, k;
+      for (k in roles) {
+        if (roles[k] === 'lr') hasLr = true;
+        if (roles[k] === 'ud') hasUd = true;
+      }
+      if (!hasLr) {
+        assignVerdict('桥接起来了，但没有「水平」雷达：游戏换道至少需要一块水平雷达。', 'err');
+        refreshAssignLog();
+        return;
+      }
+      $('url').value = 'ws://127.0.0.1:8766';
+      memSet($('url').value);
+      if (hasUd) {
+        $('url2').value = 'ws://127.0.0.1:8767';
+        $('dual').checked = true;
+        memSet2($('url2').value);
+        memDualSet(true);
+      } else {
+        $('dual').checked = false;
+        memDualSet(false);
+      }
+      syncDualVisibility();
+      refreshMemoryNote();
+      var msg = hasUd
+        ? '已启动：水平 → ws://127.0.0.1:8766，竖直 → ws://127.0.0.1:8767。'
+        : '已启动：只有水平雷达（:8766）；跳 / 蹲要再插一块并分配给「竖直」。';
+      if (thenPlay) {
+        assignVerdict(msg + '正在回游戏主页面（不会自动弹校准）…', 'ok');
+        gotoGame();
+        return;
+      }
+      assignVerdict(msg + '正在自动连接…', 'ok');
+      connect();
+      refreshAssignLog();
+    }).catch(function (e) {
+      assignVerdict('调分配服务失败：' + e.message, 'err');
+    });
+  }
+
+  function swapAssign() {
+    if (!assignState) return;
+    var roles = assignState.roles || {};
+    var lrDev = null, udDev = null, k;
+    for (k in roles) {
+      if (roles[k] === 'lr') lrDev = k;
+      if (roles[k] === 'ud') udDev = k;
+    }
+    if (!lrDev || !udDev) {
+      assignVerdict('要交换得先有两块：一块水平、一块竖直。', 'warn');
+      return;
+    }
+    var map = {};
+    map[lrDev] = 'ud';
+    map[udDev] = 'lr';
+    apiPost('/api/assign', { roles: map }).then(function (res) {
+      renderAssign(res.state);
+      var running = res.state && (res.state.bridges.lr.running || res.state.bridges.ud.running);
+      if (running) {
+        assignVerdict('已交换 ' + lrDev + ' ↔ ' + udDev + '，按新分配重启桥接…', 'warn');
+        startAssign();
+      } else {
+        assignVerdict('已交换 ' + lrDev + ' ↔ ' + udDev + '。', 'ok');
+      }
+    }).catch(function (e) {
+      assignVerdict('交换失败：' + e.message, 'err');
+    });
+  }
+
+  function stopAssign() {
+    apiPost('/api/stop').then(function (res) {
+      renderAssign(res.state);
+      assignVerdict('已停止桥接（页面上的连接也要点「断开」才会断）。', 'warn');
+    }).catch(function (e) {
+      assignVerdict('停止失败：' + e.message, 'err');
+    });
+  }
+
+  function resetAssign() {
+    var ok = confirm('清空插入序和手动分配，按当前在线串口的 COM 号重排？\n\n' +
+      '想严格「先插水平、后插竖直」：先拔掉两块，点确定后再按顺序插。');
+    if (!ok) return;
+    apiPost('/api/reset').then(function (res) {
+      renderAssign(res.state);
+      assignVerdict('已按当前 COM 号重排；之后新插入的板会排在最后。', 'warn');
+    }).catch(function (e) {
+      assignVerdict('重排失败：' + e.message, 'err');
+    });
+  }
+
   // ---------------- 校准存档 ----------------
   function refreshCal() {
     var el = $('cal-out'), C = window.RR && RR.Calibration;
@@ -883,13 +1303,10 @@ raw         原始数据（可选），调试面板会展示</pre>
     el.textContent = lines.join('\n');
   }
 
-  // ---------------- 绑定 ----------------
-  $('btn-connect').addEventListener('click', connect);
-  $('btn-disconnect').addEventListener('click', function () { disconnect(false); });
-  $('btn-play').addEventListener('click', function () {
-    var url = $('url').value.trim();
-    if (!url) return;
-    var q = './index.html?input=radar&radar=' + encodeURIComponent(url);
+  // ---------------- 进游戏（分配面板与 1 号卡片共用这一条路径） ----------------
+  function gotoGame() {
+    var url = $('url').value.trim() || 'ws://127.0.0.1:8766';
+    var q = './index.html?input=radar&nocalib=1&radar=' + encodeURIComponent(url);
     if ($('dual').checked) {
       var u2 = $('url2').value.trim();
       if (!u2) { alert('双雷达已勾选：请先填上下雷达地址，或取消勾选。'); return; }
@@ -901,7 +1318,12 @@ raw         原始数据（可选），调试面板会展示</pre>
     }
     memSet(url);
     location.href = q;
-  });
+  }
+
+  // ---------------- 绑定 ----------------
+  $('btn-connect').addEventListener('click', connect);
+  $('btn-disconnect').addEventListener('click', function () { disconnect(false); });
+  $('btn-play').addEventListener('click', gotoGame);
   Array.prototype.forEach.call(document.querySelectorAll('[data-fill]'), function (b) {
     b.addEventListener('click', function () { $('url').value = b.getAttribute('data-fill'); });
   });
@@ -943,6 +1365,13 @@ raw         原始数据（可选），调试面板会展示</pre>
     $('dir-verdict').className = 'verdict';
   });
   $('btn-still').addEventListener('click', startStill);
+  $('btn-assign-start').addEventListener('click', function () { startAssign(false); });
+  $('btn-assign-play').addEventListener('click', function () { startAssign(true); });
+  $('btn-assign-swap').addEventListener('click', swapAssign);
+  $('btn-assign-stop').addEventListener('click', stopAssign);
+  $('btn-assign-reset').addEventListener('click', resetAssign);
+  $('btn-assign-refresh').addEventListener('click', pollAssign);
+  $('btn-flip').addEventListener('click', flipLr);
   $('btn-cal-clear').addEventListener('click', function () {
     try { window.RR.Calibration.clear(); } catch (e) { /* 忽略 */ }
     refreshCal();
@@ -958,6 +1387,13 @@ raw         原始数据（可选），调试面板会展示</pre>
   initUrl();
   refreshCal();
   updatePlayNote();
+  pollAssign();
+  setInterval(function () {
+    // 用户正在改下拉框时别重建表格，否则选择会被打断
+    var a = document.activeElement;
+    if (a && a.tagName === 'SELECT') return;
+    pollAssign();
+  }, 3000);
   requestAnimationFrame(render);
 })();
 </script>

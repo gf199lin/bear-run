@@ -122,6 +122,13 @@
     var hp = queryParam('hp');                   // 联调：临时加命，方便长时间观察
     if (hp) { RR.CFG.HP.start = Number(hp); RR.CFG.HP.max = Math.max(RR.CFG.HP.max, Number(hp)); }
 
+    // ---------- 从联调台回来：先停在主页面 ----------
+    // radar-connect.html 的「回游戏主页面」带 ?nocalib=1：两路连好后不要立刻弹校准向导，
+    // 让人在主菜单先确认连接、选角色，需要校准时再点「校准雷达动作」。
+    if (queryParam('nocalib') === '1' && RR.CFG.RADAR && RR.CFG.RADAR.calib) {
+      RR.CFG.RADAR.calib.autoOpen = false;
+    }
+
     // ---------- 雷达开局校准（新手教程，js/Calibration.js） ----------
     // 现场测出方向符号 + 静息基线，修正后续所有帧的 x（x' = (x - x0) * sign）。
     // 装配全在这里，Game.js / InputSource.js 都不用改。
@@ -137,17 +144,34 @@
       return RR.Calibration ? RR.Calibration.load() : null;
     }
 
+    // 主菜单上的雷达状态：连接 + 帧率 + 校准。
+    // 现场"准备开始"之前就靠这一行确认两路都在推流，不用再回联调台。
+    function radarLinkText() {
+      var src = currentSource();
+      if (!src || src.id !== 'radar') return '';
+      if (!src.connected) return '雷达未连接';
+      var rate = src.frameRate ? ' · ' + Math.round(src.frameRate) + ' 帧/秒' : '';
+      if (typeof src.lrOnline === 'boolean') {
+        return '雷达已连接 · 水平' + (src.lrOnline ? '✓' : '✗') +
+               ' 竖直' + (src.udOnline ? '✓' : '✗') + rate;
+      }
+      return '雷达已连接' + rate;
+    }
+
     function updateCalibNote() {
       var el = $('calib-status');
       if (!el) return;
       var cal = calibSaved();
-      if (cal && RR.Calibration.isUsable(cal)) {
-        el.textContent = '已校准 · ' + RR.Calibration.describe(cal);
-        el.className = 'calib-status is-ok';
-      } else {
-        el.textContent = '未校准：选雷达后会自动引导';
-        el.className = 'calib-status';
-      }
+      var usable = !!(cal && RR.Calibration.isUsable(cal));
+      var link = radarLinkText();
+      var parts = [];
+      if (link) parts.push(link);
+      parts.push(usable ? '已校准' : '未校准');
+      el.textContent = parts.join(' · ');
+      el.className = 'calib-status' + (usable && link.indexOf('未连接') < 0 ? ' is-ok' : '');
+      el.title = usable
+        ? ('已校准 · ' + RR.Calibration.describe(cal))
+        : '点「校准雷达动作」开始引导';
     }
 
     function ensureWizard() {
@@ -244,6 +268,7 @@
     game.setInputSource(initialInput);
     syncCalibration();
     requestAnimationFrame(driveWizard);
+    setInterval(updateCalibNote, 1000);   // 连接 / 帧率 / 校准状态每秒刷新一次
 
     if (queryParam('debug') === '1') game.debug.setVisible(true);
 
