@@ -148,6 +148,12 @@
     // 只用 ?radar2= 时，左右仍然走记忆地址 / config 默认值。
     // ?radar2=off 用来临时关掉双雷达，不必清 localStorage。
     var radarUrl2 = queryParam('radar2') || queryParam('radarud');
+
+    // ?nocalib=1：从雷达联调台「回游戏主页面」进来时不自动弹校准向导，
+    // 停在菜单先确认两路都在推流；校准仍可手动点「校准雷达动作」。
+    if (queryParam('nocalib') === '1' && RR.CFG.RADAR && RR.CFG.RADAR.calib) {
+      RR.CFG.RADAR.calib.autoOpen = false;
+    }
     if (radarUrl2 === 'off' || radarUrl2 === '0') {
       RR.CFG.RADAR.dual = false;
       RR.CFG.RADAR.udUrl = null;
@@ -246,17 +252,31 @@
       return RR.Calibration ? RR.Calibration.load() : null;
     }
 
+    /** 主菜单状态行的雷达链路部分：连接状态 + 帧率（单雷达 / 双雷达都适用）。 */
+    function radarLinkText() {
+      var src = currentSource();
+      if (!src || src.id !== 'radar') return '';
+      var fps = Math.round(src.frameRate || 0);
+      if (typeof src.lrOnline === 'boolean') {          // 双雷达
+        if (!src.lrOnline && !src.udOnline) return '雷达未连接';
+        return '雷达已连接 · 水平' + (src.lrOnline ? '✓' : '✗')
+             + ' 竖直' + (src.udOnline ? '✓' : '✗')
+             + ' · ' + fps + ' 帧/秒';
+      }
+      return src.connected ? ('雷达已连接 · ' + fps + ' 帧/秒') : '雷达未连接';
+    }
+
     function updateCalibNote() {
       var el = $('calib-status');
       if (!el) return;
       var cal = calibSaved();
-      if (cal && RR.Calibration.isUsable(cal)) {
-        el.textContent = '已校准 · ' + RR.Calibration.describe(cal);
-        el.className = 'calib-status is-ok';
-      } else {
-        el.textContent = '未校准：选雷达后会自动引导';
-        el.className = 'calib-status';
-      }
+      var ok = !!(cal && RR.Calibration.isUsable(cal));
+      var calTxt = ok ? ('已校准 · ' + RR.Calibration.describe(cal))
+                      : '未校准（点「校准雷达动作」）';
+      var link = radarLinkText();
+      el.textContent = link ? (link + ' · ' + calTxt) : calTxt;
+      el.className = 'calib-status' + (ok ? ' is-ok' : '');
+      el.title = calTxt;
     }
 
     function ensureWizard() {
@@ -365,6 +385,8 @@
     game.setInputSource(initialInput);
     syncCalibration();
     requestAnimationFrame(driveWizard);
+    // 主菜单状态行每秒刷新：连接 / 帧率 / 校准状态
+    setInterval(updateCalibNote, 1000);
 
     if (queryParam('debug') === '1') game.debug.setVisible(true);
 

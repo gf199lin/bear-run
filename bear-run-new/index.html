@@ -2027,9 +2027,9 @@ html, body {
                   <b>数据体检</b>
                   <span>帧率 · 噪声 · 方向 · 命中率</span>
                 </a>
-                <a class="tool-btn" href="./radar-connect.html" target="_blank" rel="noopener">
-                  <b>联调台</b>
-                  <span>改地址 · 看实时值</span>
+                <a class="tool-btn" href="./radar-connect-dual.html">
+                  <b>联调台（双雷达）</b>
+                  <span>连好两路 · 点「回游戏主页面」</span>
                 </a>
               </div>
               <div class="radar-tools-hint">换场地 / 换人 / 挪过板子，先做一次 2.5 分钟体检</div>
@@ -2663,8 +2663,14 @@ html, body {
 
     // ---------- 输入层 ----------
     RADAR: {
-      enterThreshold: 0.36,   // 进入左右车道的阈值
-      exitThreshold: 0.22,    // 回到中间车道的阈值（迟滞，避免抖动）
+      enterThreshold: 0.22,   // 中间→边上要偏这么多（0.22 × 20° ≈ 4.4°，1m 处约 8cm）；小幅移动也能换道
+      exitThreshold: 0.12,    // 一边→回中间的门（0.12 × 20° ≈ 2.4°）；低于进道门，形成滞回
+      // 幅度分档（2026-11-17 二次调整）：x 是"偏了多少"的归一化值（1.0 = scaleDeg 度）。
+      //   中间(1) → 左右(0/2)：只认 enterThreshold，这是灵敏度的关键；
+      //   一边(0/2) → 对面：要 bigStepThreshold，防止手一晃横跨两个跑道；
+      //   一边(0/2) → 回中间：退出到 exitThreshold(0.22) 就回去。
+      // 教训：中间→边上绝不能套 bigStep，否则要 0.62 才换道，手感就是"挥了手不动"。
+      bigStepThreshold: 0.62,
 
       // ---- 横向增益 / 换道限速（现场联调反馈：手一晃就横跨两个跑道）----
       // xGain 作用在解码器最前面：x' = clamp(x * xGain, -1, 1)。
@@ -2676,7 +2682,8 @@ html, body {
       // 单帧最多换几个车道。1 = 手从最左一下甩到最右，最多只走一格，
       // 不会像以前那样 while 循环一口气发两次 left/right 直接跨两个跑道。
       maxLaneStepPerFrame: 1,
-      // 两次换道之间的最小间隔(ms)。防止同一串高频帧在几毫秒内连跳两格。
+      // 两次换道之间的最小间隔(ms)。一帧 129.5ms，120ms 等于每帧都允许切换（最灵敏）；
+      // 拉到 180 会吞掉一帧连续动作，现场反馈"不灵敏"就是它造成的。
       laneCooldownMs: 120,
 
       jumpThreshold: 0.5,
@@ -3846,20 +3853,34 @@ html, body {
       if (gain > 0 && gain !== 1) x = x * gain;
       x = clamp(x, -1, 1);
       var height = clamp(num(frame.height, 0), 0, 1);
+      var prevX = this.lastX;   // 上一帧的偏移：判断"是不是从中间穿过来的"
       this.lastX = x;
       this.lastHeight = height;
 
-      // ---- 车道判定（带迟滞，避免在阈值附近来回抖）----
+      // ---- 车道判定（强度分档 + 迟滞）----
+      // |x| 是"偏了多少"的归一化值（1.0 = scaleDeg 度）。
+      //   中间(1) → 左右(0/2)：只认 enterThreshold（0.36）；
+      //   一边(0/2) → 对面：要 bigStepThreshold（0.62），防手一晃跨两个跑道；
+      //   一边(0/2) → 回中间：退出到 exitThreshold（0.22）就回去。
+      // 教训：中间→边上绝不能套 bigStep，否则要 0.62 才换道，手感就是"挥了手不动"。
+      var bigEnter = num(R.bigStepThreshold, 0.62);
       var lane = this.lane;
       if (this.lane === 1) {
-        if (x <= -R.enterThreshold) lane = 0;
-        else if (x >= R.enterThreshold) lane = 2;
+        // 第一优先级：大幅跨步。单帧限档会把"从一边跨到另一边"先压成中间，下一帧必须放过。
+        if (x >= bigEnter) lane = 2;
+        else if (x <= -bigEnter) lane = 0;
+        // 小幅：只认 enterThreshold，而且必须"从中间穿过去"。
+        // 否则从左边拉到中间位置(x=0.3)会被连判两次：先回中间、下一帧又进右道 —— 小移动变跨两根。
+        // 两个放行条件：①上一帧还在中线带内（刚从中间穿过门）；
+        // ②这一帧还在往同方向继续移动（不能因为"从边道拉到中间位置"就永远卡在中间）。
+        else if (x <= -R.enterThreshold && (prevX > -R.enterThreshold || x < prevX - 0.05)) lane = 0;
+        else if (x >= R.enterThreshold && (prevX < R.enterThreshold || x > prevX + 0.05)) lane = 2;
       } else if (this.lane === 0) {
-        if (x >= R.enterThreshold) lane = 2;
-        else if (x >= -R.exitThreshold) lane = 1;
+        if (x >= bigEnter) lane = 2;                 // 大幅：从最左跨到最右
+        else if (x >= -R.exitThreshold) lane = 1;    // 收回一点：回中间
       } else {
-        if (x <= -R.enterThreshold) lane = 0;
-        else if (x <= R.exitThreshold) lane = 1;
+        if (x <= -bigEnter) lane = 0;                // 大幅：从最右跨到最左
+        else if (x <= R.exitThreshold) lane = 1;     // 收回一点：回中间
       }
 
       // ---- 单帧限档 + 换道冷却 ----
@@ -12886,6 +12907,12 @@ RR.Tutorial = (function () {
     // 只用 ?radar2= 时，左右仍然走记忆地址 / config 默认值。
     // ?radar2=off 用来临时关掉双雷达，不必清 localStorage。
     var radarUrl2 = queryParam('radar2') || queryParam('radarud');
+
+    // ?nocalib=1：从雷达联调台「回游戏主页面」进来时不自动弹校准向导，
+    // 停在菜单先确认两路都在推流；校准仍可手动点「校准雷达动作」。
+    if (queryParam('nocalib') === '1' && RR.CFG.RADAR && RR.CFG.RADAR.calib) {
+      RR.CFG.RADAR.calib.autoOpen = false;
+    }
     if (radarUrl2 === 'off' || radarUrl2 === '0') {
       RR.CFG.RADAR.dual = false;
       RR.CFG.RADAR.udUrl = null;
@@ -12984,17 +13011,31 @@ RR.Tutorial = (function () {
       return RR.Calibration ? RR.Calibration.load() : null;
     }
 
+    /** 主菜单状态行的雷达链路部分：连接状态 + 帧率（单雷达 / 双雷达都适用）。 */
+    function radarLinkText() {
+      var src = currentSource();
+      if (!src || src.id !== 'radar') return '';
+      var fps = Math.round(src.frameRate || 0);
+      if (typeof src.lrOnline === 'boolean') {          // 双雷达
+        if (!src.lrOnline && !src.udOnline) return '雷达未连接';
+        return '雷达已连接 · 水平' + (src.lrOnline ? '✓' : '✗')
+             + ' 竖直' + (src.udOnline ? '✓' : '✗')
+             + ' · ' + fps + ' 帧/秒';
+      }
+      return src.connected ? ('雷达已连接 · ' + fps + ' 帧/秒') : '雷达未连接';
+    }
+
     function updateCalibNote() {
       var el = $('calib-status');
       if (!el) return;
       var cal = calibSaved();
-      if (cal && RR.Calibration.isUsable(cal)) {
-        el.textContent = '已校准 · ' + RR.Calibration.describe(cal);
-        el.className = 'calib-status is-ok';
-      } else {
-        el.textContent = '未校准：选雷达后会自动引导';
-        el.className = 'calib-status';
-      }
+      var ok = !!(cal && RR.Calibration.isUsable(cal));
+      var calTxt = ok ? ('已校准 · ' + RR.Calibration.describe(cal))
+                      : '未校准（点「校准雷达动作」）';
+      var link = radarLinkText();
+      el.textContent = link ? (link + ' · ' + calTxt) : calTxt;
+      el.className = 'calib-status' + (ok ? ' is-ok' : '');
+      el.title = calTxt;
     }
 
     function ensureWizard() {
@@ -13103,6 +13144,8 @@ RR.Tutorial = (function () {
     game.setInputSource(initialInput);
     syncCalibration();
     requestAnimationFrame(driveWizard);
+    // 主菜单状态行每秒刷新：连接 / 帧率 / 校准状态
+    setInterval(updateCalibNote, 1000);
 
     if (queryParam('debug') === '1') game.debug.setVisible(true);
 

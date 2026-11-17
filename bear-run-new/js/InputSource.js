@@ -225,20 +225,34 @@
       if (gain > 0 && gain !== 1) x = x * gain;
       x = clamp(x, -1, 1);
       var height = clamp(num(frame.height, 0), 0, 1);
+      var prevX = this.lastX;   // 上一帧的偏移：判断"是不是从中间穿过来的"
       this.lastX = x;
       this.lastHeight = height;
 
-      // ---- 车道判定（带迟滞，避免在阈值附近来回抖）----
+      // ---- 车道判定（强度分档 + 迟滞）----
+      // |x| 是"偏了多少"的归一化值（1.0 = scaleDeg 度）。
+      //   中间(1) → 左右(0/2)：只认 enterThreshold（0.36）；
+      //   一边(0/2) → 对面：要 bigStepThreshold（0.62），防手一晃跨两个跑道；
+      //   一边(0/2) → 回中间：退出到 exitThreshold（0.22）就回去。
+      // 教训：中间→边上绝不能套 bigStep，否则要 0.62 才换道，手感就是"挥了手不动"。
+      var bigEnter = num(R.bigStepThreshold, 0.62);
       var lane = this.lane;
       if (this.lane === 1) {
-        if (x <= -R.enterThreshold) lane = 0;
-        else if (x >= R.enterThreshold) lane = 2;
+        // 第一优先级：大幅跨步。单帧限档会把"从一边跨到另一边"先压成中间，下一帧必须放过。
+        if (x >= bigEnter) lane = 2;
+        else if (x <= -bigEnter) lane = 0;
+        // 小幅：只认 enterThreshold，而且必须"从中间穿过去"。
+        // 否则从左边拉到中间位置(x=0.3)会被连判两次：先回中间、下一帧又进右道 —— 小移动变跨两根。
+        // 两个放行条件：①上一帧还在中线带内（刚从中间穿过门）；
+        // ②这一帧还在往同方向继续移动（不能因为"从边道拉到中间位置"就永远卡在中间）。
+        else if (x <= -R.enterThreshold && (prevX > -R.enterThreshold || x < prevX - 0.05)) lane = 0;
+        else if (x >= R.enterThreshold && (prevX < R.enterThreshold || x > prevX + 0.05)) lane = 2;
       } else if (this.lane === 0) {
-        if (x >= R.enterThreshold) lane = 2;
-        else if (x >= -R.exitThreshold) lane = 1;
+        if (x >= bigEnter) lane = 2;                 // 大幅：从最左跨到最右
+        else if (x >= -R.exitThreshold) lane = 1;    // 收回一点：回中间
       } else {
-        if (x <= -R.enterThreshold) lane = 0;
-        else if (x <= R.exitThreshold) lane = 1;
+        if (x <= -bigEnter) lane = 0;                // 大幅：从最右跨到最左
+        else if (x <= R.exitThreshold) lane = 1;     // 收回一点：回中间
       }
 
       // ---- 单帧限档 + 换道冷却 ----
