@@ -51,8 +51,9 @@ from radar_dsp import PointCloudProcessor                              # noqa: E
 from radar_actions import (ActionRecognizer, LANE_LEFT, LANE_RIGHT,    # noqa: E402
                            JUMP, DUCK, TARGET_LOST, TARGET_BACK)
 
-# 跳蹲逐帧状态机（本仓库 tools/jumpduck_sm.py）：按径向速度段长度判跳/蹲，
-# 实测 96 个样本 85.4%（轻跳+深蹲 24/24），延迟 388-517 ms，静息零误报。
+# 跳蹲逐帧状态机（本仓库 tools/jumpduck_sm.py + jumpduck_fusion.py）：
+# 按径向速度段长度判跳/蹲；负段凑够后先观望 2 帧（defer_duck），
+# 大跳的落地反冲就不会被当成蹲。96 个样本实测 85.4% → 93.8%。
 _TOOLS_DIR = os.path.join(PROJECT, 'tools')
 if os.path.isdir(_TOOLS_DIR) and _TOOLS_DIR not in sys.path:
     sys.path.insert(0, _TOOLS_DIR)
@@ -105,16 +106,23 @@ class Hub(object):
     def __init__(self):
         self.clients = set()
         self.lock = threading.Lock()
+        # 空闲自退用：只有「页面真的连上过」之后才允许按空闲计时退出，
+        # 否则刚启动还没点连接就会被误杀。
+        self.seen_client = False
+        self.last_client_at = None
 
     def add(self, conn, addr):
         with self.lock:
             self.clients.add(conn)
+            self.seen_client = True
+            self.last_client_at = time.time()
             n = len(self.clients)
         log('  [+] %s 接入（当前 %d 个客户端）' % (addr[0], n))
 
     def drop(self, conn, addr):
         with self.lock:
             self.clients.discard(conn)
+            self.last_client_at = time.time()
             n = len(self.clients)
         log('  [-] %s 断开（剩 %d 个客户端）' % (addr[0], n))
 
@@ -142,6 +150,48 @@ class Hub(object):
         with self.lock:
             return len(self.clients)
 
+    def idle_seconds(self):
+        """连续没有客户端的秒数。
+
+        还有客户端时返回 0；从来没连过客户端时返回 -1（不参与空闲判定）。
+        """
+        with self.lock:
+            if self.clients:
+                return 0.0
+            if not self.seen_client or self.last_client_at is None:
+                return -1.0
+            return time.time() - self.last_client_at
+
+
+def idle_watch(hub, idle_sec, lonely_sec, started_at, on_quit):
+    """页面关掉（或压根没连上）后自动释放端口。
+
+    现场最常见的坑：关掉浏览器标签，桥接进程还挂在 8766/8767 上，
+    下次点「启动」就报端口被占用。两条规则：
+      - idle_sec：曾经连上过、现在全断开了，连续这么久就退出；
+      - lonely_sec：启动后一直没有任何页面连上来（跳转失败、页面没开），这么久也退出，
+        否则端口会被一个没人用的进程永远占着。
+    """
+    if idle_sec <= 0 and lonely_sec <= 0:
+        return
+    while True:
+        time.sleep(1.0)
+        if lonely_sec > 0 and not hub.seen_client:
+            age = time.time() - started_at
+            if age >= lonely_sec:
+                log('启动 %.0f 秒仍没有任何页面连接（阈值 %.0f 秒）→ 自动退出并释放端口'
+                    % (age, lonely_sec))
+                on_quit()
+                return
+            continue
+        if idle_sec > 0:
+            idle = hub.idle_seconds()
+            if idle >= idle_sec:
+                log('客户端已全部断开 %.0f 秒（阈值 %.0f 秒）→ 自动退出并释放端口'
+                    % (idle, idle_sec))
+                on_quit()
+                return
+
 
 def drain(conn):
     """只推不收；客户端断开即可感知。"""
@@ -158,6 +208,7 @@ def drain(conn):
 
 
 def serve_client(conn, addr, hub):
+    added = False
     try:
         conn.settimeout(10)
         req = read_request(conn)
@@ -165,6 +216,7 @@ def serve_client(conn, addr, hub):
             return
         conn.settimeout(None)
         hub.add(conn, addr)
+        added = True
         drain(conn)
     except Exception:
         pass
@@ -173,7 +225,10 @@ def serve_client(conn, addr, hub):
             conn.close()
         except Exception:
             pass
-        hub.drop(conn, addr)
+        # 只对真的完成握手的连接记账：端口探测之类的裸 TCP 连接不算客户端，
+        # 否则会把空闲计时一直刷新，页面关掉后也退不出去。
+        if added:
+            hub.drop(conn, addr)
 
 
 def start_server(host, port, hub):
@@ -207,6 +262,32 @@ def log(msg):
 
 def clamp(v, lo, hi):
     return lo if v < lo else (hi if v > hi else v)
+
+
+def shape_frame(role, pos, height, jump, crouch, fresh, stale_ok, zero_locked):
+    """按角色裁剪字段并给出这一帧的置信度。
+
+    只有「水平」这一路要拿角度质量当置信度：它的 x 就是角度，看不到人时
+    必须压低置信度让游戏丢掉，否则会乱换道。
+
+    「竖直」这一路的判据是径向速度谱（tools/jumpduck_sm.py），跟角度跟踪
+    无关 —— 竖放的板本来就可能看不到人的躯干角，用 fresh 当置信度会把
+    跳/蹲帧整帧丢掉（游戏端 conf < minConfidence 直接 return）。所以竖直
+    路只要在推流就算可信，事件帧给满。
+
+    返回 (jump, crouch, x, height, confidence)。
+    """
+    conf = 0.9 if fresh else (0.75 if stale_ok else 0.2)
+    if not zero_locked:
+        conf = min(conf, 0.5)      # 水平路零点未锁定：低置信，让游戏忽略
+        if role == 'ud':
+            conf = 0.85            # 竖直路不吃零点，见上
+
+    if role == 'lr':
+        return 0.0, 0.0, pos, 0.0, conf
+    if role == 'ud':
+        return jump, crouch, 0.0, height, (1.0 if (jump or crouch) else 0.85)
+    return jump, crouch, pos, height, conf
 
 
 class ZeroCal(object):
@@ -282,13 +363,24 @@ def main():
                     help='允许零点在站稳后继续跟随（默认锁定后固定）')
     ap.add_argument('--vertical', action='store_true',
                     help='这块板竖放（测角轴=垂直）：height 用同一角度给出 0..1')
-    ap.add_argument('--jump-engine', default='legacy', choices=['legacy', 'sm'],
-                    help='ud 的跳蹲判据：legacy=ActionRecognizer，sm=径向速度状态机')
+    ap.add_argument('--lr-flip', action='store_true',
+                    help='左右镜像：把方位角/车道方向整体取反（游戏里左右反了就加这个）')
+    ap.add_argument('--jump-engine', default='legacy', choices=['legacy', 'sm', 'fusion'],
+                    help='ud 的跳蹲判据：legacy=ActionRecognizer，sm=径向速度状态机，'
+                         'fusion=状态机+观望裁决（默认推荐）')
+    ap.add_argument('--defer-duck', type=int, default=2,
+                    help='负段凑够 nb_duck 后先观望几帧再判蹲；大跳落地反冲会被救回（0=旧行为）')
     ap.add_argument('--jump-band', default='1,3',
                     help='sm 判据使用的距离 bin 带 lo,hi')
     ap.add_argument('--quiet', action='store_true', help='不打印逐帧日志')
     ap.add_argument('--log', default=None,
                     help='把全部输出追加写进该文件（用 pythonw 后台跑时必填）')
+    ap.add_argument('--idle-exit', type=float, default=60.0,
+                    help='浏览器全部断开后多少秒自动退出并释放端口（0=不退出，默认 60）')
+    ap.add_argument('--lonely-exit', type=float, default=300.0,
+                    help='启动后一直没有任何页面连接时，多少秒后自动退出（0=不管，默认 300）')
+    ap.add_argument('--pidfile', default=None,
+                    help='把自己的 pid 写进该文件、退出时删除；分配台用它回收旧桥接')
     args = ap.parse_args()
 
     if args.log:
@@ -301,6 +393,43 @@ def main():
     if start_server(args.host, args.ws_port, hub) is None:
         return 2
     log('ws://%s:%d 已监听（role=%s）' % (args.host, args.ws_port, args.role))
+    if args.lr_flip:
+        log('左右镜像已开启（--lr-flip）：方位角/车道方向整体取反')
+
+    # 分配台靠这个 pid 文件认出「上一次没关干净的旧桥接」，再回收端口
+    pidfile = args.pidfile
+    if pidfile:
+        try:
+            parent = os.path.dirname(pidfile)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            with open(pidfile, 'w', encoding='utf-8') as f:
+                f.write(str(os.getpid()))
+        except Exception as e:
+            log('!! 写 pid 文件失败（不影响推流）：%r' % e)
+            pidfile = None
+
+    def cleanup():
+        # 顺带删心跳文件，别让分配台读到上一次运行的帧数
+        for p in (pidfile, (pidfile + '.hb') if pidfile else None):
+            if not p:
+                continue
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+
+    def quit_now():
+        cleanup()
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
+        os._exit(0)
+
+    threading.Thread(target=idle_watch,
+                     args=(hub, args.idle_exit, args.lonely_exit, time.time(), quit_now),
+                     name='idle-exit', daemon=True).start()
 
     # ---- 数据源：SerialSource 自动按 USB 指纹选板型与波特率 -----------------
     src = SerialSource(args.port, baud=None, retry_delay=1.0)
@@ -327,15 +456,55 @@ def main():
     log('识别器：band=%s calib=%s' % (rec.band if hasattr(rec, 'band') else 'auto',
                                     os.path.basename(calib) if calib else '无'))
 
-    state = {'lane': 'CENTER', 'jump': 0.0, 'crouch': 0.0, 'n': 0}
+    state = {'lane': 'CENTER', 'jump': 0.0, 'crouch': 0.0, 'n': 0, 'sm': None}
+
+    # ---- 可观测性：心跳 + 无数据告警 ---------------------------------------
+    # --quiet 只关逐帧日志，但最容易出事的恰恰是"串口打开了、一帧都解析不出来"
+    # —— 没有报错、进程也不退出，页面上只看到「已连接、游戏不动」。
+    # 这里单独盯：帧数写心跳文件给分配台看，超时无帧直接进日志。
+    def heartbeat_loop():
+        hb = (pidfile + '.hb') if pidfile else None
+        while True:
+            if hb:
+                try:
+                    tmp_hb = hb + '.tmp'
+                    with open(tmp_hb, 'w', encoding='utf-8') as f:
+                        json.dump({'pid': os.getpid(), 'frames': state['n'],
+                                   't': time.time()}, f)
+                    os.replace(tmp_hb, hb)
+                except Exception:
+                    pass
+            time.sleep(2.0)
+
+    def nodata_watch():
+        last = 0.0
+        for mark in (8, 25, 60):
+            time.sleep(mark - last)
+            last = mark
+            if state['n'] > 0:
+                return
+            log('!! %d 秒内一帧都没收到（串口 %s 已打开）：检查波特率/接线/板型，'
+                '或该串口被别的程序占用' % (mark, args.port))
+
+    threading.Thread(target=heartbeat_loop, name='heartbeat', daemon=True).start()
+    threading.Thread(target=nodata_watch, name='nodata-watch', daemon=True).start()
+
 
     sm = None
     if args.jump_engine == 'sm':
         from jumpduck_sm import JumpDuckSM
         from vguide_1t2r import frame_feats as _jdfeat
-        sm = JumpDuckSM()
+        sm = JumpDuckSM(defer_duck=args.defer_duck)
         _sm_band = tuple(int(x) for x in args.jump_band.split(','))
-        log('跳蹲判据：径向速度状态机 band=%s' % (_sm_band,))
+        log('跳蹲判据：径向速度状态机 band=%s defer_duck=%d'
+            % (_sm_band, args.defer_duck))
+    elif args.jump_engine == 'fusion':
+        from jumpduck_fusion import JumpDuckFusion
+        from vguide_1t2r import frame_feats as _jdfeat
+        sm = JumpDuckFusion(defer_duck=args.defer_duck)
+        _sm_band = tuple(int(x) for x in args.jump_band.split(','))
+        log('跳蹲判据：速度状态机 + 观望裁决 band=%s defer_duck=%d'
+            % (_sm_band, args.defer_duck))
     zcal = ZeroCal(args.zero_secs, adapt=args.zero_adapt)
 
     def emit(rec_out, ts_ms, board, py_val, n_pts, extra, az_hint=None):
@@ -384,13 +553,14 @@ def main():
             zero = zcal.zero
         az_use = state.get('az_ema') if az is not None else None
 
+        sign = -1.0 if args.lr_flip else 1.0
         if args.mode == 'pos' and zero is not None and az_use is not None:
-            pos = clamp((az_use - zero) / args.scale_deg, -1.0, 1.0)
+            pos = clamp((az_use - zero) / args.scale_deg, -1.0, 1.0) * sign
             state['last_pos'] = pos
         elif args.mode == 'pos':
             pos = state.get('last_pos', 0.0)   # 目标丢失：保持最后位置，不发假 0
         else:
-            pos = LANE_X.get(lane, 0.0) * (args.x_amp / 0.6)
+            pos = LANE_X.get(lane, 0.0) * sign * (args.x_amp / 0.6)
 
         # 稀疏传感器：短时丢帧用"最近有效位置"续帧，游戏端才能连续判定；
         # 超过 --hold-secs 才降为低置信（角色就地保持，不乱动）。
@@ -404,21 +574,13 @@ def main():
         # 横放时这块板测不出高度 → 只把原始角度透出来，不伪造 height。
         height = clamp(0.5 + 0.5 * pos, 0.0, 1.0) if args.vertical else 0.0
 
-        if args.role == 'lr':
-            jj, cc = 0.0, 0.0
-        elif args.role == 'ud':
-            pos = 0.0
-            jj, cc = jump, crouch
-        else:
-            jj, cc = jump, crouch
-
-        conf = 0.9 if fresh else (0.75 if stale_ok else 0.2)
-        if args.mode == 'pos' and zero is None:
-            conf = min(conf, 0.5)      # 零点未锁定：低置信，让游戏忽略
+        jj, cc, px_out, hh_out, conf = shape_frame(
+            args.role, pos, height, jump, crouch,
+            fresh, stale_ok, (zero is not None) or args.mode != 'pos')
         frame = {
             'ts': ts_ms,
-            'x': round(pos, 4),
-            'height': round(height, 4),
+            'x': round(px_out, 4),
+            'height': round(hh_out, 4),
             'jump': jj,
             'crouch': cc,
             'confidence': conf,
@@ -478,7 +640,13 @@ def main():
         if sm is not None and args.role in ('ud', 'both'):
             try:
                 _zz = np.stack([z0, z1]).astype('complex64')
-                _ev, _d, _ms = sm.push(_jdfeat(_zz, _sm_band))
+                _f = _jdfeat(_zz, _sm_band)
+                _ev, _d, _ms = sm.push(_f)
+                if _f:
+                    # 现场排错用：静息时 nz 应 < 0.30，动作时 v_r 会翻符号
+                    state['sm'] = {'v_r': round(_f['v_r'], 3),
+                                   'nz': round(_f['nz_share'], 3),
+                                   'w': round(_f['doppler_width'], 3)}
             except Exception as _e:
                 _ev = None
                 if state['n'] % 50 == 1:
@@ -492,6 +660,10 @@ def main():
         for e in out.get('events') or []:
             name = e.get('name')
             if name in (JUMP, DUCK):
+                # 走状态机时不再叠加 ActionRecognizer 的跳蹲：
+                # 那套判据在静息时误报率很高（见 docs/），两套一起用会互相打架。
+                if sm is not None:
+                    continue
                 state['jump' if name == JUMP else 'crouch'] = 1.0
                 fired.append('%s%s' % (name, '[未验证]' if e.get('gated') else ''))
             elif name in (LANE_LEFT, LANE_RIGHT):
@@ -499,10 +671,16 @@ def main():
             elif name in (TARGET_LOST, TARGET_BACK):
                 fired.append(name)
 
+        if args.lr_flip and fired:
+            _swap = {LANE_LEFT: LANE_RIGHT, LANE_RIGHT: LANE_LEFT}
+            fired = [_swap.get(x, x) for x in fired]
         feat = out.get('features') or {}
         board = src.board or '?'
+        extra = {'events': fired}
+        if state.get('sm') is not None:
+            extra['sm'] = state['sm']
         f = emit(out, int(time.time() * 1000), board, float(feat.get('py') or 0.0),
-                 int(feat.get('n') or 0), {'events': fired}, az_hint=az_hint)
+                 int(feat.get('n') or 0), extra, az_hint=az_hint)
 
         if not args.quiet:
             fps = stats.get('fps')
@@ -520,6 +698,7 @@ def main():
     except KeyboardInterrupt:
         stop.set()
     log('退出。共处理 %d 帧' % state['n'])
+    cleanup()
     return 0
 
 
