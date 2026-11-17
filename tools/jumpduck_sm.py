@@ -43,9 +43,24 @@ class JumpDuckSM:
       quiet  蹲确认后静默多少帧回到 IDLE（吞掉起身后摇）
     """
 
-    def __init__(self, v_t=0.15, nz_t=0.30, nb_duck=3, quiet=6, cooldown=8, alpha=0.5):
+    def __init__(self, v_t=0.15, nz_t=0.30, nb_duck=3, quiet=6, cooldown=8,
+                 alpha=0.5, defer_duck=0, v_jump=None, v_duck=0.0):
         self.v_t, self.nz_t, self.nb_duck, self.quiet = v_t, nz_t, nb_duck, quiet
         self.cooldown, self.cd = cooldown, 0
+        # 跳 / 蹲分开的幅度门（现场反馈：小蹲就报蹲，跳却要很大幅度）：
+        #   v_jump  判"转正算跳"的正速度门。低于 v_t 时轻跳也能触发。
+        #   v_duck  判蹲前，负段里最负的速度必须达到它 → 只认真的蹲下去。
+        #           起跳前那点蓄力（负速度很小）幅度不够，不会被当成蹲。
+        #   两者默认值保持旧口径（v_jump=v_t、v_duck=0）。
+        self.v_jump = v_t if v_jump is None else v_jump
+        self.v_duck = v_duck
+        self.vneg = 0.0
+        self.vpos = 0.0
+        # 负段凑够 nb_duck 帧时不立刻判蹲，先"压住"再看 defer_duck 帧：
+        # 大跳落地反冲的负段有 4~8 帧，会被误判成蹲；真蹲不会马上转正。
+        # defer_duck=0 时行为与旧版完全一致（离线基线的口径）。
+        self.defer_duck = defer_duck
+        self.pending = 0
         # 因果 EMA：慢速动作(浅蹲)的 v_r 会在 ±0 之间来回翻符号，
         # 不平滑就永远凑不出"连续同号段"（实测 duck_s 的 nb/pb 全为 0）。
         self.alpha = alpha
@@ -60,6 +75,9 @@ class JumpDuckSM:
     def reset(self):
         self.state, self.nb, self.quiet_n, self.t0 = 'IDLE', 0, 0, None
         self.stall = 0
+        self.pending = 0
+        self.vneg = 0.0
+        self.vpos = 0.0
 
     def push(self, f):
         """f: frame_feats 字典（可为 None）。返回 (事件, 延迟帧数, 延迟ms)。"""
@@ -71,6 +89,7 @@ class JumpDuckSM:
         if f is None:
             return self._tick_idle(i)
         v, nz = f['v_r'], f['nz_share']
+        v_raw = v   # 判跳看原始峰值：EMA 会把尖峰削掉一半，轻跳就漏了
         active = nz >= self.nz_t
 
         if self.state == 'IDLE':
@@ -82,7 +101,9 @@ class JumpDuckSM:
                 self.t0 = i
             if v < -self.v_t:
                 self.vs, self.state, self.nb, self.stall = v, 'NEG', 1, 0
-            elif v > self.v_t:
+                self.vneg = v          # 记下这一段最负的速度，后面判"蹲得够不够深"
+                self.vpos = 0.0        # 正峰从 0 开始记，只统计这一段
+            elif v > self.v_jump:
                 self.vs, self.state, self.stall = v, 'POS0', 0
             else:
                 self.vs = self.alpha * v + (1.0 - self.alpha) * self.vs
@@ -94,21 +115,39 @@ class JumpDuckSM:
         v = self.vs
 
         if self.state == 'NEG':
+            self.vneg = min(self.vneg, v)
+            self.vpos = max(self.vpos, v_raw)
+            # 蹲的"深度"条件：这一段最快的下落速度没到 v_duck，就不算真蹲
+            # （起跳前的蓄力只有一点点负速度），继续等它转正判跳。
+            deep_enough = abs(self.vneg) >= self.v_duck
+            if self.pending > 0:
+                # 负段已凑够，正在观望：转正 → 跳（大跳落地反冲后会立刻反弹）；
+                # 观望期满仍没转正 → 蹲。
+                if v_raw > self.v_jump:
+                    return self._emit('JUMP', i)
+                self.pending -= 1
+                if self.pending == 0:
+                    self.state, self.quiet_n = 'SUPPRESS', 0
+                    return self._emit('DUCK', i)
+                return None, None, None
             if v < -self.v_t:
                 self.nb += 1
                 self.stall = 0
-                if self.nb >= self.nb_duck:
+                if self.nb >= self.nb_duck and deep_enough:
+                    if self.defer_duck > 0:
+                        self.pending = int(self.defer_duck)
+                        return None, None, None
                     self.state, self.quiet_n = 'SUPPRESS', 0
                     return self._emit('DUCK', i)
-            elif v > self.v_t:
+            elif v_raw > self.v_jump:
                 return self._emit('JUMP', i)
             else:
                 self.stall += 1
                 if self.stall >= 3:
-                    if self.nb >= self.nb_duck:
+                    if self.nb >= self.nb_duck and deep_enough:
                         self.state, self.quiet_n = 'SUPPRESS', 0
                         return self._emit('DUCK', i)
-                    if self.nb >= 1:
+                    if self.nb >= 1 and self.vpos >= self.v_jump:
                         # 短负段后平静下来且没有转正：7.7 Hz 漏掉了上冲（jump_k
                         # 有 3 块就是这样）。负段短 = 快速动作 = 跳，不能丢。
                         return self._emit('JUMP', i)
