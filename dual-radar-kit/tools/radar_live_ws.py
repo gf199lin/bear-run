@@ -347,6 +347,10 @@ def main():
     ap.add_argument('--clutter-keep', type=float, default=1.0,
                     help='MTI 静态抑制系数：1.0=完全去静止(默认)；0.3=保留70%%静止回波，'
                          '站着不动也能被看到（噪声会变多）')
+    ap.add_argument('--exclude-az', default=None,
+                    help='丢弃某个方位扇区的点，格式 lo,hi（度）。雷达斜放时另一侧常是'
+                         '显示器/主机，完全静止且反射强，取最强点会一直锁到它。'
+                         '例：--exclude-az -45,-20')
     ap.add_argument('--min-snr', type=float, default=7.0)
     ap.add_argument('--x-amp', type=float, default=0.6, help='车道电平幅值')
     ap.add_argument('--mode', default='pos', choices=['pos', 'event'],
@@ -433,8 +437,20 @@ def main():
 
     # ---- 数据源：SerialSource 自动按 USB 指纹选板型与波特率 -----------------
     src = SerialSource(args.port, baud=None, retry_delay=1.0)
+    _excl = None
+    if args.exclude_az:
+        try:
+            _p = [float(v) for v in args.exclude_az.split(',')]
+            if len(_p) == 2 and _p[0] < _p[1]:
+                _excl = (_p[0], _p[1])
+                log('排除扇区 %.1f° ~ %.1f°' % _excl)
+            else:
+                log('!! --exclude-az 需要 lo<hi，已忽略：%s' % args.exclude_az)
+        except ValueError:
+            log('!! --exclude-az 格式应为 lo,hi，已忽略：%s' % args.exclude_az)
     proc = PointCloudProcessor(cfar_scale=args.cfar, min_snr=args.min_snr,
-                               remove_clutter=True, clutter_keep=args.clutter_keep)
+                               remove_clutter=True, clutter_keep=args.clutter_keep,
+                               exclude_az=_excl)
 
     # ---- 动作识别器 --------------------------------------------------------
     band = None

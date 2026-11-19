@@ -79,9 +79,12 @@ ROLE_LABEL = {
 ROLE_SHORT = {'lr': '水平', 'ud': '竖直', 'none': '—'}
 
 # 水平：验收过的 xbase 判据，瞬时角度出位置电平（低延迟）
-LR_ARGS = ['--mode', 'pos']
-# 竖直：1T2R 没有俯仰角，用径向速度状态机；1.0~1.2 m 站位落在 bin1/bin2
-UD_ARGS = ['--jump-engine', 'fusion', '--defer-duck', '2', '--jump-band', '1,3']
+# 2026-11-19：回到原始（clutter-keep 1.0、cfar 2.6、min-snr 7.0），
+# 只保留 --band 放宽。原因：
+#   calib.json 的 band=[0.681,1.363] 只覆盖 1.02m 那一个 bin，
+#   1T2R 实际有 1.02 和 1.70 两个 bin，写死会丢掉约 48% 的帧（AGENTS.md 记过）。
+# 不校准。让 zero 在启动时锁到人，游戏用 config.js 默认的 x0=0/xGain=1 即可。
+LR_ARGS = ['--mode', 'pos', '--band', '0.5,1.9']
 
 
 def setup_console():
