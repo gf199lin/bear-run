@@ -33,6 +33,7 @@
 | [`05-验收与证据/`](05-验收与证据/) | 菜单、结算、跳跃、滑铲、雷达回放、校准向导等 8 张截图 | `README.md` |
 | [`06-版本历史/`](06-版本历史/) | 2026-10-20 起 6 个构建版本，按时间排列 | `README.md` |
 | [`07-离线单文件版/`](07-离线单文件版/) | 一个 HTML 就是整个游戏（1.6 MB，three.js 内联，双击即玩） | `README.md` |
+| [`08-云端账号与存档/`](08-云端账号与存档/) | Supabase 真实账号 + 云端战绩：建表脚本、方案、配置清单、部署验证记录 | `README.md` |
 
 ---
 
@@ -90,6 +91,19 @@
 | G3 事件 | 静息误报率、命中率 | 角色自己乱动 |
 
 原则：**门没过，不进游戏调阈值**。漏采的动作不会因为阈值变低而回来。
+
+### 4.4 账号与战绩：2026-11-19 起改为真后端
+
+- **问题**：此前是纯前端 localStorage 伪账号，换设备即丢、清缓存即没，
+  且无法证明一局成绩属于某个玩家。
+- **改法**：接入 Supabase（Postgres + Auth），战绩写入 `game_records`，
+  权限由 RLS 兜底；前端只持 publishable key，`service_role` 从不进前端。
+- **兼顾**：双击 `index.html`（`file://`）或未配置密钥时自动降级为原本地伪账号，
+  单文件分发能力不变。
+- **验证**：注册返回 `access_token`，`profiles`/`player_stats` 由触发器自动生成，
+  匿名伪造写入被 RLS 拒绝（`401` + `42501`）；内联 22 个脚本块语法通过，
+  冒烟测试 17/17。细节与复现见 [`08-云端账号与存档/`](08-云端账号与存档/)。
+- **限制**：旧本地伪账号不会自动迁移，需在线上重新注册一次。
 
 ---
 
@@ -154,10 +168,12 @@ python 04-工具与脚本/scripts/capture_replay.py      # 录制/回放校验
 
 ## 8. 提交说明
 
-本目录按团队约定通过**独立分支 + PR** 提交，不直接推送 `main`：
+本目录早期的归档走**独立分支 + PR**（`docs/gf199lin-portfolio`）。
+2026-11-19 起，经组内确认改为**直接推 `main`**，因为 Pages 从 `main` 部署，
+线上演示需要即时生效；提交仍按「一次一个主题」拆分，便于追溯。
 
-- 分支：`docs/gf199lin-portfolio`
-- commit：`docs(portfolio): archive gf199lin deliverables, evaluations and tooling`
-- PR 描述含 `Refs #<Issue>` 并 `@` 一名组员 review
+- 归档批次：`docs(portfolio): archive gf199lin deliverables, evaluations and tooling`
+- 云端改造：`feat(cloud): 接入 Supabase 真实账号与云端战绩`（`198e32f`）
+- 后台证据：`docs(supabase): 归档后台建表脚本、配置清单与部署验证记录`（`c8cc46c`）
 
 后续如有新增成果，继续在本目录内按分类追加，不新建平行目录。

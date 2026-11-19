@@ -4,6 +4,31 @@
 > 每条给出「现象 / 根因 / 改法 / 验证」，只写**已实测通过**的内容；
 > 未验证的推测会明确标注。
 
+## 2026-11-19 账号与战绩接入 Supabase（@gf199lin）
+
+- **现象**：账号和战绩只存浏览器 localStorage，换设备、清缓存即丢；
+  演示时无法证明某一局成绩属于某个玩家，也防不了本地直接改数据。
+- **根因**：`js/auth.js` 是纯前端伪账号，没有后端身份，拿不到 `auth.uid()`，
+  所有"按账号隔离"实际只隔离在同一台浏览器里。
+- **改法**：
+  - 新增 `js/cloud.js`：内存缓存 → localStorage 兜底 → 异步 Supabase 的三层存储，
+    业务代码保持同步调用不变；写失败进本地 outbox，下次启动补传（上限 200 局）；
+  - `auth.js` 改为双模式：`http(s)` 走 Supabase Auth，`file://` 或未配置密钥时
+    自动降级为原本地伪账号，保住"双击即玩"的单文件分发；
+  - 结算时 `_pushRecord` 写入 `game_records`；
+  - 新增 `tools/sync-inline.js`：改完 `js/` 后用一条命令重新内联进单文件 `index.html`，
+    `--check` 做幂等校验；
+  - 后台建表、触发器、`player_stats`/`leaderboard` 视图与 RLS 策略见
+    `outputs/supabase/schema.sql`，个人归档见 `gf199lin/08-云端账号与存档/`。
+- **验证**：
+  - `/auth/v1/health` → `200`（`GoTrue v2.198.0`）；注册直接返回 `access_token`；
+  - 注册后 `profiles` / `player_stats` 由触发器自动生成；
+  - 匿名伪造写入 `game_records` 被拒：`401` + `42501`（RLS 生效）；
+  - 内联 22 个脚本块语法全过，Node 冒烟测试 17/17，`sync-inline --check` 通过；
+  - Pages 线上复查含 `RR_CLOUD_CONFIG` / `RR.Cloud` / `cloudRegister` / `pushRecord`。
+- **未解决**：部署前的旧本地伪账号不会自动迁移，需在线上重新注册；
+  密码找回未接自定义 SMTP，演示期按"忘记就重注册"处理。
+
 ## 2026-11-12 1T2R 竖直判跳/蹲（@jqz070803）
 
 - **现象**：1T2R 垂直角不可用（`VertAngleInfo` 无通道组合），无法直接测人体高度；
