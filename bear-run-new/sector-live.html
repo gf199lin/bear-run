@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>雷达扇区实时扫描</title>
+<style>
+  :root {
+    --bg:#0b0f14; --panel:#141a22; --line:rgba(255,255,255,.10);
+    --ink:#e8eef6; --dim:#8f9bab; --gold:#e6b93f; --moss:#3ddc84;
+    --red:#ff6b6b; --blue:#59a6ff;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:radial-gradient(1200px 700px at 50% -10%, #16202b 0%, var(--bg) 60%);
+    color:var(--ink); font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased; padding:22px;
+  }
+  .wrap { max-width:1080px; margin:0 auto; }
+
+  .top { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:18px; }
+  .pill { padding:5px 12px; border-radius:999px; border:1px solid var(--line); font-size:13px; color:var(--dim); }
+  .pill.ok { color:var(--moss); border-color:rgba(61,220,132,.35); }
+  .pill.bad { color:var(--red); border-color:rgba(255,107,107,.35); }
+  .spacer { flex:1; }
+
+  .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }
+  .stat { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+  .stat .k { font-size:12px; color:var(--dim); letter-spacing:.06em; }
+  .stat .v { font-size:30px; font-weight:600; margin-top:4px; font-variant-numeric:tabular-nums; }
+
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:20px 22px; }
+
+  .hh { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
+  .hh h2 { font-size:16px; margin:0; font-weight:600; letter-spacing:.02em; }
+  .hh .hint { font-size:12px; color:var(--dim); }
+
+  .chart { position:relative; }
+  .row { display:flex; align-items:center; gap:10px; margin-bottom:5px; font-variant-numeric:tabular-nums; }
+  .row .lab { width:92px; font-size:13px; color:var(--dim); text-align:right; flex:none; }
+  .row .track { flex:1; height:22px; background:rgba(255,255,255,.045); border-radius:5px; position:relative; overflow:hidden; }
+  .row .fill { height:100%; border-radius:5px; transition:width .18s ease, background .18s ease; }
+  .row .num { width:76px; font-size:13px; color:var(--dim); flex:none; }
+  .row.peak .lab { color:var(--gold); font-weight:600; }
+  .row.peak .num { color:var(--gold); }
+  .row.empty .lab { color:#4a5563; }
+
+  .zero-line { position:relative; height:20px; margin:2px 0 10px 102px; }
+  .zero-line .mark { position:absolute; top:0; transform:translateX(-50%); font-size:11px; color:var(--blue); white-space:nowrap; }
+
+  .verdict { margin-top:20px; padding:16px 18px; border-radius:12px; font-size:15px; line-height:1.7; }
+  .verdict.good { background:rgba(61,220,132,.10); border:1px solid rgba(61,220,132,.30); }
+  .verdict.warn { background:rgba(230,185,63,.10); border:1px solid rgba(230,185,63,.30); }
+  .verdict.bad  { background:rgba(255,107,107,.10); border:1px solid rgba(255,107,107,.30); }
+
+  button {
+    font:inherit; cursor:pointer; border-radius:10px; padding:9px 16px;
+    border:1px solid var(--line); background:rgba(255,255,255,.05); color:var(--ink);
+  }
+  button:hover { background:rgba(255,255,255,.10); }
+  .foot { margin-top:16px; font-size:12px; color:var(--dim); line-height:1.8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <span class="pill" id="conn">连接中…</span>
+    <span class="pill" id="rate">— Hz</span>
+    <span class="spacer"></span>
+    <button id="btn-reset">清空历史</button>
+  </div>
+
+  <div class="grid">
+    <div class="stat"><div class="k">当前方位角</div><div class="v" id="v-az">—</div></div>
+    <div class="stat"><div class="k">当前点数</div><div class="v" id="v-n">—</div></div>
+    <div class="stat"><div class="k">中线 zero</div><div class="v" id="v-zero">—</div></div>
+    <div class="stat"><div class="k">有回波比例</div><div class="v" id="v-hit">—</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="hh">
+      <h2>方位角分布（最近 6 秒）</h2>
+      <span class="hint">转雷达时，亮条会整体左右移动</span>
+    </div>
+    <div class="chart" id="chart"></div>
+    <div class="zero-line" id="zeroline"></div>
+
+    <div class="verdict warn" id="verdict">等待数据…</div>
+
+    <div class="foot">
+      空的角度段 = 雷达物理上看不见那里。<b>人站到空段里也测不到</b>，必须转雷达让亮条覆盖人体所在方向。<br>
+      点数长期为 0 而方位角有值，那是跟踪器在报上一次的残留角度，不代表真有目标。
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var WS_URL = (function () {
+    var m = /[?&]ws=([^&]*)/.exec(location.search);
+    return m ? decodeURIComponent(m[1]) : 'ws://127.0.0.1:8781';
+  })();
+
+  var BUCKET = 5, LO = -45, HI = 45, WIN_MS = 6000;
+  var buf = [];              // {t, az, n, zero}
+  var lastFrameAt = 0;
+  var frameCount = 0, countStart = performance.now();
+
+  var el = {
+    conn: document.getElementById('conn'),
+    rate: document.getElementById('rate'),
+    az: document.getElementById('v-az'),
+    n: document.getElementById('v-n'),
+    zero: document.getElementById('v-zero'),
+    hit: document.getElementById('v-hit'),
+    chart: document.getElementById('chart'),
+    zeroline: document.getElementById('zeroline'),
+    verdict: document.getElementById('verdict')
+  };
+
+  // 预建行
+  var rows = {};
+  for (var b = LO; b < HI; b += BUCKET) {
+    var d = document.createElement('div');
+    d.className = 'row empty';
+    d.innerHTML = '<span class="lab">' + fmt(b) + '° ~ ' + fmt(b + BUCKET) + '°</span>' +
+                  '<span class="track"><i class="fill"></i></span>' +
+                  '<span class="num">0</span>';
+    el.chart.appendChild(d);
+    rows[b] = { el: d, fill: d.querySelector('.fill'), num: d.querySelector('.num') };
+  }
+
+  function fmt(v) { return (v > 0 ? '+' : '') + v; }
+
+  function connect() {
+    var ws;
+    try { ws = new WebSocket(WS_URL); } catch (e) { retry(); return; }
+    ws.onopen = function () {
+      el.conn.textContent = '已连接 ' + WS_URL;
+      el.conn.className = 'pill ok';
+    };
+    ws.onclose = function () {
+      el.conn.textContent = '断开，重连中…';
+      el.conn.className = 'pill bad';
+      retry();
+    };
+    ws.onerror = function () { try { ws.close(); } catch (e) {} };
+    ws.onmessage = function (ev) {
+      var o;
+      try { o = JSON.parse(ev.data); } catch (e) { return; }
+      var r = o.raw || {};
+      buf.push({
+        t: performance.now(),
+        az: (typeof r.az === 'number') ? r.az : null,
+        n: (typeof r.n === 'number') ? r.n : 0,
+        zero: (typeof r.zero === 'number') ? r.zero : null
+      });
+      frameCount++;
+      lastFrameAt = performance.now();
+    };
+  }
+
+  var retryTimer = null;
+  function retry() {
+    if (retryTimer) return;
+    retryTimer = setTimeout(function () { retryTimer = null; connect(); }, 1200);
+  }
+
+  function prune(now) {
+    var cut = now - WIN_MS;
+    var i = 0;
+    while (i < buf.length && buf[i].t < cut) i++;
+    if (i > 0) buf.splice(0, i);
+  }
+
+  function render() {
+    var now = performance.now();
+    prune(now);
+
+    // 速率
+    var dt = (now - countStart) / 1000;
+    if (dt > 1) {
+      el.rate.textContent = (frameCount / dt).toFixed(1) + ' Hz';
+      frameCount = 0; countStart = now;
+    }
+
+    var last = buf.length ? buf[buf.length - 1] : null;
+    el.az.textContent = last && last.az !== null ? last.az.toFixed(1) + '°' : '—';
+    el.n.textContent = last ? last.n : '—';
+    el.zero.textContent = last && last.zero !== null ? last.zero.toFixed(1) + '°' : '—';
+
+    var hit = 0, cnt = 0;
+    var counts = {};
+    for (var i = 0; i < buf.length; i++) {
+      cnt++;
+      if (buf[i].n > 0) hit++;
+      var a = buf[i].az;
+      if (a === null) continue;
+      var k = Math.floor(a / BUCKET) * BUCKET;
+      if (k < LO) k = LO;
+      if (k >= HI) k = HI - BUCKET;
+      counts[k] = (counts[k] || 0) + 1;
+    }
+    el.hit.textContent = cnt ? Math.round(100 * hit / cnt) + '%' : '—';
+
+    var mx = 0;
+    for (var kk in counts) if (counts[kk] > mx) mx = counts[kk];
+
+    var peakKey = null;
+    for (var b = LO; b < HI; b += BUCKET) {
+      var v = counts[b] || 0;
+      var r = rows[b];
+      var w = mx ? (100 * v / mx) : 0;
+      r.fill.style.width = w.toFixed(1) + '%';
+      r.num.textContent = v;
+      r.el.className = 'row' + (v === 0 ? ' empty' : '') + (v === mx && mx > 0 ? ' peak' : '');
+      if (v === mx && mx > 0) peakKey = b;
+      // 颜色：亮的偏暖
+      var ratio = mx ? v / mx : 0;
+      if (v === 0) r.fill.style.background = 'transparent';
+      else if (ratio > 0.66) r.fill.style.background = 'linear-gradient(90deg,#d9a72c,#f0c657)';
+      else if (ratio > 0.33) r.fill.style.background = 'linear-gradient(90deg,#3a6ea5,#59a6ff)';
+      else r.fill.style.background = 'linear-gradient(90deg,#2b3a4a,#3f5468)';
+    }
+
+    // zero 标记
+    el.zeroline.innerHTML = '';
+    if (last && last.zero !== null) {
+      var pct = (last.zero - LO) / (HI - LO);
+      if (pct >= 0 && pct <= 1) {
+        var mk = document.createElement('span');
+        mk.className = 'mark';
+        mk.style.left = (pct * 100) + '%';
+        mk.textContent = 'zero ' + last.zero.toFixed(0) + '°';
+        el.zeroline.appendChild(mk);
+      }
+    }
+
+    // 判读
+    var vd = el.verdict;
+    if (!buf.length) {
+      vd.className = 'verdict warn';
+      vd.textContent = '等待数据…（确认诊断实例在跑，端口 ' + WS_URL.split(':').pop() + '）';
+    } else {
+      var pos = 0, neg = 0;
+      for (var bb = 0; bb < HI; bb += BUCKET) pos += counts[bb] || 0;
+      for (var cc = LO; cc < 0; cc += BUCKET) neg += counts[cc] || 0;
+      var center = (counts[0] || 0) + (counts[BUCKET] || 0) + (counts[-BUCKET] || 0);
+      var totalAz = neg + pos;
+
+      if (totalAz === 0) {
+        vd.className = 'verdict bad';
+        vd.textContent = '完全没有任何方位角输出。检查雷达是否在出数据（点数应该出现非 0 值）。';
+      } else if (cnt && hit / cnt < 0.05) {
+        vd.className = 'verdict bad';
+        vd.textContent = '有点数但几乎全是 0 —— 雷达在这个位置看不到任何东西。转雷达，或者把遮挡物挪开。';
+      } else {
+        var cRatio = center / totalAz;
+        if (cRatio >= 0.45) {
+          vd.className = 'verdict good';
+          vd.textContent = '正前方（−5°~+10°）占 ' + Math.round(cRatio * 100) + '%，摆位基本对准了。现在可以把服务切回正式模式，让人站进去测。';
+        } else if (pos > neg) {
+          vd.className = 'verdict warn';
+          vd.textContent = '热区偏在右边（+ 侧），正前方只占 ' + Math.round(cRatio * 100) + '%。把雷达往左转一点，让亮条移到 0° 附近。';
+        } else {
+          vd.className = 'verdict warn';
+          vd.textContent = '热区偏在左边（− 侧），正前方只占 ' + Math.round(cRatio * 100) + '%。把雷达往右转一点，让亮条移到 0° 附近。';
+        }
+      }
+    }
+
+    requestAnimationFrame(render);
+  }
+
+  document.getElementById('btn-reset').addEventListener('click', function () {
+    buf.length = 0;
+  });
+
+  connect();
+  requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>

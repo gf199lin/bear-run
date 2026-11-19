@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>个人校准 · 引导采集</title>
+<style>
+  :root {
+    --bg: #0b0f14; --panel: #141a22; --line: rgba(255,255,255,.10);
+    --ink: #e8eef6; --dim: #8f9bab; --gold: #e6b93f; --moss: #3ddc84;
+    --red: #ff6b6b; --blue: #59a6ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: radial-gradient(1200px 700px at 50% -10%, #16202b 0%, var(--bg) 60%);
+    color: var(--ink); font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+    -webkit-font-smoothing: antialiased;
+  }
+  #app { width: min(820px, 100%); }
+
+  .bar-top {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px; color: var(--dim); margin-bottom: 18px;
+  }
+  .pill { padding: 4px 11px; border-radius: 999px; border: 1px solid var(--line); }
+  .pill.ok { color: var(--moss); border-color: rgba(61,220,132,.35); }
+  .pill.bad { color: var(--red); border-color: rgba(255,107,107,.35); }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+    padding: 34px 34px 28px; box-shadow: 0 18px 60px rgba(0,0,0,.45);
+  }
+
+  .step-no { font-size: 13px; letter-spacing: .12em; color: var(--gold); text-transform: uppercase; }
+  .title { font-size: 46px; font-weight: 700; line-height: 1.15; margin: 10px 0 12px; letter-spacing: -.01em; }
+  .sub { font-size: 18px; color: var(--dim); line-height: 1.6; min-height: 56px; }
+
+  .count {
+    font-size: 120px; font-weight: 200; line-height: 1; text-align: center;
+    margin: 18px 0 6px; color: var(--gold); font-variant-numeric: tabular-nums;
+  }
+  .count.hide { display: none; }
+
+  .progress { height: 10px; border-radius: 999px; background: rgba(255,255,255,.07); overflow: hidden; margin: 22px 0 12px; }
+  .progress > i { display: block; height: 100%; width: 0%; border-radius: 999px;
+                  background: linear-gradient(90deg, var(--gold), #ffd980); transition: width .08s linear; }
+
+  .live {
+    display: flex; gap: 22px; flex-wrap: wrap; font-size: 14px; color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .live b { color: var(--ink); font-weight: 600; }
+
+  .dots { display: flex; gap: 9px; margin-top: 20px; }
+  .dots span { width: 34px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.09); }
+  .dots span.done { background: var(--moss); }
+  .dots span.now { background: var(--gold); }
+
+  button {
+    font: inherit; cursor: pointer; border-radius: 12px; padding: 13px 22px;
+    border: 1px solid var(--line); background: rgba(255,255,255,.05); color: var(--ink);
+    transition: background .15s, border-color .15s, transform .06s;
+  }
+  button:hover { background: rgba(255,255,255,.10); }
+  button:active { transform: translateY(1px); }
+  button.primary {
+    background: linear-gradient(180deg, #f0c657, #d9a72c); color: #201804;
+    border-color: transparent; font-weight: 700; font-size: 17px; padding: 15px 30px;
+  }
+  button.primary:hover { filter: brightness(1.06); }
+  button:disabled { opacity: .38; cursor: not-allowed; }
+
+  .actions { display: flex; gap: 12px; margin-top: 26px; flex-wrap: wrap; }
+
+  input[type=text] {
+    font: inherit; padding: 13px 15px; border-radius: 12px; min-width: 220px;
+    border: 1px solid var(--line); background: rgba(0,0,0,.28); color: var(--ink); outline: none;
+  }
+  input[type=text]:focus { border-color: var(--gold); }
+
+  .kv { display: grid; grid-template-columns: 132px 1fr; gap: 9px 16px; margin: 22px 0 6px; font-size: 15px; }
+  .kv dt { color: var(--dim); }
+  .kv dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .good { color: var(--moss); }
+  .warn { color: var(--gold); }
+  .bad { color: var(--red); }
+
+  .note { font-size: 13px; color: var(--dim); line-height: 1.7; margin-top: 18px;
+          padding-top: 16px; border-top: 1px solid var(--line); }
+
+  #result { display: none; }
+  #result.show { display: block; }
+  #stage.hide { display: none; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="bar-top">
+    <span id="link-lr" class="pill">左右雷达 · 连接中</span>
+    <span id="link-ud" class="pill">上下雷达 · 连接中</span>
+  </div>
+
+  <!-- 采集阶段 -->
+  <div id="stage" class="card">
+    <div class="step-no" id="step-no">准备</div>
+    <div class="title" id="title">个人校准</div>
+    <div class="sub" id="sub">点下面的按钮开始。全程约 80 秒，跟着屏幕做动作就行。</div>
+
+    <div class="count hide" id="count">3</div>
+
+    <div class="progress"><i id="prog"></i></div>
+    <div class="live">
+      <span>左右 <b id="lx">—</b></span>
+      <span>方位 <b id="laz">—</b></span>
+      <span>点数 <b id="ln">—</b></span>
+      <span>帧率 <b id="lfps">—</b></span>
+      <span>跳 <b id="lj">—</b></span>
+      <span>蹲 <b id="lc">—</b></span>
+      <span id="lnote" style="color:var(--red)"></span>
+    </div>
+
+    <div class="dots" id="dots"></div>
+
+    <div class="actions">
+      <button id="btn-start" class="primary">开始采集</button>
+      <button id="btn-abort" style="display:none">中止</button>
+    </div>
+
+    <div class="note">
+      站到雷达前约 1.5 米。动作要做得明显：跳就真跳起来，蹲就蹲到底，左右各迈一大步再回中间。
+      中途做错了不用管，后面还有好多次机会，统计会挑最好的那次。
+    </div>
+  </div>
+
+  <!-- 分析结果 -->
+  <div id="result" class="card">
+    <div class="step-no">采集完成</div>
+    <div class="title" id="r-title">分析结果</div>
+
+    <dl class="kv" id="r-kv"></dl>
+
+    <div class="actions">
+      <input type="text" id="r-name" placeholder="给她起个名字，比如 xyx" maxlength="16" spellcheck="false">
+      <button id="btn-save" class="primary">保存这份校准</button>
+      <button id="btn-again">重新采集</button>
+    </div>
+
+    <div class="note" id="r-note"></div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  function qs(k) {
+    var m = new RegExp('[?&]' + k + '=([^&]*)').exec(location.search);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function num(v, d) {
+    var n = Number(v);
+    return isFinite(n) ? n : (d === undefined ? 0 : d);
+  }
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function median(arr) {
+    if (!arr.length) return 0;
+    var a = arr.slice().sort(function (x, y) { return x - y; });
+    var m = a.length >> 1;
+    return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+  }
+  function quant(arr, p) {
+    if (!arr.length) return NaN;
+    var a = arr.slice().sort(function (x, y) { return x - y; });
+    var pos = (a.length - 1) * p, lo = Math.floor(pos), hi = Math.ceil(pos);
+    if (lo === hi) return a[lo];
+    return a[lo] + (a[hi] - a[lo]) * (pos - lo);
+  }
+
+  var LR_URL = qs('lr') || 'ws://127.0.0.1:8766';
+  var UD_URL = qs('ud') || 'ws://127.0.0.1:8767';
+  var PRESET_NAME = qs('name') || '';
+
+  // 每段：dur 秒，prep 秒倒计时
+  var SEGS = [
+    { id: 'ready',  no: '第 1 段 / 5', title: '站好，别动',      dur: 4,  prep: 3,
+      sub: '站到雷达前约 1.5 米，正对雷达，手臂自然下垂，别晃。' },
+    { id: 'jump',   no: '第 2 段 / 5', title: '原地跳，跳 4 下',  dur: 15, prep: 3,
+      sub: '真跳起来，每下落地站稳再跳下一个。跳几次都行，统计只看最好的。' },
+    { id: 'crouch', no: '第 3 段 / 5', title: '蹲 4 次',          dur: 15, prep: 3,
+      sub: '蹲到底停半秒再站起来，动作慢一点更清楚。' },
+    { id: 'left',   no: '第 4 段 / 5', title: '往左走 4 次',      dur: 15, prep: 3,
+      sub: '向你的左手边迈一大步，然后回到中间，重复 4 次。' },
+    { id: 'right',  no: '第 5 段 / 5', title: '往右走 4 次',      dur: 15, prep: 3,
+      sub: '向你的右手边迈一大步，然后回到中间，重复 4 次。' }
+  ];
+
+  var el = {
+    stage: document.getElementById('stage'),
+    result: document.getElementById('result'),
+    stepNo: document.getElementById('step-no'),
+    title: document.getElementById('title'),
+    sub: document.getElementById('sub'),
+    count: document.getElementById('count'),
+    prog: document.getElementById('prog'),
+    lx: document.getElementById('lx'),
+    lfps: document.getElementById('lfps'),
+    lj: document.getElementById('lj'),
+    lc: document.getElementById('lc'),
+    laz: document.getElementById('laz'),
+    ln: document.getElementById('ln'),
+    lnote: document.getElementById('lnote'),
+    dots: document.getElementById('dots'),
+    btnStart: document.getElementById('btn-start'),
+    btnAbort: document.getElementById('btn-abort'),
+    btnSave: document.getElementById('btn-save'),
+    btnAgain: document.getElementById('btn-again'),
+    rName: document.getElementById('r-name'),
+    rKv: document.getElementById('r-kv'),
+    rTitle: document.getElementById('r-title'),
+    rNote: document.getElementById('r-note'),
+    linkLr: document.getElementById('link-lr'),
+    linkUd: document.getElementById('link-ud')
+  };
+
+  // ---------- 两块雷达 ----------
+  var lrFrame = null, udFrame = null, lrOk = false, udOk = false;
+  var lrCount = 0, lrFps = 0;
+
+  function connect(url, onFrame, onState) {
+    var ws, retry = null;
+    function open() {
+      try { ws = new WebSocket(url); } catch (e) { onState(false); schedule(); return; }
+      ws.onopen = function () { onState(true); };
+      ws.onmessage = function (ev) {
+        var o;
+        try { o = JSON.parse(ev.data); } catch (e) { return; }
+        onFrame(o);
+        onChange();
+      };
+      ws.onclose = function () { onState(false); schedule(); };
+      ws.onerror = function () { try { ws.close(); } catch (e) {} };
+    }
+    function schedule() {
+      if (retry) return;
+      retry = setTimeout(function () { retry = null; open(); }, 1500);
+    }
+    open();
+  }
+
+  function onChange() {}
+
+  connect(LR_URL, function (o) {
+    lrFrame = o; lrCount++;
+  }, function (ok) {
+    lrOk = ok;
+    el.linkLr.textContent = '左右雷达 · ' + (ok ? '已连接' : '未连接');
+    el.linkLr.className = 'pill ' + (ok ? 'ok' : 'bad');
+  });
+
+  connect(UD_URL, function (o) {
+    udFrame = o;
+  }, function (ok) {
+    udOk = ok;
+    el.linkUd.textContent = '上下雷达 · ' + (ok ? '已连接' : '未连接');
+    el.linkUd.className = 'pill ' + (ok ? 'ok' : 'bad');
+  });
+
+  // 关键：后端在"视野里没人"时仍会报 confidence 0.9，角度是上一次的残留值。
+  // 唯一可靠的判据是 raw.n（点数）——n<2 就是没看到人，这一帧必须丢掉。
+  function curFrame() {
+    var r = (lrFrame && lrFrame.raw) ? lrFrame.raw : null;
+    var n = r ? num(r.n, 0) : 0;
+    var valid = !!(lrFrame && n >= 2 && isFinite(Number(lrFrame.x)));
+    return {
+      x: valid ? Number(lrFrame.x) : null,
+      jump: udFrame ? (num(udFrame.jump, 0) >= 0.5 ? 1 : 0) : 0,
+      crouch: udFrame ? (num(udFrame.crouch, 0) >= 0.5 ? 1 : 0) : 0,
+      az: (r && isFinite(Number(r.az))) ? Number(r.az) : null,
+      zero: (r && isFinite(Number(r.zero))) ? Number(r.zero) : null,
+      n: n
+    };
+  }
+
+  // ---------- 采集 ----------
+  var running = false, raf = null;
+  var rec = {};          // { segId: [{x, jump, crouch}] }
+  var segIndex = 0;
+  var phase = 'idle';    // idle | prep | run
+  var phaseStart = 0;
+  var seq = 0;           // 当前段序号（用于取消）
+
+  function clearRec() { rec = {}; }
+
+  function renderDots() {
+    var html = '';
+    for (var i = 0; i < SEGS.length; i++) {
+      var cls = i < segIndex ? 'done' : (i === segIndex && running ? 'now' : '');
+      html += '<span class="' + cls + '"></span>';
+    }
+    el.dots.innerHTML = html;
+  }
+
+  function showSeg(i) {
+    var s = SEGS[i];
+    el.stepNo.textContent = s.no;
+    el.title.textContent = s.title;
+    el.sub.textContent = s.sub;
+  }
+
+  function tick() {
+    if (!running) return;
+    var now = performance.now();
+    var s = SEGS[segIndex];
+    var f = curFrame();
+
+    // 实时显示
+    el.lx.textContent = f.x === null ? '—' : f.x.toFixed(2);
+    el.laz.textContent = f.az === null ? '—' : f.az.toFixed(1) + '°';
+    el.ln.textContent = f.n;
+    el.ln.className = '';
+    if (f.n < 2) {
+      el.ln.style.color = 'var(--red)';
+      el.lnote.textContent = '雷达没看到你，站近一点或正对雷达';
+    } else {
+      el.ln.style.color = 'var(--moss)';
+      el.lnote.textContent = '';
+    }
+    el.lj.textContent = f.jump ? '跳!' : '—';
+    el.lc.textContent = f.crouch ? '蹲!' : '—';
+    if (lrOk) {
+      lrFps = lrFps * 0.9 + 0.1 * 7.7;
+      el.lfps.textContent = '~' + Math.round(lrFps);
+    } else {
+      el.lfps.textContent = '—';
+    }
+
+    if (phase === 'prep') {
+      var leftPrep = s.prep - (now - phaseStart) / 1000;
+      el.count.classList.remove('hide');
+      el.count.textContent = Math.max(1, Math.ceil(leftPrep));
+      el.prog.style.width = '0%';
+      if (leftPrep <= 0) {
+        phase = 'run';
+        phaseStart = now;
+        el.count.classList.add('hide');
+        rec[s.id] = rec[s.id] || [];
+      }
+    } else if (phase === 'run') {
+      var left = s.dur - (now - phaseStart) / 1000;
+      el.prog.style.width = (100 * (1 - Math.max(0, left) / s.dur)).toFixed(1) + '%';
+      el.sub.textContent = s.sub + '   还有 ' + Math.max(0, left).toFixed(0) + ' 秒';
+
+      var buf = rec[s.id] || (rec[s.id] = []);
+      buf.push(f);
+
+      if (left <= 0) {
+        phase = 'next';
+        segIndex++;
+        renderDots();
+        if (segIndex >= SEGS.length) {
+          finish();
+          return;
+        }
+        showSeg(segIndex);
+        phase = 'prep';
+        phaseStart = performance.now();
+      }
+    }
+
+    raf = requestAnimationFrame(tick);
+  }
+
+  function start() {
+    if (running) return;
+    if (!lrOk) {
+      alert('左右雷达还没连上（' + LR_URL + '）。\n请先双击「启动-双雷达游戏.cmd」，等它跑到「已监听」。');
+      return;
+    }
+    running = true; seq++;
+    segIndex = 0; phase = 'prep'; phaseStart = performance.now();
+    clearRec();
+    el.btnStart.style.display = 'none';
+    el.btnAbort.style.display = '';
+    el.result.classList.remove('show');
+    el.stage.classList.remove('hide');
+    showSeg(0);
+    renderDots();
+    raf = requestAnimationFrame(tick);
+  }
+
+  function abort() {
+    running = false;
+    if (raf) cancelAnimationFrame(raf);
+    raf = null;
+    el.btnStart.style.display = '';
+    el.btnAbort.style.display = 'none';
+    el.count.classList.add('hide');
+    el.prog.style.width = '0%';
+    el.stepNo.textContent = '已中止';
+    el.title.textContent = '个人校准';
+    el.sub.textContent = '点下面的按钮重新开始。';
+    segIndex = 0;
+    renderDots();
+  }
+
+  // ---------- 分析 ----------
+  function analyze() {
+    var USE = 0.10, STEP_TARGET = 0.55, GAIN_MIN = 0.35, GAIN_MAX = 1.7;
+
+    var restArr = rec.ready || [];
+    var restX = [];
+    for (var i = 0; i < restArr.length; i++) {
+      if (restArr[i] && isFinite(restArr[i].x)) restX.push(restArr[i].x);
+    }
+    // 整段里有多少帧是"雷达没看到人"的
+    var invalid = 0, total = 0;
+    for (var kk in rec) {
+      if (!rec.hasOwnProperty(kk)) continue;
+      var arrK = rec[kk] || [];
+      for (var mi = 0; mi < arrK.length; mi++) {
+        total++;
+        if (!arrK[mi] || !isFinite(arrK[mi].x)) invalid++;
+      }
+    }
+    var x0 = restX.length ? median(restX) : 0;
+
+    function sideOf(id) {
+      var arr = rec[id] || [];
+      var v = [];
+      for (var j = 0; j < arr.length; j++) {
+        if (arr[j] && isFinite(arr[j].x)) v.push(arr[j].x);
+      }
+      if (v.length < 6) return { d: NaN, a: 0, n: v.length };
+      var lo = quant(v, 0.05) - x0, hi = quant(v, 0.95) - x0;
+      var d = Math.abs(lo) >= Math.abs(hi) ? lo : hi;
+      return { d: d, a: Math.abs(d), n: v.length };
+    }
+
+    var L = sideOf('left'), R = sideOf('right');
+    var aL = L.a, aR = R.a;
+    var opposite = (aL >= USE && aR >= USE && (L.d * R.d < 0));
+    var sameSign = (aL >= USE && aR >= USE && !opposite);
+
+    var sign;
+    if (opposite) sign = R.d > 0 ? 1 : -1;
+    else if (aR >= USE) sign = R.d > 0 ? 1 : -1;
+    else if (aL >= USE) sign = L.d > 0 ? -1 : 1;
+    else sign = 1;
+
+    var step = 0;
+    if (opposite) step = (aL + aR) / 2;
+    else if (Math.max(aL, aR) >= USE) step = Math.max(aL, aR) * 0.85;
+
+    var gain = 1;
+    if (step > 0.02) gain = clamp(STEP_TARGET / step, GAIN_MIN, Math.min(GAIN_MAX, 1.7));
+    gain = Math.round(gain * 100) / 100;
+
+    function edges(id, key) {
+      var arr = rec[id] || [];
+      var n = 0, prev = 0;
+      for (var k = 0; k < arr.length; k++) {
+        var v = arr[k] && num(arr[k][key], 0) >= 0.5 ? 1 : 0;
+        if (v && !prev) n++;
+        prev = v;
+      }
+      return n;
+    }
+
+    var jCount = edges('jump', 'jump');
+    var cCount = edges('crouch', 'crouch');
+    var jFrames = (rec.jump || []).length;
+    var cFrames = (rec.crouch || []).length;
+
+    var lrOk = step >= 0.12 && restX.length >= 3;
+    var jumpOk = jFrames >= 6 && jCount >= 2;
+    var crouchOk = cFrames >= 6 && cCount >= 2;
+
+    return {
+      x0: x0, sign: sign, lrOk: lrOk, xGain: gain, stepMeasured: step,
+      aL: aL, aR: aR, dL: L.d, dR: R.d,
+      jumpOk: jumpOk, crouchOk: crouchOk,
+      jumpCount: jCount, crouchCount: cCount,
+      sameSign: sameSign, restN: restX.length,
+      invalid: invalid, total: total,
+      invalidRatio: total ? invalid / total : 1
+    };
+  }
+
+  function finish() {
+    running = false;
+    if (raf) cancelAnimationFrame(raf);
+    raf = null;
+
+    var A = analyze();
+    A.totalFrames = (rec.ready || []).length + (rec.jump || []).length +
+                    (rec.crouch || []).length + (rec.left || []).length +
+                    (rec.right || []).length;
+    A.validFrames = A.totalFrames - A.invalid;
+
+    el.stage.classList.add('hide');
+    el.result.classList.add('show');
+    el.rTitle.textContent = A.lrOk ? '采集完成' : '采集完成（左右偏弱）';
+
+    function line(label, value, cls) {
+      return '<dt>' + label + '</dt><dd class="' + (cls || '') + '">' + value + '</dd>';
+    }
+    var html = '';
+    html += line('静息基线', A.x0.toFixed(3) + '（' + A.restN + ' 帧有效）');
+    html += line('向左幅度', A.dL.toFixed(3), A.aL >= 0.12 ? 'good' : 'bad');
+    html += line('向右幅度', A.dR.toFixed(3), A.aR >= 0.12 ? 'good' : 'bad');
+    html += line('一步折算', A.stepMeasured.toFixed(3) + '（门限 0.22）',
+                 A.stepMeasured >= 0.22 ? 'good' : (A.stepMeasured >= 0.12 ? 'warn' : 'bad'));
+    html += line('方向', A.sign > 0 ? '+1（右移 x 增大）' : '−1（右移 x 减小）');
+    html += line('灵敏度 xGain', A.xGain.toFixed(2), A.lrOk ? 'good' : 'warn');
+    var seenPct = Math.round((1 - A.invalidRatio) * 100);
+    html += line('雷达看见比例', seenPct + '%（' + (A.total - A.invalid) + '/' + A.total + ' 帧）',
+                 seenPct >= 70 ? 'good' : (seenPct >= 40 ? 'warn' : 'bad'));
+    html += line('跳跃', A.jumpCount + ' 次 / ' + (A.jumpOk ? '可用' : '没认出'), A.jumpOk ? 'good' : 'bad');
+    html += line('下蹲', A.crouchCount + ' 次 / ' + (A.crouchOk ? '可用' : '没认出'), A.crouchOk ? 'good' : 'bad');
+    el.rKv.innerHTML = html;
+
+    var notes = [];
+    if (A.restN < 3) notes.push('第 1 段（站好别动）基本没被雷达看到，没法定基线。站到雷达正前方 1.5 米左右重采。');
+    if (A.invalidRatio > 0.5) notes.push('一半以上的帧雷达没看到人（' + Math.round(A.invalidRatio * 100) + '% 空帧）。站近到 1.5 米、正对雷达、别站在侧后方，然后重采。');
+    if (A.sameSign) notes.push('左右两段往同一侧走了 —— 可能有一边没走开，或者两边迈的步子一样大。建议重采。');
+    if (!A.lrOk) notes.push('左右幅度太小，进游戏会换不动道。确认人站在雷达正前方 1.5 米左右，步子迈大一点。');
+    if (!A.jumpOk) notes.push('跳只认出 ' + A.jumpCount + ' 次。检查上下雷达（8767）是否连上，或者跳得再高一点。');
+    if (!A.crouchOk) notes.push('蹲只认出 ' + A.crouchCount + ' 次。蹲到底停一下再起来。');
+    if (!notes.length) notes.push('数据正常。填个名字点保存，然后回游戏页在下拉里选这个名字即可。');
+    el.rNote.textContent = notes.join(' ');
+
+    el.rName.value = PRESET_NAME || '';
+    el._last = A;
+    el.btnSave.disabled = (!A.lrOk) || A.restN < 3 || A.invalidRatio > 0.5;
+  }
+
+  // ---------- 保存 ----------
+  el.btnSave.addEventListener('click', function () {
+    var A = el._last;
+    if (!A) return;
+    var name = (el.rName.value || '').trim();
+    if (!name) { el.rName.focus(); el.rName.style.borderColor = 'var(--red)'; return; }
+    el.rName.style.borderColor = '';
+
+    var cal = {
+      v: 2,
+      at: Date.now(),
+      x0: A.x0,
+      sign: A.sign,
+      lrOk: A.lrOk,
+      xGain: A.xGain,
+      stepMeasured: Math.round(A.stepMeasured * 1000) / 1000,
+      jumpOk: A.jumpOk,
+      crouchOk: A.crouchOk,
+      jumpCount: A.jumpCount,
+      crouchCount: A.crouchCount,
+      sameSignWarn: A.sameSign,
+      upVerdict: 'clean',
+      jcTested: true,
+      source: 'radar',
+      unreliable: !A.lrOk,
+      debug: {
+        left: Math.round(A.dL * 1000) / 1000,
+        right: Math.round(A.dR * 1000) / 1000,
+        aL: Math.round(A.aL * 1000) / 1000,
+        aR: Math.round(A.aR * 1000) / 1000,
+        restFrames: (rec.ready || []).length,
+        restValid: A.restN
+      }
+    };
+
+    try {
+      var key = 'bear-run:calib:' + name;
+      var prev = localStorage.getItem(key);
+      if (prev) localStorage.setItem('bear-run:calib-bak:' + name, prev);
+      localStorage.setItem(key, JSON.stringify(cal));
+      localStorage.setItem('bear-run:calib:current', name);
+    } catch (e) {
+      alert('保存失败：' + e.message);
+      return;
+    }
+
+    el.rTitle.textContent = '已保存：' + name;
+    el.rNote.innerHTML = '档案已经存在这台浏览器里（<code>bear-run:calib:' + name + '</code>）。<br>' +
+      '现在去游戏页，在「当前玩家」下拉里选 <b>' + name + '</b> 就能用了。<br>' +
+      '如果下拉里没看到，先按 Ctrl + F5 刷新游戏页。';
+    el.btnSave.disabled = true;
+  });
+
+  el.btnAgain.addEventListener('click', function () {
+    el.result.classList.remove('show');
+    el.stage.classList.remove('hide');
+    el.btnStart.style.display = '';
+    el.btnAbort.style.display = 'none';
+    segIndex = 0;
+    renderDots();
+    el.stepNo.textContent = '准备';
+    el.title.textContent = '个人校准';
+    el.sub.textContent = '点下面的按钮重新开始。';
+    el.rName.value = '';
+  });
+
+  el.btnStart.addEventListener('click', function () {
+    el.rName.style.borderColor = '';
+    start();
+  });
+  el.btnAbort.addEventListener('click', abort);
+
+  // 首屏
+  renderDots();
+  if (PRESET_NAME) {
+    el.stepNo.textContent = '为「' + PRESET_NAME + '」采集';
+  }
+})();
+</script>
+</body>
+</html>

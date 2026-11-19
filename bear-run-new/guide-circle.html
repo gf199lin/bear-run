@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>左右移采集引导</title>
+<style>
+  :root {
+    --bg:#0a0e13; --panel:#131a22; --line:rgba(255,255,255,.09);
+    --ink:#e9eff7; --dim:#8b98a8;
+    --gold:#e6b93f; --moss:#3ddc84; --blue:#59a6ff; --red:#ff6b6b;
+  }
+  * { box-sizing:border-box; }
+  html,body { height:100%; }
+  body {
+    margin:0; background:radial-gradient(1100px 650px at 50% -15%, #16202b 0%, var(--bg) 65%);
+    color:var(--ink); font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    display:flex; align-items:center; justify-content:center; min-height:100vh;
+    -webkit-font-smoothing:antialiased; padding:24px;
+  }
+  .app { width:min(560px,100%); text-align:center; }
+
+  .bar { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; font-size:13px; color:var(--dim); }
+  .pill { padding:4px 11px; border-radius:999px; border:1px solid var(--line); }
+  .pill.ok { color:var(--moss); border-color:rgba(61,220,132,.35); }
+  .pill.bad { color:var(--red); border-color:rgba(255,107,107,.35); }
+
+  .stage { position:relative; width:260px; height:260px; margin:0 auto; }
+  .stage svg { position:absolute; inset:0; width:100%; height:100%; }
+  #ring { transition:stroke .25s ease, stroke-dashoffset .1s linear; }
+
+  .center {
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; pointer-events:none;
+  }
+  .num { font-size:64px; font-weight:200; line-height:1; font-variant-numeric:tabular-nums; }
+  .act { font-size:19px; color:var(--dim); margin-top:8px; letter-spacing:.03em; }
+
+  .headline { font-size:32px; font-weight:700; margin:26px 0 10px; letter-spacing:-.01em; }
+  .sub { font-size:16px; color:var(--dim); line-height:1.65; min-height:52px; }
+
+  .dots { display:flex; gap:8px; justify-content:center; margin:24px 0 0; }
+  .dots i { width:30px; height:4px; border-radius:2px; background:rgba(255,255,255,.10); }
+  .dots i.done { background:var(--moss); }
+  .dots i.now { background:var(--gold); }
+
+  .live { display:flex; gap:20px; justify-content:center; margin-top:22px; font-size:13px; color:var(--dim); font-variant-numeric:tabular-nums; flex-wrap:wrap; }
+  .live b { color:var(--ink); font-weight:600; }
+
+  button {
+    font:inherit; cursor:pointer; border-radius:12px; padding:14px 30px;
+    border:1px solid var(--line); background:rgba(255,255,255,.05); color:var(--ink);
+    transition:background .15s, transform .06s;
+  }
+  button:hover { background:rgba(255,255,255,.10); }
+  button:active { transform:translateY(1px); }
+  button.primary {
+    background:linear-gradient(180deg,#f0c657,#d9a72c); color:#201804;
+    border-color:transparent; font-weight:700; font-size:17px;
+  }
+  button:disabled { opacity:.35; cursor:not-allowed; }
+
+  .actions { margin-top:28px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+
+  input[type=text] {
+    font:inherit; padding:13px 15px; border-radius:12px; width:200px; text-align:center;
+    border:1px solid var(--line); background:rgba(0,0,0,.30); color:var(--ink); outline:none;
+  }
+  input[type=text]:focus { border-color:var(--gold); }
+
+  .kv { display:grid; grid-template-columns:auto auto; gap:8px 18px; justify-content:center;
+        margin:22px auto 4px; font-size:14px; text-align:left; max-width:380px; }
+  .kv dt { color:var(--dim); }
+  .kv dd { margin:0; font-variant-numeric:tabular-nums; text-align:right; }
+  .good { color:var(--moss); } .warn { color:var(--gold); } .bad { color:var(--red); }
+
+  .note { font-size:13px; color:var(--dim); line-height:1.75; margin-top:20px;
+          padding-top:16px; border-top:1px solid var(--line); text-align:left; }
+
+  #screen-result { display:none; }
+  #screen-result.show { display:block; }
+  #screen-run.hide { display:none; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="bar">
+    <span class="pill" id="link">连接中…</span>
+    <span class="pill" id="fps">— Hz</span>
+  </div>
+
+  <!-- 采集 -->
+  <div id="screen-run">
+    <div class="stage">
+      <svg viewBox="0 0 260 260">
+        <circle cx="130" cy="130" r="116" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="9"/>
+        <circle id="ring" cx="130" cy="130" r="116" fill="none" stroke="#e6b93f" stroke-width="9"
+                stroke-linecap="round" transform="rotate(-90 130 130)"
+                stroke-dasharray="728.85" stroke-dashoffset="0"/>
+      </svg>
+      <div class="center">
+        <div class="num" id="num">—</div>
+        <div class="act" id="act">准备</div>
+      </div>
+    </div>
+
+    <div class="headline" id="headline">左右移采集</div>
+    <div class="sub" id="sub">点开始。全程约 80 秒，跟着圈里的提示做动作就行。中途丢几帧没关系，不会重来。</div>
+
+    <div class="dots" id="dots"></div>
+
+    <div class="live">
+      <span>左右 <b id="lx">—</b></span>
+      <span>方位 <b id="laz">—</b></span>
+      <span>点数 <b id="ln">—</b></span>
+      <span>跳 <b id="lj">—</b></span>
+      <span>蹲 <b id="lc">—</b></span>
+    </div>
+
+    <div class="actions">
+      <button id="btn-start" class="primary">开始采集</button>
+      <button id="btn-abort" style="display:none">中止</button>
+    </div>
+  </div>
+
+  <!-- 结果 -->
+  <div id="screen-result">
+    <div class="headline" id="r-title">采集完成</div>
+    <dl class="kv" id="r-kv"></dl>
+
+    <div class="actions">
+      <input type="text" id="r-name" placeholder="名字" maxlength="16" spellcheck="false">
+      <button id="btn-save" class="primary">保存</button>
+      <button id="btn-again">再采一次</button>
+    </div>
+
+    <div class="note" id="r-note"></div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  function qs(k) {
+    var m = new RegExp('[?&]' + k + '=([^&]*)').exec(location.search);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function num(v, d) { var n = Number(v); return isFinite(n) ? n : (d === undefined ? 0 : d); }
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function median(a) {
+    if (!a.length) return 0;
+    var s = a.slice().sort(function (x, y) { return x - y; });
+    var m = s.length >> 1;
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+  function quant(a, p) {
+    if (!a.length) return NaN;
+    var s = a.slice().sort(function (x, y) { return x - y; });
+    var pos = (s.length - 1) * p, lo = Math.floor(pos), hi = Math.ceil(pos);
+    return lo === hi ? s[lo] : s[lo] + (s[hi] - s[lo]) * (pos - lo);
+  }
+
+  var LR_URL = qs('lr') || 'ws://127.0.0.1:8766';
+  var UD_URL = qs('ud') || 'ws://127.0.0.1:8767';
+  var PRESET = qs('name') || '';
+
+  // 每段：prep 秒准备，dur 秒动作。全程不中断、不重来。
+  var SEGS = [
+    { id:'rest',   title:'站好，别动',   dur:5,  prep:3,
+      sub:'站到雷达前约 1.5 米，正对雷达，手臂自然下垂，别晃。', color:'#e6b93f' },
+    { id:'jump',   title:'原地跳 4 下',  dur:15, prep:3,
+      sub:'真跳起来，每下落地站稳再跳下一个。', color:'#3ddc84' },
+    { id:'crouch', title:'蹲 4 次',      dur:15, prep:3,
+      sub:'蹲到底停半秒再站起来。', color:'#3ddc84' },
+    { id:'left',   title:'往左走 4 次',  dur:15, prep:3,
+      sub:'向左手边迈一大步，回到中间，重复。', color:'#59a6ff' },
+    { id:'right',  title:'往右走 4 次',  dur:15, prep:3,
+      sub:'向右手边迈一大步，回到中间，重复。', color:'#59a6ff' }
+  ];
+
+  var el = {
+    run: document.getElementById('screen-run'),
+    result: document.getElementById('screen-result'),
+    ring: document.getElementById('ring'),
+    num: document.getElementById('num'),
+    act: document.getElementById('act'),
+    headline: document.getElementById('headline'),
+    sub: document.getElementById('sub'),
+    dots: document.getElementById('dots'),
+    lx: document.getElementById('lx'),
+    laz: document.getElementById('laz'),
+    ln: document.getElementById('ln'),
+    lj: document.getElementById('lj'),
+    lc: document.getElementById('lc'),
+    link: document.getElementById('link'),
+    fps: document.getElementById('fps'),
+    btnStart: document.getElementById('btn-start'),
+    btnAbort: document.getElementById('btn-abort'),
+    btnSave: document.getElementById('btn-save'),
+    btnAgain: document.getElementById('btn-again'),
+    rName: document.getElementById('r-name'),
+    rKv: document.getElementById('r-kv'),
+    rTitle: document.getElementById('r-title'),
+    rNote: document.getElementById('r-note')
+  };
+
+  var CIRC = 2 * Math.PI * 116;   // 728.85
+  el.ring.style.strokeDasharray = CIRC.toFixed(2);
+
+  // ---------- 数据 ----------
+  var lrFrame = null, udFrame = null, lrOk = false, udOk = false;
+  var frameN = 0, fpsStart = performance.now();
+
+  function connect(url, onFrame, onState) {
+    var ws, timer = null;
+    function open() {
+      try { ws = new WebSocket(url); } catch (e) { onState(false); again(); return; }
+      ws.onopen = function () { onState(true); };
+      ws.onclose = function () { onState(false); again(); };
+      ws.onerror = function () { try { ws.close(); } catch (e) {} };
+      ws.onmessage = function (ev) {
+        try { onFrame(JSON.parse(ev.data)); } catch (e) {}
+        frameN++;
+      };
+    }
+    function again() { if (timer) return; timer = setTimeout(function () { timer = null; open(); }, 1200); }
+    open();
+  }
+
+  connect(LR_URL, function (o) { lrFrame = o; }, function (ok) {
+    lrOk = ok;
+    el.link.textContent = '雷达 ' + (ok ? '已连接' : '断开');
+    el.link.className = 'pill ' + (ok ? 'ok' : 'bad');
+  });
+  connect(UD_URL, function (o) { udFrame = o; }, function (ok) { udOk = ok; });
+
+  // 一帧能提供什么
+  function cur() {
+    var r = (lrFrame && lrFrame.raw) ? lrFrame.raw : null;
+    var n = r ? num(r.n, 0) : 0;
+    return {
+      x: (lrFrame && isFinite(Number(lrFrame.x))) ? Number(lrFrame.x) : null,
+      az: (r && isFinite(Number(r.az))) ? Number(r.az) : null,
+      zero: (r && isFinite(Number(r.zero))) ? Number(r.zero) : null,
+      n: n,
+      jump: udFrame ? (num(udFrame.jump, 0) >= 0.5 ? 1 : 0) : 0,
+      crouch: udFrame ? (num(udFrame.crouch, 0) >= 0.5 ? 1 : 0) : 0
+    };
+  }
+
+  // ---------- 采集 ----------
+  var running = false, raf = null, segIdx = 0, phase = 'idle', t0 = 0;
+  var rec = {};
+
+  function setRing(p, color) {
+    el.ring.style.strokeDashoffset = (CIRC * (1 - clamp(p, 0, 1))).toFixed(1);
+    if (color) el.ring.style.stroke = color;
+  }
+
+  function renderDots() {
+    var h = '';
+    for (var i = 0; i < SEGS.length; i++) {
+      h += '<i class="' + (i < segIdx ? 'done' : (i === segIdx && running ? 'now' : '')) + '"></i>';
+    }
+    el.dots.innerHTML = h;
+  }
+
+  function applySeg(i) {
+    var s = SEGS[i];
+    el.headline.textContent = s.title;
+    el.sub.textContent = s.sub;
+    el.act.textContent = '准备';
+  }
+
+  function tick() {
+    if (!running) return;
+    var now = performance.now();
+    var s = SEGS[segIdx];
+    var f = cur();
+
+    el.lx.textContent = f.x === null ? '—' : f.x.toFixed(2);
+    el.laz.textContent = f.az === null ? '—' : f.az.toFixed(1) + '°';
+    el.ln.textContent = f.n;
+    el.ln.style.color = f.n >= 2 ? 'var(--moss)' : (f.n > 0 ? 'var(--gold)' : 'var(--dim)');
+    el.lj.textContent = f.jump ? '跳' : '—';
+    el.lc.textContent = f.crouch ? '蹲' : '—';
+
+    if (now - fpsStart > 1000) {
+      el.fps.textContent = (frameN * 1000 / (now - fpsStart)).toFixed(1) + ' Hz';
+      frameN = 0; fpsStart = now;
+    }
+
+    if (phase === 'prep') {
+      var left = s.prep - (now - t0) / 1000;
+      if (left <= 0) {
+        phase = 'run'; t0 = now;
+        el.act.textContent = '开始';
+        rec[s.id] = rec[s.id] || [];
+      } else {
+        el.num.textContent = Math.ceil(left);
+        el.act.textContent = '准备';
+        setRing(left / s.prep, '#e6b93f');
+        el.ring.style.stroke = s.color;
+      }
+      // prep 阶段也收帧（静息段全靠它）
+      if (phase === 'prep' && s.id === 'rest') {
+        rec[s.id] = rec[s.id] || [];
+        rec[s.id].push(f);
+      }
+    }
+
+    if (phase === 'run') {
+      var left2 = s.dur - (now - t0) / 1000;
+      el.num.textContent = Math.max(0, Math.ceil(left2));
+      el.act.textContent = '保持动作';
+      setRing(left2 / s.dur, s.color);
+
+      var buf = rec[s.id] || (rec[s.id] = []);
+      buf.push(f);
+
+      if (left2 <= 0) {
+        // 直接进下一段，没有任何打回/重来判断
+        segIdx++;
+        renderDots();
+        if (segIdx >= SEGS.length) {
+          finish();
+          return;
+        }
+        applySeg(segIdx);
+        phase = 'prep';
+        t0 = performance.now();
+        el.num.textContent = SEGS[segIdx].prep;
+        setRing(1, '#e6b93f');
+      }
+    }
+
+    raf = requestAnimationFrame(tick);
+  }
+
+  function start() {
+    if (running) return;
+    if (!lrOk) {
+      alert('雷达还没连上（' + LR_URL + '）。\n请先双击「启动-双雷达游戏.cmd」，等它跑到两块板都「已监听」。');
+      return;
+    }
+    running = true;
+    segIdx = 0; phase = 'prep'; t0 = performance.now();
+    rec = {};
+    el.btnStart.style.display = 'none';
+    el.btnAbort.style.display = '';
+    el.result.classList.remove('show');
+    el.run.classList.remove('hide');
+    applySeg(0);
+    renderDots();
+    el.num.textContent = SEGS[0].prep;
+    setRing(1, '#e6b93f');
+    // 静息段的准备时间就开始收
+    rec.rest = [];
+    raf = requestAnimationFrame(tick);
+  }
+
+  function abort() {
+    running = false;
+    if (raf) cancelAnimationFrame(raf);
+    raf = null;
+    el.btnStart.style.display = '';
+    el.btnAbort.style.display = 'none';
+    el.headline.textContent = '已中止';
+    el.sub.textContent = '点下面重新开始。';
+    el.num.textContent = '—';
+    el.act.textContent = '—';
+    setRing(0, '#e6b93f');
+    segIdx = 0;
+    renderDots();
+  }
+
+  // ---------- 分析 ----------
+  // 用原始方位角算，不依赖后端的 x。
+  // 后端 zero 是启动时自适应的，人不在场时它会锁到墙/显示器上，
+  // 于是 x 一开始就饱和在 ±1，x0/aL/aR 全是垃圾（2026-11-19 21:37 那档就是这样）。
+  // 这里改用静息段自己的 az 中位数当零点，幅度直接是角度差。
+  function analyze() {
+    var SCALE_DEG = 20.0;     // 与后端 --scale-deg 一致
+    var USE_DEG = 2.0;        // 小于 2° 的位移视为没动（后端 0.10 * 20 = 2°）
+    var TARGET_X = 0.55;      // 希望一步对应 0.55 的 x
+    var GMIN = 0.35, GMAX = 1.7;
+
+    function azVals(id) {
+      var a = rec[id] || [], v = [], total = 0;
+      for (var i = 0; i < a.length; i++) {
+        if (!a[i]) continue;
+        total++;
+        if (a[i].az !== null && isFinite(a[i].az) && a[i].n >= 1) v.push(a[i].az);
+      }
+      return { v: v, total: total };
+    }
+
+    var R = azVals('rest');
+    var az0 = R.v.length ? median(R.v) : 0;
+
+    function side(id) {
+      var d = azVals(id);
+      if (d.v.length < 5) return { d: NaN, a: 0, n: d.v.length, total: d.total, reliable: false };
+      var lo = quant(d.v, 0.05) - az0, hi = quant(d.v, 0.95) - az0;
+      var dd = Math.abs(lo) >= Math.abs(hi) ? lo : hi;
+      return { d: dd, a: Math.abs(dd), n: d.v.length, total: d.total, reliable: true };
+    }
+
+    var L = side('left'), Rt = side('right');
+    var opp = (L.a >= USE_DEG && Rt.a >= USE_DEG && L.d * Rt.d < 0);
+    var same = (L.a >= USE_DEG && Rt.a >= USE_DEG && !opp);
+
+    var sign;
+    if (opp) sign = Rt.d > 0 ? 1 : -1;
+    else if (Rt.a >= USE_DEG) sign = Rt.d > 0 ? 1 : -1;
+    else if (L.a >= USE_DEG) sign = L.d > 0 ? -1 : 1;
+    else sign = 1;
+
+    var stepDeg = 0;
+    if (opp) stepDeg = (L.a + Rt.a) / 2;
+    else if (Math.max(L.a, Rt.a) >= USE_DEG) stepDeg = Math.max(L.a, Rt.a) * 0.85;
+
+    var stepX = stepDeg / SCALE_DEG;
+    var gain = (stepX > 0.02) ? clamp(TARGET_X / stepX, GMIN, GMAX) : 1;
+
+    // 静息段的方位离散度：太大说明跟踪器在人和墙之间跳，基线不可信
+    var restSpread = 0;
+    if (R.v.length >= 5) restSpread = quant(R.v, 0.95) - quant(R.v, 0.05);
+
+    function edges(id, k) {
+      var a = rec[id] || [], c = 0, p = 0;
+      for (var i = 0; i < a.length; i++) {
+        var v = (a[i] && num(a[i][k], 0) >= 0.5) ? 1 : 0;
+        if (v && !p) c++;
+        p = v;
+      }
+      return c;
+    }
+
+    var jc = edges('jump', 'jump'), dc = edges('crouch', 'crouch');
+
+    return {
+      az0: az0, sign: sign, xGain: Math.round(gain * 100) / 100,
+      stepDeg: Math.round(stepDeg * 100) / 100,
+      stepX: Math.round(stepX * 1000) / 1000,
+      aL: L.a, aR: Rt.a, dL: L.d, dR: Rt.d,
+      lrOk: stepDeg >= USE_DEG && stepX >= 0.12,
+      restUsed: R.v.length, restTotal: R.total, restSpread: restSpread,
+      jumpCount: jc, crouchCount: dc, sameSign: same,
+      satWarning: restSpread > 25
+    };
+  }
+
+  function finish() {
+    running = false;
+    if (raf) cancelAnimationFrame(raf);
+    raf = null;
+
+    var A = analyze();
+    el.run.classList.add('hide');
+    el.result.classList.add('show');
+    el.rTitle.textContent = A.lrOk ? '采集完成' : '采集完成（左右偏弱）';
+
+    function row(k, v, cls) { return '<dt>' + k + '</dt><dd class="' + (cls || '') + '">' + v + '</dd>'; }
+    var h = '';
+    h += row('静息方位基线', A.az0.toFixed(1) + '°（' + A.restUsed + '/' + A.restTotal + ' 帧）',
+             A.restUsed >= 3 ? '' : 'bad');
+    h += row('静息离散度', A.restSpread.toFixed(1) + '°',
+             A.restSpread <= 8 ? 'good' : (A.restSpread <= 25 ? 'warn' : 'bad'));
+    h += row('向左位移', A.dL.toFixed(1) + '°', A.aL >= 2 ? 'good' : 'bad');
+    h += row('向右位移', A.dR.toFixed(1) + '°', A.aR >= 2 ? 'good' : 'bad');
+    h += row('一步', A.stepDeg.toFixed(1) + '° → x=' + A.stepX.toFixed(2),
+             A.stepX >= 0.22 ? 'good' : (A.stepX >= 0.12 ? 'warn' : 'bad'));
+    h += row('方向', A.sign > 0 ? '+1' : '-1（自动判定）');
+    h += row('灵敏度 xGain', A.xGain.toFixed(2), A.lrOk ? 'good' : 'warn');
+    h += row('跳跃', A.jumpCount + ' 次', A.jumpCount >= 2 ? 'good' : 'bad');
+    h += row('下蹲', A.crouchCount + ' 次', A.crouchCount >= 2 ? 'good' : 'bad');
+    el.rKv.innerHTML = h;
+
+    var notes = [];
+    if (A.restUsed < 3) notes.push('静息段几乎没采到点（' + A.restUsed + ' 帧），基线算不出来，必须重采。');
+    if (A.restSpread > 25) notes.push('静息段方位角散了 ' + A.restSpread.toFixed(0) + '°，说明跟踪器在人和背景之间来回跳（后端 zero 可能锁在墙上）。这份基线不可信，建议重采。');
+    if (A.sameSign) notes.push('左右两段朝同一侧走了，可能有一边没走开。');
+    if (!A.lrOk) notes.push('左右幅度太小，进游戏换不动道。迈大一点、站近一点再采。');
+    if (A.jumpCount < 2) notes.push('跳只认出 ' + A.jumpCount + ' 次，确认上下雷达（8767）连着。');
+    if (!notes.length) notes.push('数据正常。填名字保存，回游戏页下拉里选这个名字即可。');
+    el.rNote.textContent = notes.join(' ');
+
+    el.rName.value = PRESET || '';
+    el._A = A;
+    el.btnSave.disabled = !A.lrOk || A.restUsed < 3 || A.restSpread > 25;
+  }
+
+  // ---------- 保存 ----------
+  el.btnSave.addEventListener('click', function () {
+    var A = el._A; if (!A) return;
+    var name = (el.rName.value || '').trim();
+    if (!name) { el.rName.focus(); el.rName.style.borderColor = 'var(--red)'; return; }
+    el.rName.style.borderColor = '';
+
+    var cal = {
+      v: 2, at: Date.now(),
+      x0: A.az0, azZero: A.az0, sign: A.sign, lrOk: A.lrOk, xGain: A.xGain,
+      stepMeasured: A.stepDeg, stepDeg: A.stepDeg, stepX: A.stepX,
+      jumpOk: A.jumpCount >= 2, crouchOk: A.crouchCount >= 2,
+      jumpCount: A.jumpCount, crouchCount: A.crouchCount,
+      sameSignWarn: A.sameSign, upVerdict: 'clean', jcTested: true,
+      source: 'radar', unreliable: !A.lrOk,
+      debug: { left: A.dL, right: A.dR, aL: A.aL, aR: A.aR, restFrames: A.restTotal }
+    };
+
+    try {
+      var key = 'bear-run:calib:' + name;
+      var prev = localStorage.getItem(key);
+      if (prev) localStorage.setItem('bear-run:calib-bak:' + name, prev);
+      localStorage.setItem(key, JSON.stringify(cal));
+      localStorage.setItem('bear-run:calib:current', name);
+    } catch (e) { alert('保存失败：' + e.message); return; }
+
+    el.rTitle.textContent = '已保存：' + name;
+    el.rNote.innerHTML = '档案已写进浏览器（<code>bear-run:calib:' + name + '</code>）。<br>' +
+      '回游戏页，在「当前玩家」下拉里选 <b>' + name + '</b> 即可。没看到就先 Ctrl+F5 刷新。';
+    el.btnSave.disabled = true;
+  });
+
+  el.btnAgain.addEventListener('click', function () {
+    el.result.classList.remove('show');
+    el.run.classList.remove('hide');
+    el.btnStart.style.display = '';
+    el.btnAbort.style.display = 'none';
+    segIdx = 0; renderDots();
+    el.headline.textContent = '左右移采集';
+    el.sub.textContent = '点开始。全程约 80 秒。';
+    el.num.textContent = '—';
+    el.act.textContent = '准备';
+    setRing(0, '#e6b93f');
+  });
+
+  el.btnStart.addEventListener('click', start);
+  el.btnAbort.addEventListener('click', abort);
+
+  renderDots();
+  setRing(0, '#e6b93f');
+})();
+</script>
+</body>
+</html>

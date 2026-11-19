@@ -1094,6 +1094,36 @@ html, body {
 
 /* ================= 雷达开局校准（新手教程，js/Calibration.js） ================= */
 
+.player-block { margin-top: 10px; }
+.player-line { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.player-name {
+  flex: 1 1 auto; min-width: 0; padding: 7px 10px; border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.18); background: rgba(0,0,0,.25);
+  color: var(--ink); font-size: 14px; outline: none;
+}
+.player-name:focus { border-color: var(--gold); }
+.player-select {
+  flex: 0 0 38%; min-width: 0; padding: 7px 8px; border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.18); background: rgba(0,0,0,.25);
+  color: var(--ink); font-size: 14px;
+}
+.player-hint { margin-top: 5px; font-size: 12px; color: var(--ink-dim); }
+
+.profiles-card { max-width: 560px; }
+.profiles-row {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  padding: 9px 10px; margin-bottom: 7px; border-radius: 9px;
+  background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.07);
+}
+.profiles-name {
+  flex: 0 0 110px; padding: 6px 8px; border-radius: 7px;
+  border: 1px solid rgba(255,255,255,.18); background: rgba(0,0,0,.28);
+  color: var(--ink); font-size: 13px; outline: none;
+}
+.profiles-desc { flex: 1 1 190px; font-size: 12px; color: var(--ink-dim); line-height: 1.45; }
+.profiles-when { font-size: 11px; opacity: .62; }
+.profiles-empty { padding: 16px 4px; font-size: 13px; color: var(--ink-dim); }
+
 .calib-menu-row {
   display: flex;
   align-items: center;
@@ -2014,8 +2044,19 @@ html, body {
             </div>
             <div id="radar-url-note" class="radar-note"></div>
 
+            <div class="player-block">
+              <div class="input-label">当前玩家</div>
+              <div class="player-line">
+                <input id="player-name" class="player-name" type="text" maxlength="16"
+                       placeholder="输入名字，如 张三" spellcheck="false" autocomplete="off">
+                <select id="player-select" class="player-select"></select>
+              </div>
+              <div id="player-hint" class="player-hint">选一个已校准的玩家，或输入新名字点「个人校准」</div>
+            </div>
+
             <div class="calib-menu-row">
-              <button id="btn-calib" class="ghost-btn calib-open-btn" type="button">校准雷达动作</button>
+              <button id="btn-calib" class="ghost-btn calib-open-btn" type="button">个人校准</button>
+              <button id="btn-profiles" class="ghost-btn" type="button">档案</button>
               <span id="calib-status" class="calib-status"></span>
             </div>
 
@@ -10192,7 +10233,9 @@ html, body {
 
   var RR = global.RR = global.RR || {};
 
-  var KEY = 'bear-run:calib:v1';   // key 不变；v1 存档会被 isUsable 判为过期 -> 重新引导
+  var KEY = 'bear-run:calib:v1';   // 兼容旧存档：无名字时用这一份
+  var KEY_PREFIX = 'bear-run:calib:';   // 按玩家名存：bear-run:calib:<名字>
+  var NAME_KEY = 'bear-run:calib:current';   // 当前选中的玩家
   var VERSION = 2;
 
   function num(v, dflt) {
@@ -10261,9 +10304,44 @@ html, body {
     KEY: KEY,
     VERSION: VERSION,
 
-    load: function () {
+    // ---- 多玩家：按名字存/取 ----
+    name: function () {
+      try { return (global.localStorage && global.localStorage.getItem(NAME_KEY)) || ''; }
+      catch (e) { return ''; }
+    },
+
+    setName: function (n) {
+      try { if (global.localStorage) global.localStorage.setItem(NAME_KEY, String(n || '')); }
+      catch (e) { /* 忽略 */ }
+      return n;
+    },
+
+    list: function () {
+      var out = [];
       try {
-        var raw = global.localStorage && global.localStorage.getItem(KEY);
+        var ls = global.localStorage;
+        if (!ls) return out;
+        for (var i = 0; i < ls.length; i++) {
+          var k = ls.key(i);
+          if (!k || k.indexOf(KEY_PREFIX) !== 0) continue;
+          if (k === NAME_KEY) continue;
+          if (k === KEY) { if (out.indexOf('默认') < 0) out.push('默认'); continue; }
+          var n = k.slice(KEY_PREFIX.length);
+          if (n && out.indexOf(n) < 0) out.push(n);
+        }
+      } catch (e) { /* 忽略 */ }
+      return out;
+    },
+
+    keyFor: function (n) {
+      n = (n === undefined || n === null) ? Calibration.name() : String(n);
+      if (!n || n === '默认') return KEY;
+      return KEY_PREFIX + n;
+    },
+
+    load: function (n) {
+      try {
+        var raw = global.localStorage && global.localStorage.getItem(Calibration.keyFor(n));
         if (!raw) return null;
         var cal = JSON.parse(raw);
         return Calibration.isUsable(cal) ? cal : null;
@@ -10272,17 +10350,37 @@ html, body {
       }
     },
 
-    save: function (cal) {
+    save: function (cal, n) {
       try {
-        if (global.localStorage) global.localStorage.setItem(KEY, JSON.stringify(cal));
+        var k = Calibration.keyFor(n);
+        if (global.localStorage) {
+          // 覆盖前先留一份上版：再出现"失败把档案清掉"时还能捞回来
+          var prev = global.localStorage.getItem(k);
+          if (prev) global.localStorage.setItem('bear-run:calib-bak:' + (n || '默认'), prev);
+          global.localStorage.setItem(k, JSON.stringify(cal));
+        }
       } catch (e) { /* 隐私模式等：忽略，本次会话内存里仍有 */ }
       return cal;
     },
 
-    clear: function () {
+    clear: function (n) {
       try {
-        if (global.localStorage) global.localStorage.removeItem(KEY);
+        var k = Calibration.keyFor(n);
+        if (global.localStorage) global.localStorage.removeItem(k);
       } catch (e) { /* 忽略 */ }
+    },
+
+    /** 改名：把 from 的档案搬到 to 名下（原档删除） */
+    rename: function (from, to) {
+      to = String(to || '').trim();
+      from = String(from || '');
+      if (!to || to === from) return false;
+      var cal = Calibration.load(from);
+      if (!cal) return false;
+      Calibration.save(cal, to);
+      Calibration.clear(from);
+      if (Calibration.name() === from) Calibration.setName(to);
+      return true;
     },
 
     isUsable: function (cal) {
@@ -10397,8 +10495,17 @@ html, body {
         }
       } else parts.push('左右未标定(键盘)');
       if (!cal.keyboardOnly) {
-        parts.push(cal.jumpOk ? ('跳跃 ' + num(cal.jumpTh, 0).toFixed(2)) : '跳跃(键盘)');
-        parts.push(cal.crouchOk ? ('下蹲 ' + num(cal.crouchTh, 0).toFixed(2)) : '下蹲(键盘)');
+        // v4：jump/crouch 是 0|1 开关，有计数就报次数，老存档才退回阈值显示
+        parts.push(cal.jumpOk
+          ? ('跳跃 ✓' + (isFinite(Number(cal.jumpCount))
+              ? (' 认出 ' + num(cal.jumpCount, 0) + ' 次')
+              : (' ' + num(cal.jumpTh, 0).toFixed(2))))
+          : '跳跃(键盘)');
+        parts.push(cal.crouchOk
+          ? ('下蹲 ✓' + (isFinite(Number(cal.crouchCount))
+              ? (' 认出 ' + num(cal.crouchCount, 0) + ' 次')
+              : (' ' + num(cal.crouchTh, 0).toFixed(2))))
+          : '下蹲(键盘)');
       }
       if (cal.upVerdict === 'noisy') parts.push('上游跳蹲不可信');
       if (cal.probe && cal.probe.frames) {
@@ -10411,38 +10518,56 @@ html, body {
 
   // ==================== 校准向导（5 步状态机 + 自建覆盖层） ====================
 
+  /**
+   * v4 采集式校准：像平时采数据那样，一段一个动作，段末统一分析。
+   *
+   * 为什么不再一步一步"等检测"：
+   *   v3 的左/右两步要求"位移连续保持 3 帧"，而现场右侧是电脑那一侧（弱区），
+   *   x 抖动大、连续 3 帧常常凑不齐 —— 于是卡在"往右移动"永远不通过。
+   *   固定时长窗口只要求"这段时间里出现过"，用分位数取幅度，天然绕过保持帧数。
+   *
+   * dur = 该段秒数（0 = 由条件触发，站定段用这个）
+   */
   var STEPS = [
     {
       id: 'ready',
-      title: '第 1 步 / 5 · 站好别动',
-      text: '站到雷达正前方约 1.5 米，正对雷达，保持不动。',
-      tip: '正在确认你在场…'
-    },
-    {
-      id: 'left',
-      title: '第 2 步 / 5 · 向左移一步',
-      text: '向左平移约一步（半米左右），然后停住 1 秒，再回中间。',
-      tip: '等待向左的有效位移…'
-    },
-    {
-      id: 'right',
-      title: '第 3 步 / 5 · 向右移一步',
-      text: '向右平移约一步，停住 1 秒，再回中间。',
-      tip: '等待向右的有效位移…'
+      title: '第 1 段 / 5 · 站好别动',
+      text: '站到雷达前约 1.5 米，站定 3 秒，手臂自然下垂。',
+      tip: '正在定位…',
+      dur: 0
     },
     {
       id: 'jump',
-      title: '第 4 步 / 5 · 原地跳一下',
-      text: '原地起跳一次，落地后站稳。',
-      tip: '等待跳跃信号…'
+      title: '第 2 段 / 5 · 原地跳 3 下',
+      text: '这 8 秒里原地跳 3 下，每下落地后站稳一下再跳。',
+      tip: '跳吧，跳几次都记下来…',
+      dur: 8
     },
     {
       id: 'crouch',
-      title: '第 5 步 / 5 · 蹲一下',
-      text: '下蹲保持 1 秒，然后起立。',
-      tip: '等待下蹲信号…'
+      title: '第 3 段 / 5 · 蹲 3 次',
+      text: '这 8 秒里下蹲 3 次，蹲到底停半秒再起来。',
+      tip: '蹲吧，蹲几次都记下来…',
+      dur: 8
+    },
+    {
+      id: 'left',
+      title: '第 4 段 / 5 · 往左走 3 次',
+      text: '这 8 秒里往左迈一步、回中间，重复 3 次。',
+      tip: '往左走…',
+      dur: 8
+    },
+    {
+      id: 'right',
+      title: '第 5 段 / 5 · 往右走 3 次',
+      text: '这 8 秒里往右迈一步、回中间，重复 3 次。',
+      tip: '往右走…',
+      dur: 8
     }
   ];
+
+  /** 采集窗口：6 秒内没结果也强行结束（弱区不至于卡死） */
+  var READY_HARD_MS = 6000;
 
   var KEY_LEFT = { ArrowLeft: 1, a: 1, A: 1 };
   var KEY_RIGHT = { ArrowRight: 1, d: 1, D: 1 };
@@ -10550,6 +10675,8 @@ html, body {
       this.radarSeen = false;
       this.baseBuf = [];
       this.holdBuf = [];
+      this.rec = {};              // v4：每段采集缓冲
+      this.readyStartedAt = null; // v4：站定段硬超时起点
       // v2：探针/峰值清零
       this.probe = { frames: 0, jumpEvents: 0, crouchEvents: 0, spuriousFrames: 0 };
       this._prevUpJump = false;
@@ -10596,15 +10723,27 @@ html, body {
 
       var frame = this._sample();
 
-      switch (this.step.id) {
-        case 'ready': this._stepReady(frame); break;
-        case 'left': this._stepSide(frame, 0); break;
-        case 'right': this._stepSide(frame, 1); break;
-        case 'jump': this._stepJump(frame); break;
-        case 'crouch': this._stepCrouch(frame); break;
+      if (this.step.id === 'ready') {
+        // 站定段：站住就过；站不住/位置弱，最多等 READY_HARD_MS 也强行过，别卡死
+        if (this.readyStartedAt === null) this.readyStartedAt = this.now;
+        this._stepReady(frame);
+        if (this.open_ && this.step.id === 'ready' &&
+            (this.now - this.readyStartedAt) >= READY_HARD_MS) {
+          if (this.x0 === null) {
+            var xs0 = this.baseBuf.filter(function (v) { return isFinite(v); });
+            this.x0 = xs0.length ? median(xs0) : 0;
+          }
+          this._nextStep();
+        }
+      } else {
+        // 动作段：固定时长窗口，边采边算，到点统一分析
+        this._recFrame(this.step.id, frame);
+        var dur = num(this.step.dur, 0);
+        if (dur > 0 && (this.now - this.stepStartedAt) >= dur * 1000) {
+          this._nextStep();
+        }
       }
 
-      this._checkTimeout();
       this._syncUI();
     }
 
@@ -10631,6 +10770,24 @@ html, body {
       if (this.src.id !== 'radar' && this.src.id !== 'replay') return false;
       if (!this.radarSeen) return true;
       return !!(this.src.connected === false);
+    }
+
+    /**
+     * 采集一帧到当前动作段的缓冲。
+     *
+     * 不在这里做"是否达标"判断 —— v3 就是死在实时判断太严（要连续 3 帧）。
+     * 这里只管存，段末用分位数一次性算，弱区也能从整段里挑出最好的那几次。
+     */
+    _recFrame(id, frame) {
+      if (!this.rec) this.rec = {};
+      var buf = this.rec[id] || (this.rec[id] = []);
+      var x = this._validX(frame);
+      buf.push({
+        x: x,
+        jump: num(frame && frame.jump, 0),
+        crouch: num(frame && frame.crouch, 0)
+      });
+      if (buf.length > 600) buf.shift();
     }
 
     _validX(frame) {
@@ -10956,6 +11113,12 @@ html, body {
     _enterStep() {
       this.stepStartedAt = this.now;
       this.holdBuf = [];
+      // v4：进段就把该段的采集缓冲清空（重试不污染）
+      if (this.step.dur > 0) {
+        this.rec = this.rec || {};
+        this.rec[this.step.id] = [];
+      }
+      this.readyStartedAt = (this.step.id === 'ready') ? this.now : null;
       this._sawJump = false;
       this._sawCrouch = false;
       // v2：只认进入本步之后的**新**上升沿；峰值保持累计（取窗口内最大值）
@@ -10969,9 +11132,151 @@ html, body {
 
     _nextStep() {
       this.attempts = 0;
-      if (this.stepIndex >= STEPS.length - 1) return this._finish();
+      if (this.stepIndex >= STEPS.length - 1) {
+        // v4：五段采完，一次性分析（不再边走边判）
+        this.result = this._analyze();
+        return this._finish();
+      }
       this.stepIndex++;
       this._enterStep();
+    }
+
+    /**
+     * 段末统一分析（v4 核心）。
+     *
+     * 与 v3 的区别：v3 是"实时等一个合格的位移"，卡在弱区就永远等不到；
+     * 这里是"整段都采下来，用分位数挑最像的一次"，弱区也能出结果。
+     *
+     * 左右：x 的 5%/95% 分位里取离基线更远的那端 = 这一步实际走了多远。
+     * 上下：frame.jump / frame.crouch 是 0|1 开关（后端事件驱动），
+     *       所以只统计"你做了几次、雷达认出几次"，不去伪造强度阈值。
+     */
+    _analyze() {
+      var o = this.opts;
+      var rec = this.rec || {};
+
+      function finiteX(arr) {
+        var out = [];
+        for (var i = 0; i < arr.length; i++) {
+          if (arr[i] && isFinite(arr[i].x)) out.push(arr[i].x);
+        }
+        return out;
+      }
+      function quant(arr, p) {
+        if (!arr || !arr.length) return NaN;
+        var a = arr.slice().sort(function (m, n) { return m - n; });
+        var pos = (a.length - 1) * p, lo = Math.floor(pos), hi = Math.ceil(pos);
+        if (lo === hi) return a[lo];
+        return a[lo] + (a[hi] - a[lo]) * (pos - lo);
+      }
+      function edges(arr, key) {
+        var n = 0, prev = 0;
+        for (var i = 0; i < arr.length; i++) {
+          var v = num(arr[i] && arr[i][key], 0) >= 0.5 ? 1 : 0;
+          if (v && !prev) n++;
+          prev = v;
+        }
+        return n;
+      }
+      function hitRate(arr, key) {
+        if (!arr || !arr.length) return 0;
+        var n = 0;
+        for (var i = 0; i < arr.length; i++) if (num(arr[i] && arr[i][key], 0) >= 0.5) n++;
+        return n / arr.length;
+      }
+      function r3(v) { return isFinite(v) ? Math.round(v * 1000) / 1000 : null; }
+
+      var restArr = rec.ready || [];
+      var restX = finiteX(restArr);
+      var x0 = restX.length ? median(restX) : (this.x0 === null ? 0 : this.x0);
+
+      // ---- 左右 ----
+      var lX = finiteX(rec.left || []), rX = finiteX(rec.right || []);
+      var dL = NaN, dR = NaN, aL = 0, aR = 0;
+      if (lX.length >= 6) {
+        var lLo = quant(lX, 0.05) - x0, lHi = quant(lX, 0.95) - x0;
+        dL = Math.abs(lLo) >= Math.abs(lHi) ? lLo : lHi;
+        aL = Math.abs(dL);
+      }
+      if (rX.length >= 6) {
+        var rLo = quant(rX, 0.05) - x0, rHi = quant(rX, 0.95) - x0;
+        dR = Math.abs(rLo) >= Math.abs(rHi) ? rLo : rHi;
+        aR = Math.abs(dR);
+      }
+
+      // 单侧"算数"的下限：低于它当成没走到位
+      var USE = 0.10;
+      // 左右必须异号才算"真的走了两边"；同号多半是某一侧没走开（还站在原地）
+      var opposite = (aL >= USE && aR >= USE && (dL * dR < 0));
+      var sameSignWarn = (aL >= USE && aR >= USE && !opposite);
+
+      var sign;
+      if (opposite) sign = dR > 0 ? 1 : -1;
+      else if (aR >= USE) sign = dR > 0 ? 1 : -1;
+      else if (aL >= USE) sign = dL > 0 ? -1 : 1;   // 左移是右移的反方向
+      else sign = (this.priorSign === -1) ? -1 : 1;
+
+      // 一步走多远：两侧都走开了就取均值；同号/单侧都按"强侧打折"算
+      var stepMeasured = 0;
+      if (opposite) stepMeasured = (aL + aR) / 2;
+      else if (Math.max(aL, aR) >= USE) stepMeasured = Math.max(aL, aR) * 0.85;
+
+      // 增益上限压到 1.7：弱区算出来的 d 很小，无脑放大到 2.5 会把静息噪声也放大
+      var XGAIN_MAX = 1.7;
+      var xGain = 1;
+      if (stepMeasured > 0.02) {
+        xGain = clamp(o.stepTarget / stepMeasured, o.gainMin, Math.min(o.gainMax, XGAIN_MAX));
+        xGain = Math.round(xGain * 100) / 100;
+      }
+      var lrOk = stepMeasured >= 0.12;
+
+      // ---- 跳 / 蹲：只统计认到几次 ----
+      var jArr = rec.jump || [], cArr = rec.crouch || [];
+      var jCount = edges(jArr, 'jump'), cCount = edges(cArr, 'crouch');
+      var jumpOk = jArr.length >= 6 && jCount >= 2;
+      var crouchOk = cArr.length >= 6 && cCount >= 2;
+
+      var cal = {
+        v: VERSION,
+        at: Date.now(),
+        x0: num(x0, 0),
+        sign: sign,
+        lrOk: lrOk,
+        xGain: xGain,
+        stepMeasured: r3(stepMeasured),
+        jumpOk: jumpOk,
+        crouchOk: crouchOk,
+        jumpCount: jCount,
+        crouchCount: cCount,
+        jumpRate: r3(hitRate(jArr, 'jump')),
+        crouchRate: r3(hitRate(cArr, 'crouch')),
+        probe: {
+          frames: this.probe.frames,
+          jumpEvents: this.probe.jumpEvents,
+          crouchEvents: this.probe.crouchEvents,
+          spuriousFrames: this.probe.spuriousFrames,
+          rate: this.probe.frames ? this.probe.spuriousFrames / this.probe.frames : 0
+        },
+        upVerdict: (jArr.length + cArr.length) ? 'clean' : 'unknown',
+        jcTested: true,
+        source: this.usedKeyboard ? 'mixed' : 'radar',
+        unreliable: !lrOk,
+        sameSignWarn: sameSignWarn,
+        debug: {
+          left: r3(dL), right: r3(dR), aL: r3(aL), aR: r3(aR),
+          opposite: opposite, sameSign: sameSignWarn,
+          restFrames: restArr.length, restValid: restX.length
+        }
+      };
+      // 注意：**不写 jumpTh / crouchTh**。字段是 0|1 开关，学出来的阈值没意义，
+      // 留着会让 applyThresholds 把 config 改成随机的 0.3~0.5。
+
+      this.message = Calibration.describe(cal);
+      if (sameSignWarn) {
+        this.message += '  ⚠ 左右往同一侧走了，可能有一侧没走开（站位偏了？），建议重测';
+      }
+      this.messageKind = (lrOk && !sameSignWarn) ? 'ok' : 'warn';
+      return cal;
     }
 
     /**
@@ -11116,10 +11421,21 @@ html, body {
     /** 跳过剩余步骤：左右标定过的部分**保留**，没确认的上下动作交给键盘兜底 */
     skip() {
       if (!this.open_) return;
-      var lr = this._lrOkResult();
-      var cal = this._composeResult(this.x0 === null ? 0 : this.x0, lr.sign, lr.lrOk,
-        this.jumpOk, this.crouchOk, !!this.radarSeen);
-      if (!cal.upVerdict || cal.upVerdict === 'unknown') cal.upVerdict = 'skipped';
+      var cal;
+      var hasRec = false;
+      for (var k in (this.rec || {})) {
+        if (this.rec[k] && this.rec[k].length) { hasRec = true; break; }
+      }
+      if (hasRec) {
+        // v4：已经采到的段照样分析，别让"跳过"把采过的数据全扔掉
+        cal = this._analyze();
+        if (!cal.upVerdict || cal.upVerdict === 'unknown') cal.upVerdict = 'skipped';
+      } else {
+        var lr = this._lrOkResult();
+        cal = this._composeResult(this.x0 === null ? 0 : this.x0, lr.sign, lr.lrOk,
+          this.jumpOk, this.crouchOk, !!this.radarSeen);
+        if (!cal.upVerdict || cal.upVerdict === 'unknown') cal.upVerdict = 'skipped';
+      }
       this.result = cal;
       this.message = lr.lrOk
         ? '已跳过剩余步骤（左右方向已标定，保留；没确认的动作改用键盘）。'
@@ -11143,7 +11459,10 @@ html, body {
       if (r.lrOk || r.jumpOk || r.crouchOk || r.keyboardOnly || r.upVerdict === 'noisy') {
         Calibration.save(r);
       } else {
-        Calibration.clear();
+        // v4：这次五个段都没采到有效数据 —— 保留上一次的校准，别把能用的删掉
+        var keep = Calibration.load();
+        if (!keep) Calibration.clear();
+        else this.message = '这次没采到有效数据，已保留上一次的校准。';
       }
       this.onDone(this.result);
       this.close();
@@ -11180,7 +11499,7 @@ html, body {
       wrap.className = 'calib-overlay hidden';
       wrap.innerHTML = [
         '<div class="calib-card">',
-        '  <div class="calib-title">雷达动作确认</div>',
+        '  <div class="calib-title">个人校准 · 一通动作全采</div>',
         // ---- 雷达连接：双雷达就在这里填两路地址，不用先开联调台 ----
         '  <div class="calib-link">',
         '    <label class="calib-link-dual">',
@@ -11361,6 +11680,15 @@ html, body {
         var x = this._validX(this._sample());
         var line = 'x = ' + (x === null ? '—' : x.toFixed(2)) +
           (this.x0 === null ? '' : '   x₀ = ' + this.x0.toFixed(2));
+        var segDur = num(this.step.dur, 0);
+        if (segDur > 0) {
+          var leftS = Math.max(0, segDur - (this.now - this.stepStartedAt) / 1000);
+          var got = ((this.rec && this.rec[this.step.id]) || []).length;
+          line = '⏱ ' + leftS.toFixed(1) + 's   ' + line + '   已采 ' + got + ' 帧';
+        } else if (this.step.id === 'ready') {
+          var leftR = Math.max(0, (READY_HARD_MS - (this.now - (this.readyStartedAt || this.now))) / 1000);
+          line += '   （最多再等 ' + leftR.toFixed(1) + 's）';
+        }
         // v2：把上游跳/蹲误报计数摊在台面上，别让玩家以为是自己在乱动
         if (this.probe.frames) {
           var v = this.probeVerdict;
@@ -13122,6 +13450,11 @@ RR.Tutorial = (function () {
     }
 
     function openCalibration() {
+      if (RR.Calibration && !RR.Calibration.name()) {
+        // 自动弹出时用户可能还没填名字：给个默认档，否则采完没地方存
+        RR.Calibration.setName('默认玩家');
+        if (typeof refreshPlayerUI === 'function') refreshPlayerUI();
+      }
       if (!RR.Calibration || !RR.CalibrationWizard) return;
       if (!currentSource() || currentSource().id !== 'radar') game.setInputSource('radar');
       var src = currentSource();
@@ -13223,7 +13556,174 @@ RR.Tutorial = (function () {
     bind('debug-close', function () { game.debug.setVisible(false); });
 
     // 雷达校准（新手教程）入口
-    bind('btn-calib', function () { openCalibration(); });
+    // ---- 多玩家：名字 + 下拉 + 个人校准 ----
+    function refreshPlayerUI() {
+      var sel = $('player-select');
+      var inp = $('player-name');
+      var hint = $('player-hint');
+      if (!sel) return;
+      var names = RR.Calibration.list();
+      var cur = RR.Calibration.name();
+      var html = '<option value="">（选择已校准的人）</option>';
+      for (var i = 0; i < names.length; i++) {
+        var n = names[i];
+        html += '<option value="' + String(n).replace(/"/g, '&quot;') + '"' +
+                (n === cur ? ' selected' : '') + '>' + n + '</option>';
+      }
+      sel.innerHTML = html;
+      if (inp && cur) inp.value = cur;
+      var cal = cur ? RR.Calibration.load(cur) : null;
+      if (hint) {
+        hint.textContent = cur
+          ? (cal ? ('当前玩家「' + cur + '」已校准 · ' + RR.Calibration.describe(cal))
+                 : ('当前玩家「' + cur + '」还没有校准数据'))
+          : '选一个已校准的玩家，或输入新名字点「个人校准」';
+      }
+    }
+
+    function usePlayer(name) {
+      RR.Calibration.setName(name || '');
+      refreshPlayerUI();
+      updateCalibNote();
+      syncCalibration();
+    }
+
+    if ($('player-select')) {
+      $('player-select').addEventListener('change', function () {
+        usePlayer(this.value || '');
+      });
+    }
+
+    if ($('player-name')) {
+      $('player-name').addEventListener('change', function () {
+        var v = (this.value || '').trim();
+        if (v) usePlayer(v);
+      });
+    }
+
+    // ---- 档案面板：列出 / 改名 / 删除 / 选用 ----
+    function openProfiles() {
+      var old = document.getElementById('profiles-overlay');
+      if (old) old.parentNode.removeChild(old);
+
+      var names = RR.Calibration.list();
+      var cur = RR.Calibration.name();
+      var rows = '';
+      if (!names.length) {
+        rows = '<div class="profiles-empty">这台浏览器里还没有任何校准档案。' +
+               '先在上面输入名字，点「个人校准」走一遍。</div>';
+      } else {
+        for (var i = 0; i < names.length; i++) {
+          var n = names[i];
+          var cal = null, desc = '档案读取失败', when = '—';
+          try {
+            cal = RR.Calibration.load(n);
+            if (cal) {
+              desc = RR.Calibration.describe(cal);
+              if (cal.at) when = new Date(cal.at).toLocaleString();
+            }
+          } catch (e) { /* 忽略 */ }
+          rows += '<div class="profiles-row" data-name="' + String(n).replace(/"/g, '&quot;') + '">' +
+            '<input class="profiles-name" value="' + String(n).replace(/"/g, '&quot;') + '" spellcheck="false">' +
+            '<div class="profiles-desc">' + desc + '<br><span class="profiles-when">' + when + '</span></div>' +
+            '<button class="calib-btn profiles-use" type="button">' + (n === cur ? '当前' : '选用') + '</button>' +
+            '<button class="calib-btn profiles-save" type="button">改名</button>' +
+            '<button class="calib-btn profiles-del" type="button">删除</button>' +
+            '</div>';
+        }
+      }
+
+      var wrap = document.createElement('div');
+      wrap.id = 'profiles-overlay';
+      wrap.className = 'calib-overlay';
+      wrap.innerHTML =
+        '<div class="calib-card profiles-card">' +
+        '  <div class="calib-title">校准档案（存在这台浏览器里）</div>' +
+        rows +
+        '  <div class="calib-actions">' +
+        '    <button class="calib-btn profiles-import" type="button">载入预设档案</button>' +
+        '    <button class="calib-btn profiles-close" type="button">关闭</button>' +
+        '  </div>' +
+        '</div>';
+      document.body.appendChild(wrap);
+
+      function closeIt() { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); }
+      wrap.querySelector('.profiles-close').addEventListener('click', closeIt);
+
+      // 载入 calib-presets.json（重建档等）
+      wrap.querySelector('.profiles-import').addEventListener('click', function () {
+        fetch('./calib-presets.json', { cache: 'no-store' })
+          .then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+          })
+          .then(function (j) {
+            var list = (j && j.presets) || [];
+            if (!list.length) { alert('预设文件里没有档案'); return; }
+            var n = 0;
+            for (var i = 0; i < list.length; i++) {
+              var item = list[i];
+              var msg = '导入「' + item.name + '」？';
+              if (item.cal && item.cal.note) msg += '\n\n' + item.cal.note;
+              if (RR.Calibration.load(item.name)) msg += '\n\n（同名档案会被覆盖）';
+              if (!confirm(msg)) continue;
+              RR.Calibration.save(item.cal, item.name);
+              n++;
+            }
+            refreshPlayerUI();
+            closeIt();
+            if (n) {
+              var hint = $('player-hint');
+              if (hint) hint.textContent = '已导入 ' + n + ' 份预设，现在可以在上面的下拉里选它';
+            }
+          })
+          .catch(function (e) {
+            alert('读取 calib-presets.json 失败：' + e.message +
+                  '\n\n请用 http://127.0.0.1:8080/ 打开，不要直接双击 html 文件。');
+          });
+      });
+      wrap.addEventListener('click', function (e) {
+        if (e.target === wrap) closeIt();
+        var btn = e.target;
+        var row = btn.closest ? btn.closest('.profiles-row') : null;
+        if (!row) return;
+        var from = row.getAttribute('data-name');
+        var input = row.querySelector('.profiles-name');
+        if (btn.classList.contains('profiles-use')) {
+          usePlayer(from);
+          closeIt();
+        } else if (btn.classList.contains('profiles-save')) {
+          var to = (input.value || '').trim();
+          if (!to || to === from) return;
+          if (RR.Calibration.rename(from, to)) {
+            refreshPlayerUI();
+            closeIt();
+          } else {
+            alert('改名失败：这个名字已经有档案了，或者原档案已经没了');
+          }
+        } else if (btn.classList.contains('profiles-del')) {
+          if (!confirm('删除「' + from + '」的校准？删了就找不回来了。')) return;
+          RR.Calibration.clear(from);
+          if (RR.Calibration.name() === from) RR.Calibration.setName('');
+          refreshPlayerUI();
+          updateCalibNote();
+          closeIt();
+        }
+      });
+    }
+
+    bind('btn-profiles', function () { openProfiles(); });
+
+    // 个人校准 → 独立的引导采集页（每段 15 秒，采得更充分）
+    bind('btn-calib', function () {
+      var inp = $('player-name');
+      var v = inp ? (inp.value || '').trim() : '';
+      if (!v) v = RR.Calibration.name();
+      var url = './calib-guide.html' + (v ? ('?name=' + encodeURIComponent(v)) : '');
+      window.open(url, '_blank');
+    });
+
+    refreshPlayerUI();
 
     // ---------- 音频 ----------
     // 音效和背景音乐都是 WebAudio 现场合成的（js/Audio.js），工程里没有任何
