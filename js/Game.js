@@ -978,6 +978,12 @@
         r.history.length = CFG.RECORDS.historyMax;
       }
       this._saveRecords(r);
+
+      // 云端存档：一局一条 append-only 记录，本地那份照旧保留作离线兜底。
+      // 网络失败时 RR.Cloud 会自动进本地 outbox，下次启动补传，所以这里不用等它。
+      if (RR.Cloud && RR.Cloud.active && r.history[0]) {
+        RR.Cloud.pushRecord(r.history[0]);
+      }
     }
 
     /** 本局亮点：够门槛才上榜；一条都没有时也给一句话，不留空白 */

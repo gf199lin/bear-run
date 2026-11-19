@@ -610,7 +610,19 @@
     STORAGE_KEY_RADAR_URL: 'bear-run:radar:url',
     // 双雷达：第二路（上下）地址 + 是否启用。由联调台写入，?radar2= 也会写。
     STORAGE_KEY_RADAR_URL_UD: 'bear-run:radar:url2',
-    STORAGE_KEY_RADAR_DUAL: 'bear-run:radar:dual'
+    STORAGE_KEY_RADAR_DUAL: 'bear-run:radar:dual',
+
+    // ==================== 云端账号 / 存档（Supabase） ====================
+    // 留空 = 纯本地模式，行为和以前完全一致（file:// 双击版就是这么跑的）。
+    // 填上 = 自动启用真实账号 + 跨设备存档，见 js/cloud.js。
+    //
+    // 这两个值都从 Supabase 控制台 → Project Settings → API 里拿。
+    // SUPABASE_ANON_KEY 是「公开」密钥，可以进 git；service_role key 绝对不要放这里。
+    SUPABASE_URL: '',
+    SUPABASE_ANON_KEY: '',
+    // Supabase Auth 只认 email，这里把用户名映射成伪邮箱。
+    // 换域名不会影响老账号（老账号的邮箱已经固化在 auth.users 里了）。
+    SUPABASE_ACCOUNT_DOMAIN: 'bearrun.local'
   };
 
 })(window);
