@@ -1,0 +1,1632 @@
+{
+ "subset": "all",
+ "top_k": 1,
+ "min_pts": 1,
+ "files": [
+  {
+   "tag": "lr3b",
+   "dist": 1.0,
+   "frames": 1562,
+   "det_rate": 0.803,
+   "actions": 16,
+   "minutes": 3.37
+  },
+  {
+   "tag": "lr3c",
+   "dist": 1.0,
+   "frames": 1639,
+   "det_rate": 0.848,
+   "actions": 16,
+   "minutes": 3.54
+  },
+  {
+   "tag": "lr2-p1-d070",
+   "dist": 0.7,
+   "frames": 1856,
+   "det_rate": 0.925,
+   "actions": 20,
+   "minutes": 4.01
+  },
+  {
+   "tag": "lr2-p1-d100",
+   "dist": 1.0,
+   "frames": 1859,
+   "det_rate": 0.781,
+   "actions": 20,
+   "minutes": 4.01
+  },
+  {
+   "tag": "lr2-jqz-d070",
+   "dist": 0.7,
+   "frames": 1857,
+   "det_rate": 0.764,
+   "actions": 20,
+   "minutes": 4.01
+  },
+  {
+   "tag": "lr2-jqz-d100",
+   "dist": 1.0,
+   "frames": 1858,
+   "det_rate": 0.676,
+   "actions": 20,
+   "minutes": 4.01
+  },
+  {
+   "tag": "once-070",
+   "dist": 0.7,
+   "frames": 1031,
+   "det_rate": 0.719,
+   "actions": 10,
+   "minutes": 2.23
+  },
+  {
+   "tag": "once-085",
+   "dist": 0.85,
+   "frames": 1031,
+   "det_rate": 0.764,
+   "actions": 10,
+   "minutes": 2.23
+  },
+  {
+   "tag": "once-100",
+   "dist": 1.0,
+   "frames": 1030,
+   "det_rate": 0.548,
+   "actions": 10,
+   "minutes": 2.22
+  },
+  {
+   "tag": "long-070",
+   "dist": 0.7,
+   "frames": 2968,
+   "det_rate": 0.977,
+   "actions": 14,
+   "minutes": 6.41
+  },
+  {
+   "tag": "m2recap-150",
+   "dist": 1.5,
+   "frames": 1219,
+   "det_rate": 0.673,
+   "actions": 14,
+   "minutes": 2.63
+  },
+  {
+   "tag": "m2recap-200",
+   "dist": 2.0,
+   "frames": 1219,
+   "det_rate": 0.386,
+   "actions": 14,
+   "minutes": 2.63
+  },
+  {
+   "tag": "seg-125",
+   "dist": 1.25,
+   "frames": 918,
+   "det_rate": 0.447,
+   "actions": 10,
+   "minutes": 1.98
+  },
+  {
+   "tag": "seg-150",
+   "dist": 1.5,
+   "frames": 918,
+   "det_rate": 0.374,
+   "actions": 10,
+   "minutes": 1.98
+  },
+  {
+   "tag": "stride-150",
+   "dist": 1.5,
+   "frames": 995,
+   "det_rate": 0.338,
+   "actions": 10,
+   "minutes": 2.15
+  },
+  {
+   "tag": "ext-125",
+   "dist": 1.25,
+   "frames": 1015,
+   "det_rate": 0.697,
+   "actions": 10,
+   "minutes": 2.19
+  }
+ ],
+ "rule": {
+  "agg": {
+   "hit": 123,
+   "tot": 224,
+   "hitrate": 0.5491071428571429,
+   "hitL": 30,
+   "totL": 112,
+   "hitR": 93,
+   "totR": 112,
+   "lat_med": 1.8129999999999882,
+   "lat_p90": 2.460000000000008,
+   "fp": 246,
+   "fp_per_min": 4.96090764443602,
+   "minutes": 49.5877,
+   "n_files": 16
+  },
+  "rows": [
+   {
+    "hit": {
+     "LEFT": 4,
+     "RIGHT": 6
+    },
+    "tot": {
+     "LEFT": 8,
+     "RIGHT": 8
+    },
+    "fp": 15,
+    "fp_per_min": 4.449300223948112,
+    "tag": "lr3b",
+    "minutes": 3.3713166666666665
+   },
+   {
+    "hit": {
+     "LEFT": 8,
+     "RIGHT": 7
+    },
+    "tot": {
+     "LEFT": 8,
+     "RIGHT": 8
+    },
+    "fp": 24,
+    "fp_per_min": 6.784420332530824,
+    "tag": "lr3c",
+    "minutes": 3.537516666666667
+   },
+   {
+    "hit": {
+     "LEFT": 7,
+     "RIGHT": 10
+    },
+    "tot": {
+     "LEFT": 10,
+     "RIGHT": 10
+    },
+    "fp": 32,
+    "fp_per_min": 7.988283850352816,
+    "tag": "lr2-p1-d070",
+    "minutes": 4.005866666666667
+   },
+   {
+    "hit": {
+     "LEFT": 4,
+     "RIGHT": 8
+    },
+    "tot": {
+     "LEFT": 10,
+     "RIGHT": 10
+    },
+    "fp": 28,
+    "fp_per_min": 6.978483010716956,
+    "tag": "lr2-p1-d100",
+    "minutes": 4.012333333333333
+   },
+   {
+    "hit": {
+     "LEFT": 0,
+     "RIGHT": 9
+    },
+    "tot": {
+     "LEFT": 10,
+     "RIGHT": 10
+    },
+    "fp": 15,
+    "fp_per_min": 3.742483844944736,
+    "tag": "lr2-jqz-d070",
+    "minutes": 4.008033333333334
+   },
+   {
+    "hit": {
+     "LEFT": 2,
+     "RIGHT": 10
+    },
+    "tot": {
+     "LEFT": 10,
+     "RIGHT": 10
+    },
+    "fp": 31,
+    "fp_per_min": 7.730319893936687,
+    "tag": "lr2-jqz-d100",
+    "minutes": 4.010183333333333
+   },
+   {
+    "hit": {
+     "LEFT": 1,
+     "RIGHT": 5
+    },
+    "tot": {
+     "LEFT": 5,
+     "RIGHT": 5
+    },
+    "fp": 14,
+    "fp_per_min": 6.29147505130548,
+    "tag": "once-070",
+    "minutes": 2.2252333333333336
+   },
+   {
+    "hit": {
+     "LEFT": 0,
+     "RIGHT": 5
+    },
+    "tot": {
+     "LEFT": 5,
+     "RIGHT": 5
+    },
+    "fp": 8,
+    "fp_per_min": 3.595128600745989,
+    "tag": "once-085",
+    "minutes": 2.2252333333333336
+   },
+   {
+    "hit": {
+     "LEFT": 0,
+     "RIGHT": 4
+    },
+    "tot": {
+     "LEFT": 5,
+     "RIGHT": 5
+    },
+    "fp": 2,
+    "fp_per_min": 0.8996513850882784,
+    "tag": "once-100",
+    "minutes": 2.2230833333333333
+   },
+   {
+    "hit": {
+     "LEFT": 4,
+     "RIGHT": 6
+    },
+    "tot": {
+     "LEFT": 7,
+     "RIGHT": 7
+    },
+    "fp": 29,
+    "fp_per_min": 4.52705304457326,
+    "tag": "long-070",
+    "minutes": 6.4059333333333335
+   },
+   {
+    "hit": {
+     "LEFT": 0,
+     "RIGHT": 6
+    },
+    "tot": {
+     "LEFT": 7,
+     "RIGHT": 7
+    },
+    "fp": 12,
+    "fp_per_min": 4.560974528224198,
+    "tag": "m2recap-150",
+    "minutes": 2.6310166666666666
+   },
+   {
+    "hit": {
+     "LEFT": 0,
+     "RIGHT": 1
+    },
+    "tot": {
+     "LEFT": 7,
+     "RIGHT": 7
+    },
+    "fp": 5,
+    "fp_per_min": 1.9004060534267488,
+    "tag": "m2recap-200",
+    "minutes": 2.6310166666666666
+   },
+   {
+    "hit": {
+     "LEFT": 0,
+     "RIGHT": 5
+    },
+    "tot": {
+     "LEFT": 5,
+     "RIGHT": 5
+    },
+    "fp": 12,
+    "fp_per_min": 6.056476644711939,
+    "tag": "seg-125",
+    "minutes": 1.98135
+   },
+   {
+    "hit": {
+     "LEFT": 0,
+     "RIGHT": 5
+    },
+    "tot": {
+     "LEFT": 5,
+     "RIGHT": 5
+    },
+    "fp": 6,
+    "fp_per_min": 3.0282383223559695,
+    "tag": "seg-150",
+    "minutes": 1.98135
+   },
+   {
+    "hit": {
+     "LEFT": 0,
+     "RIGHT": 1
+    },
+    "tot": {
+     "LEFT": 5,
+     "RIGHT": 5
+    },
+    "fp": 8,
+    "fp_per_min": 3.725204110141868,
+    "tag": "stride-150",
+    "minutes": 2.1475333333333335
+   },
+   {
+    "hit": {
+     "LEFT": 0,
+     "RIGHT": 5
+    },
+    "tot": {
+     "LEFT": 5,
+     "RIGHT": 5
+    },
+    "fp": 5,
+    "fp_per_min": 2.2823754964166705,
+    "tag": "ext-125",
+    "minutes": 2.1907
+   }
+  ]
+ },
+ "models": {
+  "logit": {
+   "agg": {
+    "hit": 161,
+    "tot": 224,
+    "hitrate": 0.71875,
+    "hitL": 76,
+    "totL": 112,
+    "hitR": 85,
+    "totR": 112,
+    "lat_med": 1.4239999999999995,
+    "lat_p90": 2.0720000000000027,
+    "fp": 518,
+    "fp_per_min": 10.446138861048205,
+    "minutes": 49.5877,
+    "n_files": 16
+   },
+   "rows": [
+    {
+     "hit": {
+      "LEFT": 0,
+      "RIGHT": 2
+     },
+     "tot": {
+      "LEFT": 8,
+      "RIGHT": 8
+     },
+     "fp": 8,
+     "fp_per_min": 2.372960119438993,
+     "tag": "lr3b",
+     "minutes": 3.3713166666666665,
+     "thr": 0.6
+    },
+    {
+     "hit": {
+      "LEFT": 1,
+      "RIGHT": 6
+     },
+     "tot": {
+      "LEFT": 8,
+      "RIGHT": 8
+     },
+     "fp": 32,
+     "fp_per_min": 9.045893776707766,
+     "tag": "lr3c",
+     "minutes": 3.537516666666667,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 10,
+      "RIGHT": 10
+     },
+     "tot": {
+      "LEFT": 10,
+      "RIGHT": 10
+     },
+     "fp": 67,
+     "fp_per_min": 16.725469311676207,
+     "tag": "lr2-p1-d070",
+     "minutes": 4.005866666666667,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 7,
+      "RIGHT": 7
+     },
+     "tot": {
+      "LEFT": 10,
+      "RIGHT": 10
+     },
+     "fp": 39,
+     "fp_per_min": 9.720029907784332,
+     "tag": "lr2-p1-d100",
+     "minutes": 4.012333333333333,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 10,
+      "RIGHT": 9
+     },
+     "tot": {
+      "LEFT": 10,
+      "RIGHT": 10
+     },
+     "fp": 31,
+     "fp_per_min": 7.734466612885787,
+     "tag": "lr2-jqz-d070",
+     "minutes": 4.008033333333334,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 10,
+      "RIGHT": 9
+     },
+     "tot": {
+      "LEFT": 10,
+      "RIGHT": 10
+     },
+     "fp": 55,
+     "fp_per_min": 13.715083682790896,
+     "tag": "lr2-jqz-d100",
+     "minutes": 4.010183333333333,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 4,
+      "RIGHT": 3
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 19,
+     "fp_per_min": 8.538430426771724,
+     "tag": "once-070",
+     "minutes": 2.2252333333333336,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 3,
+      "RIGHT": 3
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 17,
+     "fp_per_min": 7.639648276585226,
+     "tag": "once-085",
+     "minutes": 2.2252333333333336,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 3,
+      "RIGHT": 5
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 18,
+     "fp_per_min": 8.096862465794505,
+     "tag": "once-100",
+     "minutes": 2.2230833333333333,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 5,
+      "RIGHT": 6
+     },
+     "tot": {
+      "LEFT": 7,
+      "RIGHT": 7
+     },
+     "fp": 121,
+     "fp_per_min": 18.88873856528843,
+     "tag": "long-070",
+     "minutes": 6.4059333333333335,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 7,
+      "RIGHT": 6
+     },
+     "tot": {
+      "LEFT": 7,
+      "RIGHT": 7
+     },
+     "fp": 23,
+     "fp_per_min": 8.741867845763045,
+     "tag": "m2recap-150",
+     "minutes": 2.6310166666666666,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 5,
+      "RIGHT": 1
+     },
+     "tot": {
+      "LEFT": 7,
+      "RIGHT": 7
+     },
+     "fp": 14,
+     "fp_per_min": 5.321136949594897,
+     "tag": "m2recap-200",
+     "minutes": 2.6310166666666666,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 4,
+      "RIGHT": 5
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 24,
+     "fp_per_min": 12.112953289423878,
+     "tag": "seg-125",
+     "minutes": 1.98135,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 2,
+      "RIGHT": 4
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 19,
+     "fp_per_min": 9.589421354127238,
+     "tag": "seg-150",
+     "minutes": 1.98135,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 1,
+      "RIGHT": 4
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 11,
+     "fp_per_min": 5.122155651445068,
+     "tag": "stride-150",
+     "minutes": 2.1475333333333335,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 4,
+      "RIGHT": 5
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 20,
+     "fp_per_min": 9.129501985666682,
+     "tag": "ext-125",
+     "minutes": 2.1907,
+     "thr": 0.5
+    }
+   ]
+  },
+  "tree": {
+   "agg": {
+    "hit": 170,
+    "tot": 224,
+    "hitrate": 0.7589285714285714,
+    "hitL": 76,
+    "totL": 112,
+    "hitR": 94,
+    "totR": 112,
+    "lat_med": 1.2949999999999875,
+    "lat_p90": 1.8130000000000024,
+    "fp": 401,
+    "fp_per_min": 8.086682786255462,
+    "minutes": 49.5877,
+    "n_files": 16
+   },
+   "rows": [
+    {
+     "hit": {
+      "LEFT": 6,
+      "RIGHT": 8
+     },
+     "tot": {
+      "LEFT": 8,
+      "RIGHT": 8
+     },
+     "fp": 22,
+     "fp_per_min": 6.52564032845723,
+     "tag": "lr3b",
+     "minutes": 3.3713166666666665,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 8,
+      "RIGHT": 6
+     },
+     "tot": {
+      "LEFT": 8,
+      "RIGHT": 8
+     },
+     "fp": 34,
+     "fp_per_min": 9.611262137752,
+     "tag": "lr3c",
+     "minutes": 3.537516666666667,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 10,
+      "RIGHT": 10
+     },
+     "tot": {
+      "LEFT": 10,
+      "RIGHT": 10
+     },
+     "fp": 54,
+     "fp_per_min": 13.480228997470377,
+     "tag": "lr2-p1-d070",
+     "minutes": 4.005866666666667,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 6,
+      "RIGHT": 9
+     },
+     "tot": {
+      "LEFT": 10,
+      "RIGHT": 10
+     },
+     "fp": 26,
+     "fp_per_min": 6.480019938522887,
+     "tag": "lr2-p1-d100",
+     "minutes": 4.012333333333333,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 9,
+      "RIGHT": 10
+     },
+     "tot": {
+      "LEFT": 10,
+      "RIGHT": 10
+     },
+     "fp": 24,
+     "fp_per_min": 5.987974151911577,
+     "tag": "lr2-jqz-d070",
+     "minutes": 4.008033333333334,
+     "thr": 0.6
+    },
+    {
+     "hit": {
+      "LEFT": 0,
+      "RIGHT": 10
+     },
+     "tot": {
+      "LEFT": 10,
+      "RIGHT": 10
+     },
+     "fp": 22,
+     "fp_per_min": 5.4860334731163585,
+     "tag": "lr2-jqz-d100",
+     "minutes": 4.010183333333333,
+     "thr": 0.6
+    },
+    {
+     "hit": {
+      "LEFT": 4,
+      "RIGHT": 4
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 22,
+     "fp_per_min": 9.88660365205147,
+     "tag": "once-070",
+     "minutes": 2.2252333333333336,
+     "thr": 0.6
+    },
+    {
+     "hit": {
+      "LEFT": 5,
+      "RIGHT": 3
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 14,
+     "fp_per_min": 6.29147505130548,
+     "tag": "once-085",
+     "minutes": 2.2252333333333336,
+     "thr": 0.6
+    },
+    {
+     "hit": {
+      "LEFT": 4,
+      "RIGHT": 4
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 17,
+     "fp_per_min": 7.647036773250366,
+     "tag": "once-100",
+     "minutes": 2.2230833333333333,
+     "thr": 0.6
+    },
+    {
+     "hit": {
+      "LEFT": 3,
+      "RIGHT": 6
+     },
+     "tot": {
+      "LEFT": 7,
+      "RIGHT": 7
+     },
+     "fp": 82,
+     "fp_per_min": 12.800632746724391,
+     "tag": "long-070",
+     "minutes": 6.4059333333333335,
+     "thr": 0.6
+    },
+    {
+     "hit": {
+      "LEFT": 4,
+      "RIGHT": 6
+     },
+     "tot": {
+      "LEFT": 7,
+      "RIGHT": 7
+     },
+     "fp": 13,
+     "fp_per_min": 4.941055738909547,
+     "tag": "m2recap-150",
+     "minutes": 2.6310166666666666,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 5,
+      "RIGHT": 1
+     },
+     "tot": {
+      "LEFT": 7,
+      "RIGHT": 7
+     },
+     "fp": 17,
+     "fp_per_min": 6.461380581650946,
+     "tag": "m2recap-200",
+     "minutes": 2.6310166666666666,
+     "thr": 0.6
+    },
+    {
+     "hit": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 18,
+     "fp_per_min": 9.084714967067908,
+     "tag": "seg-125",
+     "minutes": 1.98135,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 2,
+      "RIGHT": 5
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 5,
+     "fp_per_min": 2.523531935296641,
+     "tag": "seg-150",
+     "minutes": 1.98135,
+     "thr": 0.6
+    },
+    {
+     "hit": {
+      "LEFT": 3,
+      "RIGHT": 2
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 20,
+     "fp_per_min": 9.313010275354669,
+     "tag": "stride-150",
+     "minutes": 2.1475333333333335,
+     "thr": 0.5
+    },
+    {
+     "hit": {
+      "LEFT": 2,
+      "RIGHT": 5
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 11,
+     "fp_per_min": 5.021226092116675,
+     "tag": "ext-125",
+     "minutes": 2.1907,
+     "thr": 0.6
+    }
+   ]
+  },
+  "mlp": {
+   "agg": {
+    "hit": 181,
+    "tot": 224,
+    "hitrate": 0.8080357142857143,
+    "hitL": 88,
+    "totL": 112,
+    "hitR": 93,
+    "totR": 112,
+    "lat_med": 1.4250000000000007,
+    "lat_p90": 2.2009999999999934,
+    "fp": 232,
+    "fp_per_min": 4.6785795671103925,
+    "minutes": 49.5877,
+    "n_files": 16
+   },
+   "rows": [
+    {
+     "hit": {
+      "LEFT": 8,
+      "RIGHT": 8
+     },
+     "tot": {
+      "LEFT": 8,
+      "RIGHT": 8
+     },
+     "fp": 19,
+     "fp_per_min": 5.635780283667608,
+     "tag": "lr3b",
+     "minutes": 3.3713166666666665,
+     "thr": 0.6
+    },
+    {
+     "hit": {
+      "LEFT": 3,
+      "RIGHT": 6
+     },
+     "tot": {
+      "LEFT": 8,
+      "RIGHT": 8
+     },
+     "fp": 14,
+     "fp_per_min": 3.9575785273096473,
+     "tag": "lr3c",
+     "minutes": 3.537516666666667,
+     "thr": 0.7
+    },
+    {
+     "hit": {
+      "LEFT": 9,
+      "RIGHT": 10
+     },
+     "tot": {
+      "LEFT": 10,
+      "RIGHT": 10
+     },
+     "fp": 26,
+     "fp_per_min": 6.490480628411662,
+     "tag": "lr2-p1-d070",
+     "minutes": 4.005866666666667,
+     "thr": 0.7
+    },
+    {
+     "hit": {
+      "LEFT": 9,
+      "RIGHT": 9
+     },
+     "tot": {
+      "LEFT": 10,
+      "RIGHT": 10
+     },
+     "fp": 13,
+     "fp_per_min": 3.2400099692614437,
+     "tag": "lr2-p1-d100",
+     "minutes": 4.012333333333333,
+     "thr": 0.7
+    },
+    {
+     "hit": {
+      "LEFT": 8,
+      "RIGHT": 10
+     },
+     "tot": {
+      "LEFT": 10,
+      "RIGHT": 10
+     },
+     "fp": 10,
+     "fp_per_min": 2.4949892299631573,
+     "tag": "lr2-jqz-d070",
+     "minutes": 4.008033333333334,
+     "thr": 0.7
+    },
+    {
+     "hit": {
+      "LEFT": 9,
+      "RIGHT": 9
+     },
+     "tot": {
+      "LEFT": 10,
+      "RIGHT": 10
+     },
+     "fp": 31,
+     "fp_per_min": 7.730319893936687,
+     "tag": "lr2-jqz-d100",
+     "minutes": 4.010183333333333,
+     "thr": 0.7
+    },
+    {
+     "hit": {
+      "LEFT": 5,
+      "RIGHT": 2
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 15,
+     "fp_per_min": 6.740866126398729,
+     "tag": "once-070",
+     "minutes": 2.2252333333333336,
+     "thr": 0.7
+    },
+    {
+     "hit": {
+      "LEFT": 4,
+      "RIGHT": 4
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 5,
+     "fp_per_min": 2.246955375466243,
+     "tag": "once-085",
+     "minutes": 2.2252333333333336,
+     "thr": 0.7
+    },
+    {
+     "hit": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 8,
+     "fp_per_min": 3.5986055403531134,
+     "tag": "once-100",
+     "minutes": 2.2230833333333333,
+     "thr": 0.7
+    },
+    {
+     "hit": {
+      "LEFT": 2,
+      "RIGHT": 6
+     },
+     "tot": {
+      "LEFT": 7,
+      "RIGHT": 7
+     },
+     "fp": 14,
+     "fp_per_min": 2.185473883587091,
+     "tag": "long-070",
+     "minutes": 6.4059333333333335,
+     "thr": 0.7
+    },
+    {
+     "hit": {
+      "LEFT": 6,
+      "RIGHT": 6
+     },
+     "tot": {
+      "LEFT": 7,
+      "RIGHT": 7
+     },
+     "fp": 12,
+     "fp_per_min": 4.560974528224198,
+     "tag": "m2recap-150",
+     "minutes": 2.6310166666666666,
+     "thr": 0.7
+    },
+    {
+     "hit": {
+      "LEFT": 7,
+      "RIGHT": 2
+     },
+     "tot": {
+      "LEFT": 7,
+      "RIGHT": 7
+     },
+     "fp": 18,
+     "fp_per_min": 6.841461792336296,
+     "tag": "m2recap-200",
+     "minutes": 2.6310166666666666,
+     "thr": 0.6
+    },
+    {
+     "hit": {
+      "LEFT": 5,
+      "RIGHT": 4
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 19,
+     "fp_per_min": 9.589421354127238,
+     "tag": "seg-125",
+     "minutes": 1.98135,
+     "thr": 0.6
+    },
+    {
+     "hit": {
+      "LEFT": 3,
+      "RIGHT": 5
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 5,
+     "fp_per_min": 2.523531935296641,
+     "tag": "seg-150",
+     "minutes": 1.98135,
+     "thr": 0.7
+    },
+    {
+     "hit": {
+      "LEFT": 1,
+      "RIGHT": 2
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 11,
+     "fp_per_min": 5.122155651445068,
+     "tag": "stride-150",
+     "minutes": 2.1475333333333335,
+     "thr": 0.6
+    },
+    {
+     "hit": {
+      "LEFT": 4,
+      "RIGHT": 5
+     },
+     "tot": {
+      "LEFT": 5,
+      "RIGHT": 5
+     },
+     "fp": 12,
+     "fp_per_min": 5.477701191400009,
+     "tag": "ext-125",
+     "minutes": 2.1907,
+     "thr": 0.7
+    }
+   ]
+  }
+ },
+ "matched_fp": {
+  "logit": {
+   "pick_thr": "0.7",
+   "pick": {
+    "hit": 94,
+    "tot": 224,
+    "hitrate": 0.41964285714285715,
+    "hitL": 39,
+    "totL": 112,
+    "hitR": 55,
+    "totR": 112,
+    "lat_med": 1.6839999999999975,
+    "lat_p90": 2.5899999999999963,
+    "fp": 98,
+    "fp_per_min": 1.97629654127939,
+    "minutes": 49.5877,
+    "n_files": 16
+   },
+   "by_thr": {
+    "0.4": {
+     "hit": 194,
+     "tot": 224,
+     "hitrate": 0.8660714285714286,
+     "hitL": 94,
+     "totL": 112,
+     "hitR": 100,
+     "totR": 112,
+     "lat_med": 1.1659999999999968,
+     "lat_p90": 1.941999999999993,
+     "fp": 846,
+     "fp_per_min": 17.060682386962895,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.5": {
+     "hit": 169,
+     "tot": 224,
+     "hitrate": 0.7544642857142857,
+     "hitL": 79,
+     "totL": 112,
+     "hitR": 90,
+     "totR": 112,
+     "lat_med": 1.4239999999999995,
+     "lat_p90": 2.0720000000000027,
+     "fp": 531,
+     "fp_per_min": 10.708300647136285,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.6": {
+     "hit": 135,
+     "tot": 224,
+     "hitrate": 0.6026785714285714,
+     "hitL": 64,
+     "totL": 112,
+     "hitR": 71,
+     "totR": 112,
+     "lat_med": 1.6829999999999927,
+     "lat_p90": 2.201999999999998,
+     "fp": 252,
+     "fp_per_min": 5.081905391861288,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.7": {
+     "hit": 94,
+     "tot": 224,
+     "hitrate": 0.41964285714285715,
+     "hitL": 39,
+     "totL": 112,
+     "hitR": 55,
+     "totR": 112,
+     "lat_med": 1.6839999999999975,
+     "lat_p90": 2.5899999999999963,
+     "fp": 98,
+     "fp_per_min": 1.97629654127939,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.8": {
+     "hit": 45,
+     "tot": 224,
+     "hitrate": 0.20089285714285715,
+     "hitL": 11,
+     "totL": 112,
+     "hitR": 34,
+     "totR": 112,
+     "lat_med": 1.683000000000007,
+     "lat_p90": 2.460000000000008,
+     "fp": 22,
+     "fp_per_min": 0.4436584072259855,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.9": {
+     "hit": 17,
+     "tot": 224,
+     "hitrate": 0.07589285714285714,
+     "hitL": 1,
+     "totL": 112,
+     "hitR": 16,
+     "totR": 112,
+     "lat_med": 1.8130000000000024,
+     "lat_p90": 2.0720000000000027,
+     "fp": 5,
+     "fp_per_min": 0.10083145618772398,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.95": {
+     "hit": 1,
+     "tot": 224,
+     "hitrate": 0.004464285714285714,
+     "hitL": 0,
+     "totL": 112,
+     "hitR": 1,
+     "totR": 112,
+     "lat_med": 1.8129999999999882,
+     "lat_p90": 1.8129999999999882,
+     "fp": 0,
+     "fp_per_min": 0.0,
+     "minutes": 49.5877,
+     "n_files": 16
+    }
+   }
+  },
+  "tree": {
+   "pick_thr": "0.7",
+   "pick": {
+    "hit": 142,
+    "tot": 224,
+    "hitrate": 0.6339285714285714,
+    "hitL": 57,
+    "totL": 112,
+    "hitR": 85,
+    "totR": 112,
+    "lat_med": 1.4249999999999972,
+    "lat_p90": 2.0720000000000027,
+    "fp": 181,
+    "fp_per_min": 3.650098713995608,
+    "minutes": 49.5877,
+    "n_files": 16
+   },
+   "by_thr": {
+    "0.4": {
+     "hit": 193,
+     "tot": 224,
+     "hitrate": 0.8616071428571429,
+     "hitL": 88,
+     "totL": 112,
+     "hitR": 105,
+     "totR": 112,
+     "lat_med": 1.0360000000000014,
+     "lat_p90": 1.6839999999999975,
+     "fp": 674,
+     "fp_per_min": 13.592080294105193,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.5": {
+     "hit": 173,
+     "tot": 224,
+     "hitrate": 0.7723214285714286,
+     "hitL": 76,
+     "totL": 112,
+     "hitR": 97,
+     "totR": 112,
+     "lat_med": 1.1659999999999968,
+     "lat_p90": 1.8130000000000024,
+     "fp": 449,
+     "fp_per_min": 9.054664765657613,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.6": {
+     "hit": 160,
+     "tot": 224,
+     "hitrate": 0.7142857142857143,
+     "hitL": 69,
+     "totL": 112,
+     "hitR": 91,
+     "totR": 112,
+     "lat_med": 1.2950000000000017,
+     "lat_p90": 1.814,
+     "fp": 353,
+     "fp_per_min": 7.118700806853313,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.7": {
+     "hit": 142,
+     "tot": 224,
+     "hitrate": 0.6339285714285714,
+     "hitL": 57,
+     "totL": 112,
+     "hitR": 85,
+     "totR": 112,
+     "lat_med": 1.4249999999999972,
+     "lat_p90": 2.0720000000000027,
+     "fp": 181,
+     "fp_per_min": 3.650098713995608,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.8": {
+     "hit": 115,
+     "tot": 224,
+     "hitrate": 0.5133928571428571,
+     "hitL": 34,
+     "totL": 112,
+     "hitR": 81,
+     "totR": 112,
+     "lat_med": 1.6839999999999975,
+     "lat_p90": 2.331000000000003,
+     "fp": 83,
+     "fp_per_min": 1.673802172716218,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.9": {
+     "hit": 68,
+     "tot": 224,
+     "hitrate": 0.30357142857142855,
+     "hitL": 16,
+     "totL": 112,
+     "hitR": 52,
+     "totR": 112,
+     "lat_med": 1.8129999999999882,
+     "lat_p90": 2.331000000000003,
+     "fp": 28,
+     "fp_per_min": 0.5646561546512543,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.95": {
+     "hit": 19,
+     "tot": 224,
+     "hitrate": 0.08482142857142858,
+     "hitL": 14,
+     "totL": 112,
+     "hitR": 5,
+     "totR": 112,
+     "lat_med": 1.943000000000012,
+     "lat_p90": 2.5900000000000034,
+     "fp": 9,
+     "fp_per_min": 0.18149662113790316,
+     "minutes": 49.5877,
+     "n_files": 16
+    }
+   }
+  },
+  "mlp": {
+   "pick_thr": "0.7",
+   "pick": {
+    "hit": 171,
+    "tot": 224,
+    "hitrate": 0.7633928571428571,
+    "hitL": 82,
+    "totL": 112,
+    "hitR": 89,
+    "totR": 112,
+    "lat_med": 1.4250000000000007,
+    "lat_p90": 2.072999999999979,
+    "fp": 207,
+    "fp_per_min": 4.174422286171772,
+    "minutes": 49.5877,
+    "n_files": 16
+   },
+   "by_thr": {
+    "0.4": {
+     "hit": 189,
+     "tot": 224,
+     "hitrate": 0.84375,
+     "hitL": 92,
+     "totL": 112,
+     "hitR": 97,
+     "totR": 112,
+     "lat_med": 1.0360000000000014,
+     "lat_p90": 1.8130000000000024,
+     "fp": 701,
+     "fp_per_min": 14.136570157518902,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.5": {
+     "hit": 192,
+     "tot": 224,
+     "hitrate": 0.8571428571428571,
+     "hitL": 95,
+     "totL": 112,
+     "hitR": 97,
+     "totR": 112,
+     "lat_med": 1.1659999999999968,
+     "lat_p90": 1.8130000000000024,
+     "fp": 524,
+     "fp_per_min": 10.567136608473472,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.6": {
+     "hit": 192,
+     "tot": 224,
+     "hitrate": 0.8571428571428571,
+     "hitL": 96,
+     "totL": 112,
+     "hitR": 96,
+     "totR": 112,
+     "lat_med": 1.2960000000000065,
+     "lat_p90": 1.9429999999999978,
+     "fp": 330,
+     "fp_per_min": 6.654876108389782,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.7": {
+     "hit": 171,
+     "tot": 224,
+     "hitrate": 0.7633928571428571,
+     "hitL": 82,
+     "totL": 112,
+     "hitR": 89,
+     "totR": 112,
+     "lat_med": 1.4250000000000007,
+     "lat_p90": 2.072999999999979,
+     "fp": 207,
+     "fp_per_min": 4.174422286171772,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.8": {
+     "hit": 147,
+     "tot": 224,
+     "hitrate": 0.65625,
+     "hitL": 64,
+     "totL": 112,
+     "hitR": 83,
+     "totR": 112,
+     "lat_med": 1.5550000000000068,
+     "lat_p90": 2.201999999999998,
+     "fp": 115,
+     "fp_per_min": 2.3191234923176514,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.9": {
+     "hit": 96,
+     "tot": 224,
+     "hitrate": 0.42857142857142855,
+     "hitL": 35,
+     "totL": 112,
+     "hitR": 61,
+     "totR": 112,
+     "lat_med": 1.8129999999999882,
+     "lat_p90": 2.4609999999999985,
+     "fp": 46,
+     "fp_per_min": 0.9276493969270606,
+     "minutes": 49.5877,
+     "n_files": 16
+    },
+    "0.95": {
+     "hit": 56,
+     "tot": 224,
+     "hitrate": 0.25,
+     "hitL": 16,
+     "totL": 112,
+     "hitR": 40,
+     "totR": 112,
+     "lat_med": 1.8129999999999953,
+     "lat_p90": 2.332000000000008,
+     "fp": 18,
+     "fp_per_min": 0.3629932422758063,
+     "minutes": 49.5877,
+     "n_files": 16
+    }
+   }
+  }
+ },
+ "feature_names": [
+  "dev",
+  "dev_04_16",
+  "d4",
+  "slope8",
+  "slope3",
+  "det8",
+  "det32",
+  "en_ratio",
+  "py_dev",
+  "npts4",
+  "jit16",
+  "px_minus_long"
+ ],
+ "tree_full_rules": [
+  "if px_minus_long <= -0.177:",
+  "  if dev <= -2.098:",
+  "    if npts4 <= -2.779:",
+  "      if en_ratio <= -0.262:",
+  "        if dev <= -4.377:",
+  "          → NONE (p=[0.92, 0.08, 0.0], n=93)",
+  "        else:",
+  "          → LEFT (p=[0.37, 0.51, 0.11], n=61)",
+  "      else:",
+  "        → LEFT (p=[0.22, 0.78, 0.0], n=83)",
+  "    else:",
+  "      if dev_04_16 <= -4.750:",
+  "        → LEFT (p=[0.05, 0.95, 0.0], n=102)",
+  "      else:",
+  "        if py_dev <= 0.923:",
+  "          → LEFT (p=[0.16, 0.83, 0.01], n=153)",
+  "        else:",
+  "          → LEFT (p=[0.29, 0.53, 0.18], n=83)",
+  "  else:",
+  "    if det8 <= -0.286:",
+  "      if dev_04_16 <= -2.394:",
+  "        if py_dev <= 1.357:",
+  "          → LEFT (p=[0.15, 0.77, 0.07], n=81)",
+  "        else:",
+  "          → NONE (p=[0.45, 0.3, 0.24], n=66)",
+  "      else:",
+  "        if det32 <= -1.709:",
+  "          → NONE (p=[0.74, 0.09, 0.16], n=251)",
+  "        else:",
+  "          → RIGHT (p=[0.38, 0.2, 0.43], n=1071)",
+  "    else:",
+  "      if dev <= -0.357:",
+  "        if dev_04_16 <= -0.109:",
+  "          → RIGHT (p=[0.07, 0.02, 0.91], n=835)",
+  "        else:",
+  "          → RIGHT (p=[0.28, 0.03, 0.69], n=834)",
+  "      else:",
+  "        if en_ratio <= -0.208:",
+  "          → NONE (p=[0.47, 0.23, 0.3], n=915)",
+  "        else:",
+  "          → RIGHT (p=[0.19, 0.11, 0.7], n=1119)",
+  "else:",
+  "  if en_ratio <= 0.188:",
+  "    if det32 <= -2.465:",
+  "      → NONE (p=[1.0, 0.0, 0.0], n=610)",
+  "    else:",
+  "      if det8 <= 0.094:",
+  "        if dev_04_16 <= 0.685:",
+  "          → NONE (p=[0.4, 0.34, 0.26], n=3941)",
+  "        else:",
+  "          → LEFT (p=[0.37, 0.55, 0.08], n=438)",
+  "      else:",
+  "        if dev <= 0.019:",
+  "          → NONE (p=[0.43, 0.25, 0.32], n=1340)",
+  "        else:",
+  "          → NONE (p=[0.61, 0.18, 0.21], n=4008)",
+  "  else:",
+  "    if dev_04_16 <= 0.045:",
+  "      if en_ratio <= 1.401:",
+  "        if slope3 <= -0.107:",
+  "          → RIGHT (p=[0.25, 0.12, 0.62], n=504)",
+  "        else:",
+  "          → RIGHT (p=[0.26, 0.28, 0.46], n=1169)",
+  "      else:",
+  "        if det8 <= 0.474:",
+  "          → LEFT (p=[0.26, 0.74, 0.0], n=285)",
+  "        else:",
+  "          → RIGHT (p=[0.39, 0.16, 0.45], n=134)",
+  "    else:",
+  "      if px_minus_long <= 0.525:",
+  "        if det8 <= 0.474:",
+  "          → LEFT (p=[0.23, 0.65, 0.11], n=2132)",
+  "        else:",
+  "          → NONE (p=[0.4, 0.39, 0.2], n=1709)",
+  "      else:",
+  "        if det32 <= -0.736:",
+  "          → NONE (p=[0.4, 0.35, 0.26], n=168)",
+  "        else:",
+  "          → LEFT (p=[0.14, 0.84, 0.02], n=790)"
+ ],
+ "band": "auto",
+ "min_det": 0.0,
+ "rule_only": false
+}

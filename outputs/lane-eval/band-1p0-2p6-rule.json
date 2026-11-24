@@ -1,0 +1,401 @@
+{
+ "subset": "all",
+ "top_k": 1,
+ "min_pts": 1,
+ "band": [
+  1.0,
+  2.6
+ ],
+ "min_det": 0.35,
+ "rule_only": true,
+ "files": [
+  {
+   "tag": "lr3b",
+   "dist": 1.0,
+   "frames": 1562,
+   "det_rate": 0.994,
+   "actions": 16,
+   "minutes": 3.37
+  },
+  {
+   "tag": "lr3c",
+   "dist": 1.0,
+   "frames": 1639,
+   "det_rate": 0.973,
+   "actions": 16,
+   "minutes": 3.54
+  },
+  {
+   "tag": "lr2-p1-d070",
+   "dist": 0.7,
+   "frames": 1856,
+   "det_rate": 0.952,
+   "actions": 20,
+   "minutes": 4.01
+  },
+  {
+   "tag": "lr2-p1-d100",
+   "dist": 1.0,
+   "frames": 1859,
+   "det_rate": 0.98,
+   "actions": 20,
+   "minutes": 4.01
+  },
+  {
+   "tag": "lr2-jqz-d070",
+   "dist": 0.7,
+   "frames": 1857,
+   "det_rate": 0.924,
+   "actions": 20,
+   "minutes": 4.01
+  },
+  {
+   "tag": "lr2-jqz-d100",
+   "dist": 1.0,
+   "frames": 1858,
+   "det_rate": 0.916,
+   "actions": 20,
+   "minutes": 4.01
+  },
+  {
+   "tag": "once-070",
+   "dist": 0.7,
+   "frames": 1031,
+   "det_rate": 0.809,
+   "actions": 10,
+   "minutes": 2.23
+  },
+  {
+   "tag": "once-085",
+   "dist": 0.85,
+   "frames": 1031,
+   "det_rate": 0.818,
+   "actions": 10,
+   "minutes": 2.23
+  },
+  {
+   "tag": "once-100",
+   "dist": 1.0,
+   "frames": 1030,
+   "det_rate": 0.791,
+   "actions": 10,
+   "minutes": 2.22
+  },
+  {
+   "tag": "long-070",
+   "dist": 0.7,
+   "frames": 2968,
+   "det_rate": 0.991,
+   "actions": 14,
+   "minutes": 6.41
+  },
+  {
+   "tag": "m2recap-150",
+   "dist": 1.5,
+   "frames": 1219,
+   "det_rate": 0.742,
+   "actions": 14,
+   "minutes": 2.63
+  },
+  {
+   "tag": "m2recap-200",
+   "dist": 2.0,
+   "frames": 1219,
+   "det_rate": 0.745,
+   "actions": 14,
+   "minutes": 2.63
+  },
+  {
+   "tag": "seg-125",
+   "dist": 1.25,
+   "frames": 918,
+   "det_rate": 0.587,
+   "actions": 10,
+   "minutes": 1.98
+  },
+  {
+   "tag": "seg-150",
+   "dist": 1.5,
+   "frames": 918,
+   "det_rate": 0.516,
+   "actions": 10,
+   "minutes": 1.98
+  },
+  {
+   "tag": "stride-150",
+   "dist": 1.5,
+   "frames": 995,
+   "det_rate": 0.518,
+   "actions": 10,
+   "minutes": 2.15
+  },
+  {
+   "tag": "ext-125",
+   "dist": 1.25,
+   "frames": 1015,
+   "det_rate": 0.774,
+   "actions": 10,
+   "minutes": 2.19
+  }
+ ],
+ "rule": {
+  "agg": {
+   "hit": 150,
+   "tot": 224,
+   "hitrate": 0.6696428571428571,
+   "hitL": 53,
+   "totL": 112,
+   "hitR": 97,
+   "totR": 112,
+   "lat_med": 1.6839999999999975,
+   "lat_p90": 2.331000000000003,
+   "fp": 391,
+   "fp_per_min": 7.885019873880015,
+   "minutes": 49.5877,
+   "n_files": 16
+  },
+  "rows": [
+   {
+    "hit": {
+     "LEFT": 8,
+     "RIGHT": 6
+    },
+    "tot": {
+     "LEFT": 8,
+     "RIGHT": 8
+    },
+    "fp": 20,
+    "fp_per_min": 5.932400298597482,
+    "tag": "lr3b",
+    "minutes": 3.3713166666666665
+   },
+   {
+    "hit": {
+     "LEFT": 8,
+     "RIGHT": 7
+    },
+    "tot": {
+     "LEFT": 8,
+     "RIGHT": 8
+    },
+    "fp": 30,
+    "fp_per_min": 8.48052541566353,
+    "tag": "lr3c",
+    "minutes": 3.537516666666667
+   },
+   {
+    "hit": {
+     "LEFT": 8,
+     "RIGHT": 10
+    },
+    "tot": {
+     "LEFT": 10,
+     "RIGHT": 10
+    },
+    "fp": 32,
+    "fp_per_min": 7.988283850352816,
+    "tag": "lr2-p1-d070",
+    "minutes": 4.005866666666667
+   },
+   {
+    "hit": {
+     "LEFT": 8,
+     "RIGHT": 10
+    },
+    "tot": {
+     "LEFT": 10,
+     "RIGHT": 10
+    },
+    "fp": 37,
+    "fp_per_min": 9.221566835590263,
+    "tag": "lr2-p1-d100",
+    "minutes": 4.012333333333333
+   },
+   {
+    "hit": {
+     "LEFT": 2,
+     "RIGHT": 9
+    },
+    "tot": {
+     "LEFT": 10,
+     "RIGHT": 10
+    },
+    "fp": 37,
+    "fp_per_min": 9.23146015086368,
+    "tag": "lr2-jqz-d070",
+    "minutes": 4.008033333333334
+   },
+   {
+    "hit": {
+     "LEFT": 5,
+     "RIGHT": 8
+    },
+    "tot": {
+     "LEFT": 10,
+     "RIGHT": 10
+    },
+    "fp": 29,
+    "fp_per_min": 7.231589578198836,
+    "tag": "lr2-jqz-d100",
+    "minutes": 4.010183333333333
+   },
+   {
+    "hit": {
+     "LEFT": 0,
+     "RIGHT": 5
+    },
+    "tot": {
+     "LEFT": 5,
+     "RIGHT": 5
+    },
+    "fp": 14,
+    "fp_per_min": 6.29147505130548,
+    "tag": "once-070",
+    "minutes": 2.2252333333333336
+   },
+   {
+    "hit": {
+     "LEFT": 0,
+     "RIGHT": 5
+    },
+    "tot": {
+     "LEFT": 5,
+     "RIGHT": 5
+    },
+    "fp": 11,
+    "fp_per_min": 4.943301826025735,
+    "tag": "once-085",
+    "minutes": 2.2252333333333336
+   },
+   {
+    "hit": {
+     "LEFT": 3,
+     "RIGHT": 4
+    },
+    "tot": {
+     "LEFT": 5,
+     "RIGHT": 5
+    },
+    "fp": 27,
+    "fp_per_min": 12.145293698691757,
+    "tag": "once-100",
+    "minutes": 2.2230833333333333
+   },
+   {
+    "hit": {
+     "LEFT": 4,
+     "RIGHT": 6
+    },
+    "tot": {
+     "LEFT": 7,
+     "RIGHT": 7
+    },
+    "fp": 29,
+    "fp_per_min": 4.52705304457326,
+    "tag": "long-070",
+    "minutes": 6.4059333333333335
+   },
+   {
+    "hit": {
+     "LEFT": 0,
+     "RIGHT": 6
+    },
+    "tot": {
+     "LEFT": 7,
+     "RIGHT": 7
+    },
+    "fp": 12,
+    "fp_per_min": 4.560974528224198,
+    "tag": "m2recap-150",
+    "minutes": 2.6310166666666666
+   },
+   {
+    "hit": {
+     "LEFT": 3,
+     "RIGHT": 6
+    },
+    "tot": {
+     "LEFT": 7,
+     "RIGHT": 7
+    },
+    "fp": 28,
+    "fp_per_min": 10.642273899189794,
+    "tag": "m2recap-200",
+    "minutes": 2.6310166666666666
+   },
+   {
+    "hit": {
+     "LEFT": 0,
+     "RIGHT": 5
+    },
+    "tot": {
+     "LEFT": 5,
+     "RIGHT": 5
+    },
+    "fp": 28,
+    "fp_per_min": 14.13177883766119,
+    "tag": "seg-125",
+    "minutes": 1.98135
+   },
+   {
+    "hit": {
+     "LEFT": 0,
+     "RIGHT": 4
+    },
+    "tot": {
+     "LEFT": 5,
+     "RIGHT": 5
+    },
+    "fp": 16,
+    "fp_per_min": 8.075302192949252,
+    "tag": "seg-150",
+    "minutes": 1.98135
+   },
+   {
+    "hit": {
+     "LEFT": 4,
+     "RIGHT": 1
+    },
+    "tot": {
+     "LEFT": 5,
+     "RIGHT": 5
+    },
+    "fp": 32,
+    "fp_per_min": 14.900816440567471,
+    "tag": "stride-150",
+    "minutes": 2.1475333333333335
+   },
+   {
+    "hit": {
+     "LEFT": 0,
+     "RIGHT": 5
+    },
+    "tot": {
+     "LEFT": 5,
+     "RIGHT": 5
+    },
+    "fp": 9,
+    "fp_per_min": 4.108275893550006,
+    "tag": "ext-125",
+    "minutes": 2.1907
+   }
+  ]
+ },
+ "models": {},
+ "matched_fp": {},
+ "feature_names": [
+  "dev",
+  "dev_04_16",
+  "d4",
+  "slope8",
+  "slope3",
+  "det8",
+  "det32",
+  "en_ratio",
+  "py_dev",
+  "npts4",
+  "jit16",
+  "px_minus_long"
+ ],
+ "tree_full_rules": []
+}
