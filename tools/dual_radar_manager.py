@@ -874,6 +874,8 @@ def main():
     ap = argparse.ArgumentParser(description='双雷达角色分配服务（插入顺序 + 手动指定）')
     ap.add_argument('--port', type=int, default=DEFAULT_HTTP_PORT, help='HTTP 端口，默认 8778')
     ap.add_argument('--no-open', action='store_true', help='不自动打开联调台')
+    ap.add_argument('--autostart', action='store_true',
+                    help='一键模式：自动按插入序分配角色、起两路桥接，直接打开游戏页面')
     args = ap.parse_args()
 
     if not os.path.isfile(BRIDGE):
@@ -916,7 +918,34 @@ def main():
     print(' 停止：Ctrl+C；关闭页面 60 秒后桥接自动退出并释放端口', flush=True)
     print('=' * 62, flush=True)
 
-    if not args.no_open:
+    if args.autostart:
+        def auto_boot():
+            # 等 HTTP 端口就绪，再给刚插上的板一点 USB 枚举时间
+            for _ in range(60):
+                if port_open(args.port, 0.2):
+                    break
+                time.sleep(0.15)
+            time.sleep(1.5)
+            res = reg.start_all()
+            started = res.get('started') or []
+            if res.get('ok'):
+                log('自动启动成功：%s'
+                    % '，'.join('%s=%s' % (ROLE_LABEL[s['role']], s['device'])
+                               for s in started))
+                try:
+                    webbrowser.open('http://127.0.0.1:%d/index.html' % args.port)
+                except Exception:
+                    pass
+            else:
+                log('自动启动未完成：%s'
+                    % '；'.join(res.get('problems') or ['未知原因']))
+                log('已打开联调台 —— 看好串口后手动点「启动并回游戏主页面」')
+                try:
+                    webbrowser.open(page)
+                except Exception:
+                    pass
+        threading.Thread(target=auto_boot, daemon=True).start()
+    elif not args.no_open:
         def open_later():
             for _ in range(40):
                 if port_open(args.port, 0.2):
