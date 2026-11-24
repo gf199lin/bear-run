@@ -21,6 +21,8 @@
   - 详细数据见 `docs/lr3b-dataset-review.md`。
 - **1T2R 距离只有 1.02 / 1.70 两个 bin（1.0 m 站位）**，正好差一个 0.68 m 分辨率。写死的 `band=[1.36,2.04]` 只覆盖高的那个，会丢掉 48% 的帧——这是「检出率 47%、RIGHT 只剩 31 帧」的真正原因。采集默认 `--auto-band`（lead 段 r 的 **5%~95% 分位**定带，必须覆盖**两个** bin），不要再用固定带。
 - 距离分辨率 ≈0.68 m；速度分辨率 ≈0.05 m/s；最大不模糊速度 ≈±1.53 m/s。
+- **双雷达角色分配**记在 `.deepworks/tmp/dual-radar-assign.json`（**不进 Git**）：当前 `COM3 = lr`（水平）、`COM6 = ud`（竖直）。换机器或清 tmp 后必须重设，否则 ud 不会被启动、8767 一直空着（2026-11-19 踩过）。恢复方法见 `docs/贡献-20261124.md` §3。
+- 水平实时桥接用的是 `--band 0.5,1.9`（覆盖双 bin）。`radar_live_ws.py` **没有** `--auto-band` 参数；`--auto-band` 只存在于采集脚本 `segment_capture.py` 与 `radar_actions.py`。旧交接文档里「改成 --auto-band（lr 侧已有）」是错的，别照着做。
 
 ## 硬设计约束
 
