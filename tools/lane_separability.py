@@ -24,7 +24,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..'))
 sys.path.insert(0, os.path.join(ROOT, 'radar-pointcloud'))
-sys.path.insert(0, os.path.join(ROOT, '.deepworks', 'tmp'))
+sys.path.insert(0, HERE)  # regress_drift.py 已提升到 tools/
 
 import radar_source as rs  # noqa: E402
 
