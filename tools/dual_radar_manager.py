@@ -86,6 +86,11 @@ ROLE_SHORT = {'lr': '水平', 'ud': '竖直', 'none': '—'}
 # 不校准。让 zero 在启动时锁到人，游戏用 config.js 默认的 x0=0/xGain=1 即可。
 LR_ARGS = ['--mode', 'pos', '--band', '0.5,1.9']
 
+# 竖直：1T2R 竖放，没有俯仰角，用径向速度状态机（fusion 引擎）判 跳/蹲。
+# 速度特征落在 bin1/bin2，故 --jump-band 写死 1,3（站位变化时可能失效，见
+# docs/handoff-20261117-dual-radar-tuning.md 的「已知问题」第 2 条）。
+UD_ARGS = ['--jump-engine', 'fusion', '--defer-duck', '2', '--jump-band', '1,3']
+
 
 def setup_console():
     if hasattr(sys.stdout, 'reconfigure'):
