@@ -57,8 +57,10 @@ outputs/       # 面向用户的产物（报告、图表、演示材料）
 ```
 
 - 交付文档放 `docs/`；面向展示的成品放 `outputs/`；临时脚本放 `.deepworks/tmp/`。
+- **交接包**：`python tools/make_kit.py` 生成 `outputs/mmwave-bear-run-kit-<日期>.zip`（白名单 + 排除规则，覆盖文件在 `tools/kit/`）。**不要手工拼包**——11/20 的包就是手工拼的，漏了 `UD_ARGS` 定义，组员插上竖直板一启动就 NameError。
+- `tools/regress_drift.py` 被 `lane_eval.py` 等 5 个评估脚本 import，属产线依赖（2026-11-24 从 `.deepworks/tmp` 提升），不要挪回临时目录。
 - 既有文档：`docs/proposal-motion-game.md`（课程交付用项目提案，1–2 页，含分工与里程碑）、`docs/hardware-baseline.md`、`docs/research-motion-game.md`、`docs/PRD-motion-game-MVP.md`、`docs/TechDesign-motion-game-MVP.md`、`docs/jump-duck-verification-plan.md`、`docs/acceptance-test-table.md`、`docs/ai-decision-log.md`，以及雷达链路侧的 `docs/radar-uplink-protocol.md`、`docs/radar-control-and-actions.md`、`docs/capture-checklist.md`、`docs/radar-hardware-stop-plan.md`、`docs/progress-radar-pointcloud.md`。
-- **交接文档（就近读最新一份）**：`docs/handoff-lr2-1022.md`（左右移 seg-lr2 两轮采集 + 判据诊断，2026-10-22）、`docs/handoff-leftright-radar.md`（更早）。
+- **交接文档（就近读最新一份）**：`docs/贡献-20261124.md`（当前状态盘点 + 上机执行清单）、`docs/贡献-20261119.md`（波束朝向、跳蹲参数、COM6 角色排查）、`docs/handoff-20261117-dual-radar-tuning.md`、`docs/handoff-lr2-1022.md`（更早）。
 
 ## 关键契约
 
