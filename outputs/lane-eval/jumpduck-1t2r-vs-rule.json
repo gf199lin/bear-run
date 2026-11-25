@@ -1,0 +1,57 @@
+{
+ "rule": {
+  "hit": 75,
+  "n": 96,
+  "acc": 0.7812
+ },
+ "ml_base": {
+  "seg_hit": 85,
+  "seg_n": 96,
+  "seg_acc": 0.8854,
+  "win_acc": 0.6622
+ },
+ "ml_time": {
+  "seg_hit": 87,
+  "seg_n": 96,
+  "seg_acc": 0.9062,
+  "win_acc": 0.6955,
+  "dim": 64
+ },
+ "negative": {
+  "walk": {
+   "seg": 2,
+   "jump": 2,
+   "duck": 0
+  },
+  "bend": {
+   "seg": 3,
+   "jump": 0,
+   "duck": 3
+  },
+  "turn": {
+   "seg": 3,
+   "jump": 3,
+   "duck": 0
+  },
+  "alt": {
+   "seg": 2,
+   "jump": 2,
+   "duck": 0
+  },
+  "rest": {
+   "seg": 116,
+   "jump": 109,
+   "duck": 7
+  },
+  "left": {
+   "seg": 3,
+   "jump": 3,
+   "duck": 0
+  },
+  "right": {
+   "seg": 3,
+   "jump": 2,
+   "duck": 1
+  }
+ }
+}
