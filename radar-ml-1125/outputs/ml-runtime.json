@@ -1,0 +1,312 @@
+{
+  "meta": {
+    "band": [
+      1.0,
+      2.6
+    ],
+    "top_k": 1,
+    "min_pts": 1,
+    "model": "radar-pointcloud/models/lane_mlp.json",
+    "note": "实时链路实测（analyze_file 真跑产线代码），非离线重放"
+  },
+  "results": {
+    "ml": {
+      "thr": 0.6,
+      "hit": {
+        "LEFT": 61,
+        "RIGHT": 97
+      },
+      "tot": {
+        "LEFT": 112,
+        "RIGHT": 112
+      },
+      "n": 158,
+      "m": 224,
+      "acc": 0.7054,
+      "lat_median": 1.295,
+      "fp": 143,
+      "fp_per_min": 2.88,
+      "minutes": 49.6,
+      "runtime_s": 416.4,
+      "per_file": [
+        {
+          "tag": "lr3b",
+          "hit": 14,
+          "tot": 16,
+          "fp": 23,
+          "fp_per_min": 6.82,
+          "min": 3.37
+        },
+        {
+          "tag": "lr3c",
+          "hit": 15,
+          "tot": 16,
+          "fp": 22,
+          "fp_per_min": 6.22,
+          "min": 3.54
+        },
+        {
+          "tag": "lr2-p1-d070",
+          "hit": 19,
+          "tot": 20,
+          "fp": 18,
+          "fp_per_min": 4.49,
+          "min": 4.01
+        },
+        {
+          "tag": "lr2-p1-d100",
+          "hit": 18,
+          "tot": 20,
+          "fp": 13,
+          "fp_per_min": 3.24,
+          "min": 4.01
+        },
+        {
+          "tag": "lr2-jqz-d070",
+          "hit": 18,
+          "tot": 20,
+          "fp": 10,
+          "fp_per_min": 2.49,
+          "min": 4.01
+        },
+        {
+          "tag": "lr2-jqz-d100",
+          "hit": 15,
+          "tot": 20,
+          "fp": 14,
+          "fp_per_min": 3.49,
+          "min": 4.01
+        },
+        {
+          "tag": "once-070",
+          "hit": 8,
+          "tot": 10,
+          "fp": 8,
+          "fp_per_min": 3.6,
+          "min": 2.23
+        },
+        {
+          "tag": "once-085",
+          "hit": 7,
+          "tot": 10,
+          "fp": 4,
+          "fp_per_min": 1.8,
+          "min": 2.23
+        },
+        {
+          "tag": "once-100",
+          "hit": 7,
+          "tot": 10,
+          "fp": 2,
+          "fp_per_min": 0.9,
+          "min": 2.22
+        },
+        {
+          "tag": "long-070",
+          "hit": 10,
+          "tot": 14,
+          "fp": 14,
+          "fp_per_min": 2.19,
+          "min": 6.41
+        },
+        {
+          "tag": "m2recap-150",
+          "hit": 4,
+          "tot": 14,
+          "fp": 2,
+          "fp_per_min": 0.76,
+          "min": 2.63
+        },
+        {
+          "tag": "m2recap-200",
+          "hit": 4,
+          "tot": 14,
+          "fp": 4,
+          "fp_per_min": 1.52,
+          "min": 2.63
+        },
+        {
+          "tag": "seg-125",
+          "hit": 4,
+          "tot": 10,
+          "fp": 3,
+          "fp_per_min": 1.51,
+          "min": 1.98
+        },
+        {
+          "tag": "seg-150",
+          "hit": 4,
+          "tot": 10,
+          "fp": 0,
+          "fp_per_min": 0.0,
+          "min": 1.98
+        },
+        {
+          "tag": "stride-150",
+          "hit": 7,
+          "tot": 10,
+          "fp": 3,
+          "fp_per_min": 1.4,
+          "min": 2.15
+        },
+        {
+          "tag": "ext-125",
+          "hit": 4,
+          "tot": 10,
+          "fp": 3,
+          "fp_per_min": 1.37,
+          "min": 2.19
+        }
+      ]
+    },
+    "xbase": {
+      "thr": null,
+      "hit": {
+        "LEFT": 53,
+        "RIGHT": 97
+      },
+      "tot": {
+        "LEFT": 112,
+        "RIGHT": 112
+      },
+      "n": 150,
+      "m": 224,
+      "acc": 0.6696,
+      "lat_median": 1.684,
+      "fp": 391,
+      "fp_per_min": 7.89,
+      "minutes": 49.6,
+      "runtime_s": 413.3,
+      "per_file": [
+        {
+          "tag": "lr3b",
+          "hit": 14,
+          "tot": 16,
+          "fp": 20,
+          "fp_per_min": 5.93,
+          "min": 3.37
+        },
+        {
+          "tag": "lr3c",
+          "hit": 15,
+          "tot": 16,
+          "fp": 30,
+          "fp_per_min": 8.48,
+          "min": 3.54
+        },
+        {
+          "tag": "lr2-p1-d070",
+          "hit": 18,
+          "tot": 20,
+          "fp": 32,
+          "fp_per_min": 7.99,
+          "min": 4.01
+        },
+        {
+          "tag": "lr2-p1-d100",
+          "hit": 18,
+          "tot": 20,
+          "fp": 37,
+          "fp_per_min": 9.22,
+          "min": 4.01
+        },
+        {
+          "tag": "lr2-jqz-d070",
+          "hit": 11,
+          "tot": 20,
+          "fp": 37,
+          "fp_per_min": 9.23,
+          "min": 4.01
+        },
+        {
+          "tag": "lr2-jqz-d100",
+          "hit": 13,
+          "tot": 20,
+          "fp": 29,
+          "fp_per_min": 7.23,
+          "min": 4.01
+        },
+        {
+          "tag": "once-070",
+          "hit": 5,
+          "tot": 10,
+          "fp": 14,
+          "fp_per_min": 6.29,
+          "min": 2.23
+        },
+        {
+          "tag": "once-085",
+          "hit": 5,
+          "tot": 10,
+          "fp": 11,
+          "fp_per_min": 4.94,
+          "min": 2.23
+        },
+        {
+          "tag": "once-100",
+          "hit": 7,
+          "tot": 10,
+          "fp": 27,
+          "fp_per_min": 12.15,
+          "min": 2.22
+        },
+        {
+          "tag": "long-070",
+          "hit": 10,
+          "tot": 14,
+          "fp": 29,
+          "fp_per_min": 4.53,
+          "min": 6.41
+        },
+        {
+          "tag": "m2recap-150",
+          "hit": 6,
+          "tot": 14,
+          "fp": 12,
+          "fp_per_min": 4.56,
+          "min": 2.63
+        },
+        {
+          "tag": "m2recap-200",
+          "hit": 9,
+          "tot": 14,
+          "fp": 28,
+          "fp_per_min": 10.64,
+          "min": 2.63
+        },
+        {
+          "tag": "seg-125",
+          "hit": 5,
+          "tot": 10,
+          "fp": 28,
+          "fp_per_min": 14.13,
+          "min": 1.98
+        },
+        {
+          "tag": "seg-150",
+          "hit": 4,
+          "tot": 10,
+          "fp": 16,
+          "fp_per_min": 8.08,
+          "min": 1.98
+        },
+        {
+          "tag": "stride-150",
+          "hit": 5,
+          "tot": 10,
+          "fp": 32,
+          "fp_per_min": 14.9,
+          "min": 2.15
+        },
+        {
+          "tag": "ext-125",
+          "hit": 5,
+          "tot": 10,
+          "fp": 9,
+          "fp_per_min": 4.11,
+          "min": 2.19
+        }
+      ]
+    }
+  }
+}
