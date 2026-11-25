@@ -259,7 +259,7 @@ python tools\eval_jumpduck_offline.py
 `lr2-jqz-d070` 90% vs 55%），而 `m2recap-*` 这两个 1.5–2.0 m 的远站位两者都只有 29–64%，
 **说明瓶颈在站位几何，不在分类器**。
 
-### 8.2 移植正确性：两层验证（`.deepworks/tmp/verify_ml_runtime.py`）
+### 8.2 移植正确性：两层验证（`tools/verify_ml_runtime.py`）
 
 | 层 | 判据 | 结果 |
 |---|---|---|
@@ -314,5 +314,5 @@ python tools\eval_lane_ml_runtime.py
 python tools\eval_lane_ml_runtime.py --only ml --thr 0.50
 
 # 移植一致性自检（两层）
-python .deepworks\tmp\verify_ml_runtime.py
+python tools/verify_ml_runtime.py
 ```
