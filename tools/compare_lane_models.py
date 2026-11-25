@@ -105,8 +105,12 @@ def prod_series(path, tag, top_k, min_pts, band='auto', use_cache=True):
     cf = os.path.join(CACHE, '%s-k%d-m%d-%s.npz' % (tag, top_k, min_pts, bkey))
     if use_cache and os.path.exists(cf):
         z = np.load(cf, allow_pickle=True)
-        return dict(t=z['t'], px=z['px'], py=z['py'], en=z['en'], n=z['n'],
-                    ev_t=z['ev_t'], ev_s=z['ev_s'], ev_c=z['ev_c'], span=float(z['span']))
+        # rst_t = TARGET_LOST 时刻（_reset_track 触发点）。2026-11-25 新增：
+        # 没有它就是旧缓存，必须重跑，否则离线无法复现实的 lane 复位。
+        if 'rst_t' in z.files:
+            return dict(t=z['t'], px=z['px'], py=z['py'], en=z['en'], n=z['n'],
+                        ev_t=z['ev_t'], ev_s=z['ev_s'], ev_c=z['ev_c'],
+                        rst_t=z['rst_t'], span=float(z['span']))
 
     rec = ActionRecognizer(band=band, crit='xbase', top_k=top_k, min_pts=min_pts)
     proc = PointCloudProcessor(cfar_scale=CFAR, min_snr=SNR, min_range=0.681)
@@ -114,6 +118,7 @@ def prod_series(path, tag, top_k, min_pts, band='auto', use_cache=True):
 
     t, px, py, en, n = [], [], [], [], []
     ev_t, ev_s, ev_c = [], [], []
+    rst_t = []
     for r in records:
         f = r['features'] or {}
         t.append(r['t'])
@@ -126,11 +131,14 @@ def prod_series(path, tag, top_k, min_pts, band='auto', use_cache=True):
                 ev_t.append(e['t'])
                 ev_s.append(1 if e['name'] == 'LANE_LEFT' else 2)
                 ev_c.append(1)
+            elif e['name'] == 'TARGET_LOST':
+                rst_t.append(e['t'])
     span = records[-1]['t'] if records else 1.0
     out = dict(t=np.asarray(t), px=np.asarray(px), py=np.asarray(py),
                en=np.asarray(en), n=np.asarray(n),
                ev_t=np.asarray(ev_t, dtype=float), ev_s=np.asarray(ev_s, dtype=int),
-               ev_c=np.asarray(ev_c, dtype=int), span=float(span))
+               ev_c=np.asarray(ev_c, dtype=int),
+               rst_t=np.asarray(rst_t, dtype=float), span=float(span))
     np.savez_compressed(cf, **out)
     return out
 

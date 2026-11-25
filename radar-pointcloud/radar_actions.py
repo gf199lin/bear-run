@@ -310,6 +310,18 @@ XBASE_RELEASE_CONFIRM_DEFAULT = 3   # 释放端连续确认帧数（与触发端
 XBASE_MIN_SAMPLES = 8           # 长窗最少样本数；不足时**不产生任何方向证据**
 XBASE_MIN_SHORT = 3             # 近窗最少样本数；不足时本帧无证据
 
+# ---------------- crit='ml'：机器学习判据（可选，2026-11-24 新增） ----------
+# 与 xbase 的区别只在「本帧证据」怎么来：
+#   规则        ：dev = 中位(近0.8s) − 中位(近40s)，越过固定门限 → 证据
+#   机器学习    ：同一批 12 维因果特征 → 有效性闸门 → 小 MLP 三分类 → 概率
+#                 （特征定义见 lane_model.py，训练见 tools/train_lane_ml.py）
+# ★ 两者共用**同一套**状态机（confirm 帧 + 最短间隔 + 释放确认），所以换判据不改手感节奏。
+# ★ 闸门语义是"跳过"：无效帧既不确认也不释放（实测"强制 NONE"会把动作段打回 CENTER）。
+CRIT_ML = 'ml'
+ML_BUF_SECONDS = 41.0           # 特征缓冲长度（长窗 40 s + 1 s 余量）
+ML_MIN_FRAMES = 40              # 少于该帧数不产生证据（长窗统计还没成形）
+ML_FRAME_PERIOD = 0.1295        # 1T2R 帧周期；模型只对 1T2R 标定过
+
 # ---------------- 距离带自动选择（2026-10-19 新增；提案，待小组确认） --------
 # 为什么需要它：出厂默认带 `BAND_DEFAULT = (0.70, 1.35)` 圈在 j=1（门中心
 #   1.02 m），而实测真实站位**根本不落在该门**：1.25 m 站位 48% 的检出在 j=2、
@@ -396,7 +408,8 @@ class ActionRecognizer:
                  auto_band_min_frames=AUTO_BAND_MIN_FRAMES_DEFAULT,
                  auto_band_max_frames=AUTO_BAND_MAX_FRAMES_DEFAULT,
                  auto_band_min_points=AUTO_BAND_MIN_POINTS_DEFAULT,
-                 auto_band_dominance=AUTO_BAND_DOMINANCE_DEFAULT):
+                 auto_band_dominance=AUTO_BAND_DOMINANCE_DEFAULT,
+                 lane_model=None, ml_thr=None, ml_release=None):
         # ---- 先取校准值，再用显式参数覆盖（显式参数优先级最高） ----
         cal = load_calib(calib) or {}
         # band='auto' 既可以显式传，也可以写在 calib.json 的 band 字段里
@@ -420,8 +433,8 @@ class ActionRecognizer:
             raise ValueError("slope 只能是 'theilsen' 或 'lstsq': %r" % (slope,))
         if dx_mode not in ('median', 'endpoints'):
             raise ValueError("dx_mode 只能是 'median' 或 'endpoints': %r" % (dx_mode,))
-        if crit not in ('delta', 'drift', CRIT_XBASE):
-            raise ValueError("crit 只能是 'delta'、'drift' 或 'xbase': %r" % (crit,))
+        if crit not in ('delta', 'drift', CRIT_XBASE, CRIT_ML):
+            raise ValueError("crit 只能是 'delta'、'drift'、'xbase' 或 'ml': %r" % (crit,))
         if not rest_win > 0:
             raise ValueError('rest_win 必须 > 0: %r' % (rest_win,))
         # ---- crit='xbase' 的几何约束（无条件校验，手误当场报错）----
@@ -516,6 +529,35 @@ class ActionRecognizer:
         # px 缓冲区需要同时满足 drift 的 rest_win 与 xbase 的长窗：取两者较大值。
         self._buf_win = max(float(rest_win), float(xbase_base_win))
 
+        # ---- crit='ml' 用：模型 + 特征缓冲 ----
+        # 缓冲存**原始逐帧量**（不是特征），特征由 lane_model 现算：
+        # 这样训练与实时用的是同一份特征代码，且改窗口不必重采数据。
+        self.lane_model = None
+        self.ml_thr = None
+        self.ml_release = None
+        self._mlbuf = deque(maxlen=int(round(ML_BUF_SECONDS / ML_FRAME_PERIOD)))
+        if crit == CRIT_ML:
+            if lane_model is None:
+                raise ValueError("crit='ml' 必须给 lane_model"
+                                 "（模型 JSON 路径 / dict / LaneModel 实例）")
+            from lane_model import LaneModel
+            if hasattr(lane_model, 'proba'):
+                self.lane_model = lane_model
+            elif isinstance(lane_model, dict):
+                self.lane_model = LaneModel(lane_model)
+            else:
+                self.lane_model = LaneModel.from_file(str(lane_model))
+            self.ml_thr = (float(self.lane_model.thr) if ml_thr is None
+                           else float(ml_thr))
+            self.ml_release = (float(self.lane_model.release) if ml_release is None
+                               else float(ml_release))
+            if not 0.0 < self.ml_release <= self.ml_thr <= 1.0:
+                raise ValueError('须满足 0 < ml_release <= ml_thr <= 1: %r, %r'
+                                 % (self.ml_release, self.ml_thr))
+        elif lane_model is not None:
+            raise ValueError("lane_model 只在 crit='ml' 时有意义（当前 crit=%r）"
+                             % (crit,))
+
         # ---- band='auto' 用：按门累计检出，预热期结束后锁定距离带 ----
         self.band_mode = AUTO_BAND if auto else 'fixed'
         self.auto_band_min_frames = int(auto_band_min_frames)
@@ -583,6 +625,12 @@ class ActionRecognizer:
                 #    留着会让「相对位移」里混进一次假跳变。
                 self._reset_track()
             self.hist.append((now, None, len(sel), 0.0, 0))
+            if self.crit == CRIT_ML:
+                # ★ 必须存 NaN 而不是 0：离线的 features 在无检出时是 None→NaN，
+                #   en 存 0 会变成 log10(1e-6)=-6 的野值（2026-11-24 踩过，
+                #   导致实时/训练特征对不上、概率全偏）。
+                self._mlbuf.append((now, float('nan'), float('nan'),
+                                    float('nan'), float('nan')))
             return self._result(now, None, out)
         self._t_last_seen = now
         if not self._target:
@@ -608,6 +656,9 @@ class ActionRecognizer:
             if abs(px - self._last_px) > self.max_step:
                 rejected = 1
                 self.hist.append((now, None, len(sel), e_sum, rejected))
+                if self.crit == CRIT_ML:
+                    self._mlbuf.append((now, round(px, 3), round(py, 3),
+                                        round(e_sum, 1), float(len(sel))))
                 feat = {
                     'n': len(sel), 'px': round(px, 3), 'py': round(py, 3),
                     'rejected': rejected, 'step': round(px - self._last_px, 3),
@@ -624,6 +675,11 @@ class ActionRecognizer:
             'rejected': rejected,
         }
         self.hist.append((now, px, len(sel), e_sum, rejected))
+        # crit='ml'：逐帧原始量进缓冲。**存 round(px,3)**，与离线 analyze_file
+        # 写进 features 的口径一致（否则训练/实时差 1e-3，边界帧会翻转）。
+        if self.crit == CRIT_ML:
+            self._mlbuf.append((now, round(px, 3), round(py, 3),
+                                round(e_sum, 1), float(len(sel))))
         # 静息水平基线：只在「帧级门控通过」的帧上喂数据（与判据本身同源）。
         # 只保留近 _buf_win 秒，内存 O(窗口秒数 × 帧率)。
         # ★ crit='xbase' 也用这同一个缓冲区：它的「长窗」就是这里的中位数，
@@ -725,6 +781,43 @@ class ActionRecognizer:
                     else:
                         self._xrel_run = 0
                 hold = dev is None or self._xrel_run >= self.xbase_release_confirm
+            else:
+                self._xrel_run = 0
+                hold = False
+        elif self.crit == CRIT_ML:
+            # ---- 机器学习判据：有效性闸门 → 概率 → 交给同一套状态机 ----
+            # 闸门无效 = "这段信息不可用"：既不推进确认，也不释放（跳过语义）。
+            # 实测（16 文件 224 段）：跳过 79%，强制 NONE 81%，无闸门 86% —— 闸门不是
+            # 为了涨点，而是为了在"没数据"时闭嘴；它的价值在低检出率的坏口径下才明显。
+            valid = False
+            prob = None
+            moved = False
+            if len(self._mlbuf) >= ML_MIN_FRAMES:
+                from lane_model import build_feature_row
+                buf = np.asarray(self._mlbuf, dtype=float)
+                row = build_feature_row(buf[:, 1], buf[:, 2], buf[:, 3], buf[:, 4])
+                valid = bool(self.lane_model.gate(buf[:, 1], row[None, :])[-1])
+                prob = self.lane_model.proba(row[None, :])[0]
+                feat['ml_valid'] = valid
+                feat['ml_p'] = [round(float(prob[1]), 3), round(float(prob[2]), 3)]
+            if valid and prob is not None:
+                cls = int(np.argmax(prob))
+                conf = float(prob.max())
+                if cls != 0 and conf >= self.ml_thr:
+                    # 与 xbase 同一符号约定：dev>0 ⇒ LEFT ⇒ drift<0（见上）
+                    drift = -1.0 if cls == 1 else 1.0
+                    moved = True
+                    feat['ml_dir'] = 'LEFT' if cls == 1 else 'RIGHT'
+                    feat['ml_conf'] = round(conf, 3)
+                if self.lane != 'CENTER':
+                    if float(max(prob[1], prob[2])) <= self.ml_release:
+                        self._xrel_run += 1
+                    else:
+                        self._xrel_run = 0
+                    hold = self._xrel_run >= self.xbase_release_confirm
+                else:
+                    self._xrel_run = 0
+                    hold = False
             else:
                 self._xrel_run = 0
                 hold = False
@@ -1129,11 +1222,18 @@ def main(argv=None):
                     help='位移锚点，默认 median（稳健）')
     ap.add_argument('--no-sign-agree', action='store_true',
                     help='关闭「v_lat 与 dx 必须同号」的一致性门（不建议）')
-    ap.add_argument('--crit', choices=['delta', 'drift', 'xbase'], default=None,
-                    help="左右判据：delta=窗内相对位移（默认，原行为）；"
+    ap.add_argument('--crit', choices=['delta', 'drift', 'xbase', 'ml'], default=None,
+                    help="左右判据：delta=窗内相对位移（原行为）；"
                          "drift=静息水平偏移（时间基线，参考系是早先采的静息段）；"
                          "xbase=段内自适应基线（近窗中位 vs 长窗中位，免疫站位慢漂移，"
-                         "实测最优，见 radar_actions.XBASE_* 注释）")
+                         "实测最优，见 radar_actions.XBASE_* 注释）；"
+                         "ml=机器学习（有效性闸门 + 小 MLP，需同时给 --lane-model）")
+    ap.add_argument('--lane-model', default=None,
+                    help='crit=ml 的模型 JSON（默认 radar-pointcloud/models/lane_mlp.json）')
+    ap.add_argument('--ml-thr', type=float, default=None,
+                    help='crit=ml 的触发概率门限（默认取模型 JSON 里的 thr.on）')
+    ap.add_argument('--ml-release', type=float, default=None,
+                    help='crit=ml 的释放门限（默认取模型 JSON 里的 thr.off）')
     ap.add_argument('--rest-win', type=float, default=None,
                     help='crit=drift 的静息水平基线窗口（秒），默认 60')
     ap.add_argument('--drift-left', type=float, default=None,
@@ -1228,6 +1328,16 @@ def main(argv=None):
         over['require_sign_agree'] = False
     if args.crit is not None:
         over['crit'] = args.crit
+    if args.lane_model is not None:
+        over['lane_model'] = args.lane_model
+    if args.ml_thr is not None:
+        over['ml_thr'] = args.ml_thr
+    if args.ml_release is not None:
+        over['ml_release'] = args.ml_release
+    if over.get('crit') == CRIT_ML and 'lane_model' not in over:
+        # 默认模型：与本文件同目录的 models/lane_mlp.json
+        over['lane_model'] = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), 'models', 'lane_mlp.json')
     if args.rest_win is not None:
         over['rest_win'] = args.rest_win
     if args.drift_left is not None:
